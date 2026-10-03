@@ -35,17 +35,17 @@ type CheckError = MissingReviewSettingsError | ChangeReadError
 def check_committed_changes(
     request: CheckRequest,
     configuration: Configuration,
-    history: CommittedChanges,
+    committed_changes: CommittedChanges,
 ) -> Result[CheckResult, CheckError]:
     """Sample which files changed since the merge base with the base need review."""
     review = configuration.review
     if review is None:
         return Err(MissingReviewSettingsError())
     base = request.base_override or review.base_branch
-    change = history.read_committed_change(request.checkout, base)
+    change = committed_changes.read_committed_change(request.checkout, base)
     if isinstance(change, Err):
         return change
-    working_tree = history.read_working_tree_state(request.checkout)
+    working_tree = committed_changes.read_working_tree_state(request.checkout)
     if isinstance(working_tree, Err):
         return working_tree
     return Ok(

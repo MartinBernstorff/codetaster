@@ -38,10 +38,10 @@ class FakeCommittedChanges(CommittedChanges):
     Ignores the checkout. Detects renames only when the content is unchanged.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, initial_branch: RevisionName) -> None:
         self.commits: dict[CommitSha, FakeCommit] = {}
         self.branches: dict[RevisionName, CommitSha] = {}
-        self.current_branch = RevisionName("main")
+        self.current_branch = initial_branch
         self.working_tree = WorkingTreeState.CLEAN
 
     def commit(self, edits: Mapping[RepositoryPath, BlobSha | None]) -> CommitSha:

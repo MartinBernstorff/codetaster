@@ -6,7 +6,7 @@ import typer
 from safe_result import Err, Ok
 
 from codetaster.delivery.console.check_report import check_report_from_result
-from codetaster.delivery.console.config_command import codetaster_conventions
+from codetaster.delivery.console.conventions import codetaster_conventions
 from codetaster.domain.application_services.check_committed_changes import (
     CheckRequest,
     check_committed_changes,
@@ -39,7 +39,7 @@ class OutputFormat(StrEnum):
 
 
 @check_app.command("check")
-def check(
+def check_changes(
     checkout: Annotated[
         CheckoutPath,
         typer.Argument(

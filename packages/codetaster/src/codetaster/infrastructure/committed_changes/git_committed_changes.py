@@ -155,4 +155,4 @@ def parse_raw_diff(output: ToolOutput) -> FileChanges:
                 else FileVersion(path=new_path, blob=BlobSha(new_blob)),
             )
         )
-    return FileChanges(tuple(changes))
+    return FileChanges(tuple(sorted(changes, key=lambda change: change.path().root)))

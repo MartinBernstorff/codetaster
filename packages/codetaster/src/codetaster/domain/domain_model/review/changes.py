@@ -139,7 +139,7 @@ class CommittedChange(BaseModel):
         return CommittedChange(
             base=RevisionName.fake(),
             merge_base=CommitSha.fake(),
-            head=CommitSha("2" * 40),
+            head=CommitSha.fake(),
             files=FileChanges.fake(),
         )
 

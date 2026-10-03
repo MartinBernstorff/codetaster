@@ -68,3 +68,4 @@ So the draw is the same on every machine, and it changes only when that file's c
 | --- | --- |
 | 0 | The check ran, whatever the verdict. |
 | 1 | An error, such as a missing `[review]` section or an unknown base branch. Or, with `--fail-on-needs-review`, a file needs review. |
+| 2 | Invalid arguments, such as a `<path>` that is not a directory. |

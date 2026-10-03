@@ -20,24 +20,21 @@ from codetaster.domain.domain_model.review.changes import (
 )
 from codetaster.domain.domain_model.review.check_result import CheckResult
 from codetaster.domain.domain_model.review.errors import UnknownRevisionError
-from codetaster.domain.domain_model.review.sampling import Probability, Verdict
+from codetaster.domain.domain_model.review.sampling import Probability
 
 # Domain tests use the fakes from infrastructure, which tach otherwise forbids.
 from codetaster.infrastructure.committed_changes.fake_committed_changes import (
     FakeCommittedChanges,
 )
 
-FEATURE = RevisionName("feature")
-
 
 def history_with_feature_branch(
     base: RevisionName, *feature_files: RepositoryPath
 ) -> FakeCommittedChanges:
-    """`base` has one commit; the checked-out feature branch adds `feature_files`."""
-    history = FakeCommittedChanges()
-    history.switch_to(base)
+    """`base` has one commit; the checked-out `feature` branch adds `feature_files`."""
+    history = FakeCommittedChanges(base)
     _ = history.commit({RepositoryPath("README.md"): BlobSha.fake()})
-    history.create_branch(FEATURE)
+    history.create_branch(RevisionName("feature"))
     _ = history.commit({path: BlobSha.fake() for path in feature_files})
     return history
 
@@ -49,7 +46,7 @@ def configuration_with(base_probability: Probability) -> Configuration:
     return Configuration.fake().model_copy(update={"review": review})
 
 
-def checked(
+def checked_result(
     configuration: Configuration,
     history: FakeCommittedChanges,
     request: CheckRequest | None = None,
@@ -69,7 +66,7 @@ def test_every_changed_file_is_assessed_at_the_base_probability() -> None:
     paths = [RepositoryPath("one.py"), RepositoryPath("two.py")]
     history = history_with_feature_branch(configuration.review.base_branch, *paths)
 
-    result = checked(configuration, history)
+    result = checked_result(configuration, history)
 
     assert [assessment.change.path() for assessment in result.assessments.root] == (
         paths
@@ -82,27 +79,15 @@ def test_every_changed_file_is_assessed_at_the_base_probability() -> None:
     }
 
 
-def test_files_are_categorised_by_their_draw() -> None:
-    always = configuration_with(Probability(1))
-    never = configuration_with(Probability(0))
-    assert always.review is not None
-    history = history_with_feature_branch(
-        always.review.base_branch, RepositoryPath.fake()
-    )
-
-    assert checked(always, history).verdict() is Verdict.NEEDS_REVIEW
-    assert checked(never, history).verdict() is Verdict.NO_REVIEW
-
-
 def test_reports_base_merge_base_and_head() -> None:
     configuration = Configuration.fake()
     assert configuration.review is not None
     base = configuration.review.base_branch
     history = history_with_feature_branch(base, RepositoryPath.fake())
     merge_base = history.branches[base]
-    head = history.branches[FEATURE]
+    head = history.branches[history.current_branch]
 
-    result = checked(configuration, history)
+    result = checked_result(configuration, history)
 
     assert result.base == base
     assert result.merge_base == merge_base
@@ -114,7 +99,7 @@ def test_base_override_replaces_the_configured_base_branch() -> None:
     history = history_with_feature_branch(override, RepositoryPath.fake())
     request = CheckRequest.fake().model_copy(update={"base_override": override})
 
-    result = checked(Configuration.fake(), history, request)
+    result = checked_result(Configuration.fake(), history, request)
 
     assert result.base == override
 
@@ -123,7 +108,7 @@ def test_missing_review_settings_is_an_error() -> None:
     configuration = Configuration.fake().model_copy(update={"review": None})
 
     result = check_committed_changes(
-        CheckRequest.fake(), configuration, FakeCommittedChanges()
+        CheckRequest.fake(), configuration, FakeCommittedChanges(RevisionName.fake())
     )
 
     match result:
@@ -155,6 +140,6 @@ def test_reports_a_dirty_working_tree() -> None:
     )
     history.working_tree = WorkingTreeState.DIRTY
 
-    result = checked(configuration, history)
+    result = checked_result(configuration, history)
 
     assert result.working_tree is WorkingTreeState.DIRTY

@@ -24,7 +24,7 @@ class CheckResult(BaseModel):
         return CheckResult(
             base=RevisionName.fake(),
             merge_base=CommitSha.fake(),
-            head=CommitSha("2" * 40),
+            head=CommitSha.fake(),
             assessments=FileAssessments.fake(),
             working_tree=WorkingTreeState.CLEAN,
         )

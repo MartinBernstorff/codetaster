@@ -4,6 +4,7 @@ from typing import Annotated
 import typer
 from safe_result import Err, Ok
 
+from codetaster.delivery.console.conventions import codetaster_conventions
 from codetaster.domain.application_services.initialise_configuration import (
     ConfigScope,
     ExistingFilePolicy,
@@ -16,35 +17,18 @@ from codetaster.domain.application_services.load_configuration import (
     load_configuration,
 )
 from codetaster.domain.domain_model.configuration.configuration import Configuration
-from codetaster.domain.domain_model.configuration.conventions import (
-    ConfigConventions,
-)
 from codetaster.domain.domain_model.configuration.errors import (
     ConfigFileError,
     ConfigFileExistsError,
     NoProjectRootError,
 )
-from codetaster.domain.domain_model.environment import VariableName
-from codetaster.domain.domain_model.filesystem import Location, PathName
+from codetaster.domain.domain_model.filesystem import Location
 from codetaster.infrastructure.config_file_store.local import LocalConfigFileStore
 from codetaster.infrastructure.environment_variables.os_environment import (
     OsEnvironmentVariables,
 )
 
 config_app = typer.Typer(no_args_is_help=True, help="Inspect and create configuration.")
-
-
-def codetaster_conventions() -> ConfigConventions:
-    return ConfigConventions(
-        app_directory=PathName("codetaster"),
-        xdg_config_home_variable=VariableName("XDG_CONFIG_HOME"),
-        fallback_config_home=PathName(".config"),
-        developer_file=PathName("config.toml"),
-        secrets_file=PathName("secrets.toml"),
-        project_file=PathName("codetaster.toml"),
-        repository_marker=PathName(".git"),
-        api_token_variable=VariableName("CODETASTER_API_TOKEN"),
-    )
 
 
 def current_configuration_request() -> ConfigurationRequest:

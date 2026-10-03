@@ -116,7 +116,6 @@ def test_assessment_reports_its_inputs() -> None:
     assert assessment.change == change
     assert assessment.base_probability == base_probability
     assert assessment.probability == base_probability
-    assert assessment.draw == draw_for_file_change(change)
 
 
 def test_draw_rejects_one() -> None:

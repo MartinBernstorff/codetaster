@@ -47,6 +47,7 @@ class Repository(Protocol):
 
     changes: CommittedChanges
     checkout: CheckoutPath
+    initial_branch: RevisionName
 
     def commit(self, edits: FileEdits) -> CommitSha: ...
 
@@ -64,7 +65,12 @@ class GitRepository(Repository):
         self.root = root
         self.changes = GitCommittedChanges()
         self.checkout = CheckoutPath(root)
-        _ = self.git(GitArguments(("init", "--quiet", "--initial-branch=main")))
+        self.initial_branch = RevisionName("main")
+        _ = self.git(
+            GitArguments(
+                ("init", "--quiet", f"--initial-branch={self.initial_branch.root}")
+            )
+        )
 
     def git(self, arguments: GitArguments) -> ToolOutput:
         completed = subprocess.run(
@@ -117,7 +123,8 @@ class GitRepository(Repository):
 
 class InMemoryRepository(Repository):
     def __init__(self) -> None:
-        self.fake = FakeCommittedChanges()
+        self.initial_branch = RevisionName("main")
+        self.fake = FakeCommittedChanges(self.initial_branch)
         self.changes = self.fake
         self.checkout = CheckoutPath.fake()
 
@@ -152,18 +159,16 @@ def repository(request: pytest.FixtureRequest, tmp_path: Path) -> Repository:
     return InMemoryRepository()
 
 
-MAIN = RevisionName("main")
-FEATURE = RevisionName("feature")
-
-
 def change_from_main(
     repository: Repository, edits: FileEdits, base_edits: FileEdits | None = None
 ) -> CommittedChange:
-    """Commit `base_edits` on main, branch off, commit `edits`, and read the change."""
+    """Commit `base_edits` on the initial branch, branch off, commit `edits`, and read the change."""
     _ = repository.commit(base_edits or {RepositoryPath("README.md"): FileText.fake()})
-    repository.create_branch(FEATURE)
+    repository.create_branch(RevisionName("feature"))
     _ = repository.commit(edits)
-    match repository.changes.read_committed_change(repository.checkout, MAIN):
+    match repository.changes.read_committed_change(
+        repository.checkout, repository.initial_branch
+    ):
         case Ok(change):
             return change
         case Err(error):
@@ -234,19 +239,21 @@ def test_same_content_has_the_same_blob_across_files(repository: Repository) -> 
 
 
 def test_only_commits_since_the_merge_base_count(repository: Repository) -> None:
+    main = repository.initial_branch
+    feature = RevisionName("feature")
     on_feature = RepositoryPath("feature.py")
     branch_point = repository.commit({RepositoryPath("README.md"): FileText.fake()})
-    repository.create_branch(FEATURE)
+    repository.create_branch(feature)
     head = repository.commit({on_feature: FileText.fake()})
-    repository.switch_to(MAIN)
+    repository.switch_to(main)
     _ = repository.commit({RepositoryPath("main.py"): FileText.fake()})
-    repository.switch_to(FEATURE)
+    repository.switch_to(feature)
 
-    result = repository.changes.read_committed_change(repository.checkout, MAIN)
+    result = repository.changes.read_committed_change(repository.checkout, main)
 
     match result:
         case Ok(change):
-            assert change.base == MAIN
+            assert change.base == main
             assert change.merge_base == branch_point
             assert change.head == head
             assert [file.path() for file in change.files.root] == [on_feature]
@@ -256,9 +263,11 @@ def test_only_commits_since_the_merge_base_count(repository: Repository) -> None
 
 def test_no_commits_since_the_base_is_no_change(repository: Repository) -> None:
     _ = repository.commit({RepositoryPath("README.md"): FileText.fake()})
-    repository.create_branch(FEATURE)
+    repository.create_branch(RevisionName("feature"))
 
-    result = repository.changes.read_committed_change(repository.checkout, MAIN)
+    result = repository.changes.read_committed_change(
+        repository.checkout, repository.initial_branch
+    )
 
     match result:
         case Ok(change):
@@ -297,3 +306,21 @@ def test_an_untracked_file_makes_the_working_tree_dirty(
     assert repository.changes.read_working_tree_state(repository.checkout) == Ok(
         WorkingTreeState.DIRTY
     )
+
+
+def test_files_are_ordered_by_path(repository: Repository) -> None:
+    # A rename sorts by its new path, not the old one.
+    text = FileText("a file long enough that git detects the rename\n" * 5)
+    expected = [RepositoryPath("m/added.py"), RepositoryPath("z/renamed.py")]
+
+    change = change_from_main(
+        repository,
+        edits={
+            RepositoryPath("a/original.py"): None,
+            RepositoryPath("z/renamed.py"): text,
+            RepositoryPath("m/added.py"): FileText.fake(),
+        },
+        base_edits={RepositoryPath("a/original.py"): text},
+    )
+
+    assert [file.path() for file in change.files.root] == expected
