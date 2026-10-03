@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from safe_result import Err, Ok
 
 from codetaster.domain.domain_model.checkout import CheckoutPath
@@ -58,3 +59,20 @@ def test_reports_a_missing_program_with_the_installation_hint(tmp_path: Path) ->
     assert isinstance(result, Err)
     assert isinstance(result.error, ToolNotFoundError)
     assert str(hint) in str(result.error)
+
+
+def test_logs_the_captured_output_of_a_failing_tool(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    stdout = "on stdout"
+    stderr = "on stderr"
+
+    _ = run_external_tool(
+        ToolArguments(("sh", "-c", f"echo '{stdout}'; echo '{stderr}' >&2; exit 1")),
+        CheckoutPath(tmp_path),
+        OutputMode.CAPTURE,
+        InstallationHint.fake(),
+    )
+
+    assert stdout in caplog.text
+    assert stderr in caplog.text

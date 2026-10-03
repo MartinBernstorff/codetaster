@@ -1,3 +1,4 @@
+import logging
 import shlex
 import subprocess
 from enum import Enum, auto
@@ -55,12 +56,18 @@ def run_external_tool(
     output_mode: OutputMode,
     hint: InstallationHint,
 ) -> Result[ToolOutput, ToolError]:
-    """Run a tool inside `checkout`. Adapters share this; it is not a port."""
+    """Run a tool inside `checkout`. Adapters share this; it is not a port.
+
+    In `CAPTURE` mode, a failing tool's stdout and stderr are logged, since
+    nothing else shows them.
+    """
+    capture = subprocess.PIPE if output_mode is OutputMode.CAPTURE else None
     try:
         completed = subprocess.run(
             arguments.root,
             cwd=checkout.root,
-            stdout=subprocess.PIPE if output_mode is OutputMode.CAPTURE else None,
+            stdout=capture,
+            stderr=capture,
             text=True,
             check=False,
         )
@@ -70,6 +77,13 @@ def run_external_tool(
             raise
         return Err(ToolNotFoundError(arguments.invocation(), hint))
     if completed.returncode != 0:
+        if output_mode is OutputMode.CAPTURE and (completed.stdout or completed.stderr):
+            logging.getLogger(__name__).error(
+                "`%s` failed.\nstdout:\n%s\nstderr:\n%s",
+                arguments,
+                completed.stdout,
+                completed.stderr,
+            )
         return Err(
             ToolFailedError(arguments.invocation(), ExitCode(completed.returncode))
         )

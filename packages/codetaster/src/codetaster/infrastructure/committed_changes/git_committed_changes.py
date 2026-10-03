@@ -52,11 +52,18 @@ class GitCommittedChanges(CommittedChanges):
             return merge_base
         merge_base_commit = CommitSha(merge_base.value.root.strip())
         # Plumbing, so user diff config does not change the output. -z leaves
-        # paths unquoted; -M detects renames.
+        # paths unquoted. -r and -z have no long form.
         diff = run_git(
             checkout,
             GitArguments(
-                ("diff-tree", "-r", "-z", "-M", merge_base_commit.root, head.value.root)
+                (
+                    "diff-tree",
+                    "-r",
+                    "-z",
+                    "--find-renames",
+                    merge_base_commit.root,
+                    head.value.root,
+                )
             ),
         )
         if isinstance(diff, Err):
@@ -74,7 +81,7 @@ class GitCommittedChanges(CommittedChanges):
     def read_working_tree_state(
         self, checkout: CheckoutPath
     ) -> Result[WorkingTreeState, ToolError]:
-        status = run_git(checkout, GitArguments(("status", "--porcelain", "-z")))
+        status = run_git(checkout, GitArguments(("status", "--porcelain", "--null")))
         if isinstance(status, Err):
             return status
         if status.value.root == "":

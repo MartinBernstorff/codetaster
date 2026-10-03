@@ -64,6 +64,13 @@ def echo_configuration(configuration: Configuration) -> None:
     typer.echo("")
     typer.echo("Settings:")
     typer.echo(f"  log_format = {configuration.settings.log_format.value}")
+    review = configuration.review
+    typer.echo("Review:")
+    if review is None:
+        typer.echo("  (no [review] section in the project config)")
+    else:
+        typer.echo(f"  base_branch = {review.base_branch}")
+        typer.echo(f"  base_probability = {review.base_probability.root}")
     typer.echo("Secrets:")
     typer.echo(f"  api_token = {'(not set)' if api_token is None else '**********'}")
 
