@@ -57,7 +57,7 @@ tasks:
       - 'pyrefly.toml'
 
   modularity:
-    script: 'uv run tach check'
+    script: 'uv run tach check && uv run tach check-external'
     inputs:
       - '@group(sources)'
       - '@group(manifests)'

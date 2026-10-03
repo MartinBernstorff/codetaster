@@ -1,0 +1,138 @@
+# Enforces the "universal architecture" in each app package (codetaster and
+# codetaster_cli):
+#
+#   delivery -> domain.{features, application_services, domain_model}
+#            -> infrastructure          (delivery is the composition root)
+#   domain.features             -> domain.application_services, domain.domain_model
+#   domain.application_services -> domain.secondary_ports, domain.domain_model
+#   domain.secondary_ports      -> domain.domain_model
+#   infrastructure              -> domain.secondary_ports, domain.domain_model
+#
+# Domain never depends on infrastructure or delivery. codetaster and
+# codetaster_cli never depend on each other. codetaster_lib is a utility module:
+# anything may depend on it, and it depends on nothing internal.
+#
+# Tach treats imports across workspace packages as external, so `tach check`
+# does not see them. The package-level rules are enforced by
+# `tach check-external` instead: an import fails unless the package's
+# pyproject.toml declares it, and `cannot_depend_on_external` makes it fail even
+# if someone declares it.
+#
+# Not enforced: application services (use-cases) must not depend on each other.
+# Tach assigns every file under domain/application_services to one module, so
+# sibling imports inside it are invisible. Declare each use-case as its own
+# module here if this needs enforcing.
+source_roots = [
+  "packages/codetaster/src",
+  "packages/codetaster-cli/src",
+  "packages/codetaster-lib/src",
+]
+forbid_circular_dependencies = true
+
+# pytest is a workspace-level dev dependency, not a dependency of any package.
+# codetaster_lib is first-party; its direction is enforced by the modules below.
+# pydantic and safe_result are declared by every package but not imported yet,
+# and check-external fails on unused declared dependencies. Remove them from
+# this list once the code imports them.
+[external]
+exclude = ["pytest", "codetaster_lib", "pydantic", "safe_result"]
+
+[[modules]]
+path = "codetaster_lib"
+cannot_depend_on_external = ["codetaster", "codetaster_cli"]
+depends_on = []
+utility = true
+
+# --- codetaster ---
+
+[[modules]]
+path = "codetaster"
+cannot_depend_on_external = ["codetaster_cli"]
+depends_on = []
+
+[[modules]]
+path = "codetaster.delivery"
+cannot_depend_on_external = ["codetaster_cli"]
+depends_on = [
+  "codetaster.domain.features",
+  "codetaster.domain.application_services",
+  "codetaster.domain.domain_model",
+  "codetaster.infrastructure",
+]
+
+[[modules]]
+path = "codetaster.domain"
+cannot_depend_on_external = ["codetaster_cli"]
+depends_on = []
+
+[[modules]]
+path = "codetaster.domain.features"
+cannot_depend_on_external = ["codetaster_cli"]
+depends_on = ["codetaster.domain.application_services", "codetaster.domain.domain_model"]
+
+[[modules]]
+path = "codetaster.domain.application_services"
+cannot_depend_on_external = ["codetaster_cli"]
+depends_on = ["codetaster.domain.secondary_ports", "codetaster.domain.domain_model"]
+
+[[modules]]
+path = "codetaster.domain.secondary_ports"
+cannot_depend_on_external = ["codetaster_cli"]
+depends_on = ["codetaster.domain.domain_model"]
+
+[[modules]]
+path = "codetaster.domain.domain_model"
+cannot_depend_on_external = ["codetaster_cli"]
+depends_on = []
+
+[[modules]]
+path = "codetaster.infrastructure"
+cannot_depend_on_external = ["codetaster_cli"]
+depends_on = ["codetaster.domain.secondary_ports", "codetaster.domain.domain_model"]
+
+# --- codetaster_cli ---
+
+[[modules]]
+path = "codetaster_cli"
+cannot_depend_on_external = ["codetaster"]
+depends_on = []
+
+[[modules]]
+path = "codetaster_cli.delivery"
+cannot_depend_on_external = ["codetaster"]
+depends_on = [
+  "codetaster_cli.domain.features",
+  "codetaster_cli.domain.application_services",
+  "codetaster_cli.domain.domain_model",
+  "codetaster_cli.infrastructure",
+]
+
+[[modules]]
+path = "codetaster_cli.domain"
+cannot_depend_on_external = ["codetaster"]
+depends_on = []
+
+[[modules]]
+path = "codetaster_cli.domain.features"
+cannot_depend_on_external = ["codetaster"]
+depends_on = ["codetaster_cli.domain.application_services", "codetaster_cli.domain.domain_model"]
+
+[[modules]]
+path = "codetaster_cli.domain.application_services"
+cannot_depend_on_external = ["codetaster"]
+depends_on = ["codetaster_cli.domain.secondary_ports", "codetaster_cli.domain.domain_model"]
+
+[[modules]]
+path = "codetaster_cli.domain.secondary_ports"
+cannot_depend_on_external = ["codetaster"]
+depends_on = ["codetaster_cli.domain.domain_model"]
+
+[[modules]]
+path = "codetaster_cli.domain.domain_model"
+cannot_depend_on_external = ["codetaster"]
+depends_on = []
+
+[[modules]]
+path = "codetaster_cli.infrastructure"
+cannot_depend_on_external = ["codetaster"]
+depends_on = ["codetaster_cli.domain.secondary_ports", "codetaster_cli.domain.domain_model"]

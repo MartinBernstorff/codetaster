@@ -8,7 +8,9 @@ app = typer.Typer(no_args_is_help=True)
 
 @app.callback()
 def configure_logging(
-    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Only log warnings and errors.")] = False,
+    quiet: Annotated[
+        bool, typer.Option("--quiet", "-q", help="Only log warnings and errors.")
+    ] = False,
 ) -> None:
     logging.basicConfig(level=logging.WARNING if quiet else logging.INFO)
 
