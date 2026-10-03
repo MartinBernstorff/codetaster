@@ -7,6 +7,7 @@ from codetaster.domain.application_services.load_configuration import (
     ConfigurationRequest,
     load_configuration,
 )
+from codetaster.domain.domain_model.configuration.review_settings import ReviewSettings
 from codetaster.domain.domain_model.configuration.secret_values import ApiToken
 from codetaster.domain.domain_model.configuration.settings import LogFormat
 from codetaster.domain.domain_model.environment import VariableValue
@@ -260,5 +261,76 @@ def test_malformed_developer_config_is_an_error() -> None:
     match result:
         case Err(error):
             assert error.location == developer
+        case Ok(configuration):
+            raise AssertionError(configuration)
+
+
+def review_section(settings: ReviewSettings) -> FileContent:
+    return FileContent(
+        "[review]\n"
+        f'base_branch = "{settings.base_branch}"\n'
+        f"base_probability = {settings.base_probability.root}\n"
+    )
+
+
+def test_review_settings_come_from_the_project_config() -> None:
+    request = ConfigurationRequest.fake()
+    review = ReviewSettings.fake()
+    files = InMemoryConfigFileStore(
+        {project_config_location(request): review_section(review)}
+    )
+
+    result = load_configuration(request, files, InMemoryEnvironmentVariables({}))
+
+    match result:
+        case Ok(configuration):
+            assert configuration.review == review
+        case Err(error):
+            raise error
+
+
+def test_review_settings_are_absent_without_a_review_section() -> None:
+    request = ConfigurationRequest.fake()
+    files = InMemoryConfigFileStore({project_config_location(request): FileContent("")})
+
+    result = load_configuration(request, files, InMemoryEnvironmentVariables({}))
+
+    match result:
+        case Ok(configuration):
+            assert configuration.review is None
+        case Err(error):
+            raise error
+
+
+def test_review_section_in_developer_config_is_an_error() -> None:
+    request = ConfigurationRequest.fake()
+    developer = developer_config_location(request)
+    section = "[review]"
+    files = InMemoryConfigFileStore({developer: review_section(ReviewSettings.fake())})
+
+    result = load_configuration(request, files, InMemoryEnvironmentVariables({}))
+
+    match result:
+        case Err(error):
+            assert error.location == developer
+            assert section in error.reason.root
+        case Ok(configuration):
+            raise AssertionError(configuration)
+
+
+def test_base_probability_above_one_is_an_error() -> None:
+    request = ConfigurationRequest.fake()
+    project = project_config_location(request)
+    field = "base_probability"
+    files = InMemoryConfigFileStore(
+        {project: FileContent(f'[review]\nbase_branch = "main"\n{field} = 1.5\n')}
+    )
+
+    result = load_configuration(request, files, InMemoryEnvironmentVariables({}))
+
+    match result:
+        case Err(error):
+            assert error.location == project
+            assert field in error.reason.root
         case Ok(configuration):
             raise AssertionError(configuration)

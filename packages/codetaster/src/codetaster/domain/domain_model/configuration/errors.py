@@ -46,3 +46,17 @@ class ConfigFileExistsError(Exception):
     @staticmethod
     def fake() -> ConfigFileExistsError:
         return ConfigFileExistsError(Location.fake())
+
+
+class MissingReviewSettingsError(Exception):
+    """The project config has no `[review]` section."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "the project config has no [review] section; "
+            "set base_branch and base_probability in it"
+        )
+
+    @staticmethod
+    def fake() -> MissingReviewSettingsError:
+        return MissingReviewSettingsError()

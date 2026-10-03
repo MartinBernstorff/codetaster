@@ -1,0 +1,125 @@
+"""Exit codes and flag wiring. The check itself is tested in the domain."""
+
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+from pydantic import RootModel
+from typer.testing import CliRunner, Result
+
+from codetaster.delivery.console.app import app
+from codetaster.infrastructure.committed_changes.git_committed_changes import (
+    GitArguments,
+)
+
+
+class TomlText(RootModel[str]):
+    @staticmethod
+    def fake() -> TomlText:
+        return TomlText('[review]\nbase_branch = "main"\nbase_probability = 1\n')
+
+
+class Repository:
+    """A repository with a commit on main, and a feature branch adding a file."""
+
+    def __init__(self, root: Path, project_config: TomlText | None) -> None:
+        self.root = root
+        if project_config is not None:
+            _ = (root / "codetaster.toml").write_text(project_config.root)
+        self.git(GitArguments(("init", "--quiet", "--initial-branch=main")))
+        self.git(GitArguments(("add", "--all")))
+        self.git(GitArguments(("commit", "--quiet", "--allow-empty", "--message=base")))
+        self.git(GitArguments(("switch", "--quiet", "--create", "feature")))
+        _ = (root / "feature.py").write_text("")
+        self.git(GitArguments(("add", "--all")))
+        self.git(GitArguments(("commit", "--quiet", "--message=feature")))
+
+    def git(self, arguments: GitArguments) -> None:
+        _ = subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.com",
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "core.hooksPath=/dev/null",
+                *arguments.root,
+            ],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
+        )
+
+
+class CliOptions(RootModel[tuple[str, ...]]):
+    @staticmethod
+    def fake() -> CliOptions:
+        return CliOptions(())
+
+
+def run_check(repository: Repository, options: CliOptions) -> Result:
+    """Run `codetaster check` on `repository`."""
+    return CliRunner().invoke(
+        app,
+        ["check", str(repository.root), *options.root],
+        # Keep the developer's own config out of the test.
+        env={"XDG_CONFIG_HOME": str(repository.root / "xdg")},
+    )
+
+
+@pytest.fixture
+def repository(tmp_path: Path) -> Repository:
+    return Repository(tmp_path, TomlText.fake())
+
+
+def test_succeeds_when_files_need_review(repository: Repository) -> None:
+    result = run_check(repository, CliOptions(("--format", "json")))
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["needs_review"] is True
+
+
+def test_fail_on_needs_review_exits_non_zero_when_a_file_needs_review(
+    repository: Repository,
+) -> None:
+    result = run_check(repository, CliOptions(("--fail-on-needs-review",)))
+
+    assert result.exit_code != 0
+
+
+def test_fail_on_needs_review_succeeds_when_no_file_needs_review(
+    tmp_path: Path,
+) -> None:
+    repository = Repository(
+        tmp_path,
+        TomlText('[review]\nbase_branch = "main"\nbase_probability = 0\n'),
+    )
+
+    result = run_check(repository, CliOptions(("--fail-on-needs-review",)))
+
+    assert result.exit_code == 0
+
+
+def test_base_option_overrides_the_configured_base(tmp_path: Path) -> None:
+    repository = Repository(
+        tmp_path,
+        TomlText('[review]\nbase_branch = "no-such-branch"\nbase_probability = 1\n'),
+    )
+    base = "main"
+
+    result = run_check(repository, CliOptions(("--base", base)))
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["base"]["ref"] == base
+
+
+def test_missing_review_section_exits_non_zero(tmp_path: Path) -> None:
+    repository = Repository(tmp_path, project_config=None)
+
+    result = run_check(repository, CliOptions.fake())
+
+    assert result.exit_code != 0

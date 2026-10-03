@@ -180,3 +180,26 @@ def test_write_failure_is_returned() -> None:
             assert error.location == target
         case _:
             raise AssertionError(result)
+
+
+def test_project_file_lists_the_review_section() -> None:
+    repository = Location.fake()
+    request = request_from(repository)
+    section = "[review]"
+    store = repository_store(repository)
+
+    _ = initialise_configuration(request, store, InMemoryEnvironmentVariables({}))
+
+    written = store.files[repository.joinpath(request.conventions.project_file)]
+    assert section in written.root
+
+
+def test_developer_file_omits_the_review_section() -> None:
+    request = request_from(Location.fake(), scope=ConfigScope.DEVELOPER)
+    section = "[review]"
+    store = InMemoryConfigFileStore({})
+
+    _ = initialise_configuration(request, store, InMemoryEnvironmentVariables({}))
+
+    [written] = store.files.values()
+    assert section not in written.root

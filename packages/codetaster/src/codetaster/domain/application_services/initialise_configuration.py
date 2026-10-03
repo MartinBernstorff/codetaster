@@ -16,6 +16,10 @@ from codetaster.domain.domain_model.configuration.errors import (
     ConfigFileExistsError,
     NoProjectRootError,
 )
+from codetaster.domain.domain_model.configuration.review_settings import (
+    ProjectSettings,
+)
+from codetaster.domain.domain_model.configuration.settings import Settings
 from codetaster.domain.domain_model.configuration.template import SettingsTemplate
 from codetaster.domain.domain_model.filesystem import Location
 from codetaster.domain.secondary_ports.config_file_store import ConfigFileStore
@@ -75,10 +79,22 @@ def initialise_configuration(
     location = target.value
     if request.existing_file is ExistingFilePolicy.REFUSE and files.exists(location):
         return Err(ConfigFileExistsError(location))
-    written = files.write_template(location, SettingsTemplate.from_settings_schema())
+    written = files.write_template(
+        location,
+        SettingsTemplate.from_settings_schema(settings_model_for(request.scope)),
+    )
     if isinstance(written, Err):
         return written
     return Ok(location)
+
+
+def settings_model_for(scope: ConfigScope) -> type[Settings]:
+    """Only the project config may contain project-only sections, like `[review]`."""
+    match scope:
+        case ConfigScope.DEVELOPER:
+            return Settings
+        case ConfigScope.PROJECT:
+            return ProjectSettings
 
 
 def config_file_for_scope(

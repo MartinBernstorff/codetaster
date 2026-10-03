@@ -1,6 +1,7 @@
-from pydantic import BaseModel, ConfigDict, RootModel
+from typing import get_args
 
-from codetaster.domain.domain_model.configuration.settings import Settings
+from pydantic import BaseModel, ConfigDict, RootModel, TypeAdapter
+from pydantic.fields import FieldInfo
 
 
 class SettingName(RootModel[str]):
@@ -30,11 +31,15 @@ class SettingDefault(RootModel[object]):
 
 
 class TemplateEntry(BaseModel):
-    """One setting in a config file template. `default` is `None` if it has none."""
+    """One setting in a config file template. `default` is `None` if it has none.
+
+    `section` is the table the setting belongs to, or `None` for the top level.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     name: SettingName
+    section: SettingName | None
     description: SettingDescription | None
     default: SettingDefault | None
 
@@ -42,6 +47,7 @@ class TemplateEntry(BaseModel):
     def fake() -> TemplateEntry:
         return TemplateEntry(
             name=SettingName.fake(),
+            section=None,
             description=SettingDescription.fake(),
             default=SettingDefault.fake(),
         )
@@ -57,20 +63,51 @@ class SettingsTemplate(RootModel[tuple[TemplateEntry, ...]]):
         return SettingsTemplate((TemplateEntry.fake(),))
 
     @staticmethod
-    def from_settings_schema() -> SettingsTemplate:
-        """One entry per `Settings` field, so new settings are included automatically."""
-        defaults = Settings().model_dump(mode="json")
-        return SettingsTemplate(
-            tuple(
-                TemplateEntry(
-                    name=SettingName(name),
-                    description=None
-                    if field.description is None
-                    else SettingDescription(field.description),
-                    default=None
-                    if defaults[name] is None
-                    else SettingDefault(defaults[name]),
-                )
-                for name, field in Settings.model_fields.items()
+    def from_settings_schema(settings_model: type[BaseModel]) -> SettingsTemplate:
+        """One entry per field, so new settings are included automatically.
+
+        A field holding a model is a section, and its fields are the section's
+        entries.
+        """
+        return SettingsTemplate(tuple(template_entries(settings_model, None)))
+
+
+def template_entries(
+    settings_model: type[BaseModel], section: SettingName | None
+) -> list[TemplateEntry]:
+    entries: list[TemplateEntry] = []
+    for name, field in settings_model.model_fields.items():
+        section_model = section_model_of(field)
+        if section_model is not None:
+            entries.extend(template_entries(section_model, SettingName(name)))
+            continue
+        default = (
+            None
+            if field.is_required()
+            else TypeAdapter(field.annotation).dump_python(
+                field.get_default(call_default_factory=True), mode="json"
             )
         )
+        entries.append(
+            TemplateEntry(
+                name=SettingName(name),
+                section=section,
+                description=None
+                if field.description is None
+                else SettingDescription(field.description),
+                default=None if default is None else SettingDefault(default),
+            )
+        )
+    return entries
+
+
+def section_model_of(field: FieldInfo) -> type[BaseModel] | None:
+    """The model a field holds, ignoring `| None`. Root models are plain values."""
+    for candidate in (field.annotation, *get_args(field.annotation)):
+        if (
+            isinstance(candidate, type)
+            and issubclass(candidate, BaseModel)
+            and not issubclass(candidate, RootModel)
+        ):
+            return candidate
+    return None

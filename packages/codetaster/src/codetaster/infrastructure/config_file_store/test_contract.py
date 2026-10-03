@@ -147,11 +147,13 @@ def template_with_defaults(
 def uncomment_assignments(
     content: FileContent, template: SettingsTemplate
 ) -> FileContent:
-    """Uncomment each assignment, including the lines of a multi-line value.
+    """Uncomment each section header and assignment, including multi-line values.
 
     An assignment runs from its `# <name> = ` line to the end of its block.
     """
-    assignments = tuple(f"# {entry.name.root} = " for entry in template.root)
+    assignments = tuple(f"# {entry.name.root} = " for entry in template.root) + tuple(
+        f"# [{entry.section.root}]" for entry in template.root if entry.section
+    )
     lines: list[str] = []
     in_assignment = False
     for line in content.root.splitlines():
@@ -257,3 +259,26 @@ def test_replaces_an_existing_file(
 
     uncommented = uncomment_assignments(under_test.read_back(location), replacement)
     assert parse_toml_document(uncommented, location) == Ok(ConfigDocument({}))
+
+
+def test_section_settings_are_set_under_their_section(
+    build_store: StoreFactory, location: Location
+) -> None:
+    under_test = build_store({})
+    section = SettingName("review")
+    top_level = TemplateEntry.fake()
+    in_section = TemplateEntry.fake().model_copy(update={"section": section})
+    template = SettingsTemplate((in_section, top_level))
+    assert top_level.default is not None
+    assert in_section.default is not None
+    expected = ConfigDocument(
+        {
+            top_level.name.root: top_level.default.root,
+            section.root: {in_section.name.root: in_section.default.root},
+        }
+    )
+
+    _ = under_test.store.write_template(location, template)
+
+    uncommented = uncomment_assignments(under_test.read_back(location), template)
+    assert parse_toml_document(uncommented, location) == Ok(expected)
