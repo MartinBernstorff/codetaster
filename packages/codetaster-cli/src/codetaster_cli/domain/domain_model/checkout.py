@@ -3,8 +3,6 @@ from typing import override
 
 from pydantic import ConfigDict, RootModel
 
-from codetaster_cli.domain.domain_model.command import WorkingDirectory
-
 
 class CheckoutPath(RootModel[Path]):
     """The root directory of a git checkout (the main one or a worktree)."""
@@ -14,9 +12,6 @@ class CheckoutPath(RootModel[Path]):
     @override
     def __str__(self) -> str:
         return str(self.root)
-
-    def working_directory(self) -> WorkingDirectory:
-        return WorkingDirectory(self.root)
 
     @staticmethod
     def fake() -> CheckoutPath:
