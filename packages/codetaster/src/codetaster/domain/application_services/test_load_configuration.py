@@ -13,15 +13,10 @@ from codetaster.domain.domain_model.environment import VariableName, VariableVal
 from codetaster.domain.domain_model.filesystem import Location, Locations
 
 # Domain tests use the fakes from infrastructure, which tach otherwise forbids.
-# tach-ignore(test doubles)
 from codetaster.infrastructure.config_file_reader.in_memory import (
     InMemoryConfigFileReader,
 )
-
-# tach-ignore(test doubles)
 from codetaster.infrastructure.config_file_reader.toml_parsing import FileContent
-
-# tach-ignore(test doubles)
 from codetaster.infrastructure.environment_variables.in_memory import (
     InMemoryEnvironmentVariables,
 )

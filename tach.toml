@@ -28,14 +28,14 @@ source_roots = [
   "packages/codetaster-lib/src",
 ]
 forbid_circular_dependencies = true
+# Tests may wire in fakes from infrastructure, which the layers below forbid for
+# the code under test.
+exclude = ["**/tests", "**/docs", "**/*__pycache__", "**/*egg-info", "**/test_*.py"]
 
 # pytest is a workspace-level dev dependency, not a dependency of any package.
 # codetaster_lib is first-party; its direction is enforced by the modules below.
-# pydantic and safe_result are declared by every package but not imported yet,
-# and check-external fails on unused declared dependencies. Remove them from
-# this list once the code imports them.
 [external]
-exclude = ["pytest", "codetaster_lib", "pydantic", "safe_result"]
+exclude = ["pytest", "codetaster_lib"]
 
 [[modules]]
 path = "codetaster_lib"

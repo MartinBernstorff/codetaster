@@ -10,7 +10,7 @@ A uv workspace with three packages under `packages/`:
 | --- | --- |
 | `codetaster` | The app and its `codetaster` CLI. |
 | `codetaster-lib` | Language extensions. Anything may depend on it; it depends on nothing internal. |
-| `codetaster-cli` | Developer utilities for this repo (`codetaster-cli setup`, `codetaster-cli worktree new <branch>`). |
+| `codetaster-cli` | Developer utilities for this repo, e.g. `codetaster-cli setup`. |
 
 `codetaster` and `codetaster-cli` follow the same layering, enforced by `tach`:
 
@@ -29,11 +29,10 @@ infrastructure          ->  secondary_ports | domain_model
 
 ## Setup
 
-A fresh clone needs `uv` and [proto](https://moonrepo.dev/docs/proto/install). Then:
+A fresh clone or worktree needs `uv` and [proto](https://moonrepo.dev/docs/proto/install). Then run:
 
 ```
-uv run codetaster-cli setup                 # proto install, uv sync, lefthook install
-uv run codetaster-cli worktree new <branch> # new worktree, already set up
+uv run codetaster-cli setup   # proto install, uv sync, lefthook install
 ```
 
 ## Python
