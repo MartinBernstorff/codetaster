@@ -4,18 +4,17 @@ A Python CLI.
 
 ## Layout
 
-A uv workspace with three packages under `packages/`:
+A uv workspace with one package, `packages/codetaster`. It has two entry points:
 
-| Package | Holds |
-| --- | --- |
-| `codetaster` | The app and its `codetaster` CLI. |
-| `codetaster-lib` | Language extensions. Anything may depend on it; it depends on nothing internal. |
-| `codetaster-cli` | Developer utilities for this repo, e.g. `codetaster-cli setup` and `teardown`. |
+| Command | Delivery module | For |
+| --- | --- | --- |
+| `codetaster` | `delivery/console` | The product CLI. |
+| `codetaster-manage` | `delivery/management` | Management commands for working on this repo, e.g. `setup` and `teardown`. |
 
-`codetaster` and `codetaster-cli` follow the same layering, enforced by `tach`:
+Both share the domain and infrastructure layers. The layering is enforced by `tach`:
 
 ```
-delivery/console            Typer commands; the composition root that wires adapters in
+delivery/{console,management}  Typer commands; the composition root that wires adapters in
 domain/features         ->  application_services
 domain/application_services -> secondary_ports | domain_model
 domain/secondary_ports  ->  domain_model   (Protocols for anything external)
@@ -24,6 +23,7 @@ infrastructure          ->  secondary_ports | domain_model
 ```
 
 - The domain never imports infrastructure or delivery.
+- `delivery/console` and `delivery/management` never import each other.
 - Use-cases in `application_services` never import each other; shared logic belongs in a domain service.
 - Each secondary port has a real implementation and a fake in `infrastructure`, plus contract tests there that run against both.
 
@@ -32,8 +32,8 @@ infrastructure          ->  secondary_ports | domain_model
 A fresh clone or worktree needs `uv` and [proto](https://moonrepo.dev/docs/proto/install). Then run:
 
 ```
-uv run codetaster-cli setup      # proto install, uv sync, lefthook install
-uv run codetaster-cli teardown   # remove .venv and moon cache; hooks too, if no other worktree uses them
+uv run codetaster-manage setup      # proto install, uv sync, lefthook install
+uv run codetaster-manage teardown   # cleanup before deleting a worktree (currently nothing)
 ```
 
 ## Python
@@ -44,6 +44,7 @@ uv run codetaster-cli teardown   # remove .venv and moon cache; hooks too, if no
 - **When a module needs multiple files, make it a folder.** Keep `__init__.py` files empty.
 - **Never maintain `__all__`.** Import from the defining module.
 - **Use nominal typing.** A class implementing a Protocol also inherits from it.
+- **One port per external tool.** Anything that shells out (git, gh, uv, …) gets its own port in `domain/secondary_ports`, named after what it does. There is no generic command-runner port.
 - **Return errors as values** with [safe-result](https://github.com/overflowy/safe-result). The delivery layer turns an error into a message and a non-zero exit.
 - **No single-word free functions.** `load()` is unreadable at the call site; `load_project_config()` is not.
 - **Avoid constants.** Before adding one, consider whether it should be an argument supplied by the caller.

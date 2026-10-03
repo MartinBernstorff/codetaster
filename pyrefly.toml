@@ -1,13 +1,9 @@
 project-includes = [
     "packages/codetaster/src",
-    "packages/codetaster-lib/src",
-    "packages/codetaster-cli/src",
 ]
 project-excludes = ["**/.venv/**", "**/__pycache__/**"]
 search-path = [
     "packages/codetaster/src",
-    "packages/codetaster-lib/src",
-    "packages/codetaster-cli/src",
 ]
 python-version = "3.14"
 # Every error kind at error severity.

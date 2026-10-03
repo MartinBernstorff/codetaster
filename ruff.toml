@@ -2,8 +2,6 @@ target-version = "py314"
 line-length = 88
 src = [
     "packages/codetaster/src",
-    "packages/codetaster-lib/src",
-    "packages/codetaster-cli/src",
 ]
 
 [lint]
@@ -45,10 +43,10 @@ ignore = ["E501"]
 [lint.per-file-ignores]
 "**/test_*.py" = ["PLR2004"]
 # A Typer command's bool parameter is a CLI flag, not a boolean trap.
-"packages/*/src/*/delivery/console/**" = ["FBT001", "FBT002"]
+"packages/*/src/*/delivery/**" = ["FBT001", "FBT002"]
 
 [lint.isort]
-known-first-party = ["codetaster", "codetaster_lib", "codetaster_cli"]
+known-first-party = ["codetaster"]
 
 [lint.flake8-tidy-imports]
 ban-relative-imports = "all"

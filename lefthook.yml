@@ -1,4 +1,4 @@
-# Installed by `uv run codetaster-cli setup`. The hook script may run whichever
+# Installed by `uv run codetaster-manage setup`. The hook script may run whichever
 # lefthook is first on PATH, so require one that understands `jobs`.
 min_version: 2.1.0
 

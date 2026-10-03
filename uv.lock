@@ -5,8 +5,6 @@ requires-python = ">=3.14"
 [manifest]
 members = [
     "codetaster",
-    "codetaster-cli",
-    "codetaster-lib",
     "codetaster-workspace",
 ]
 
@@ -39,7 +37,6 @@ name = "codetaster"
 version = "0.1.0"
 source = { editable = "packages/codetaster" }
 dependencies = [
-    { name = "codetaster-lib" },
     { name = "pydantic" },
     { name = "safe-result" },
     { name = "typer" },
@@ -47,44 +44,9 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "codetaster-lib", editable = "packages/codetaster-lib" },
     { name = "pydantic", specifier = ">=2.12" },
     { name = "safe-result", specifier = ">=4.0.3" },
     { name = "typer", specifier = ">=0.20" },
-]
-
-[[package]]
-name = "codetaster-cli"
-version = "0.1.0"
-source = { editable = "packages/codetaster-cli" }
-dependencies = [
-    { name = "codetaster-lib" },
-    { name = "pydantic" },
-    { name = "safe-result" },
-    { name = "typer" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "codetaster-lib", editable = "packages/codetaster-lib" },
-    { name = "pydantic", specifier = ">=2.12" },
-    { name = "safe-result", specifier = ">=4.0.3" },
-    { name = "typer", specifier = ">=0.20" },
-]
-
-[[package]]
-name = "codetaster-lib"
-version = "0.1.0"
-source = { editable = "packages/codetaster-lib" }
-dependencies = [
-    { name = "pydantic" },
-    { name = "safe-result" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "pydantic", specifier = ">=2.12" },
-    { name = "safe-result", specifier = ">=4.0.3" },
 ]
 
 [[package]]
@@ -93,8 +55,6 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "codetaster" },
-    { name = "codetaster-cli" },
-    { name = "codetaster-lib" },
 ]
 
 [package.dev-dependencies]
@@ -111,11 +71,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "codetaster", editable = "packages/codetaster" },
-    { name = "codetaster-cli", editable = "packages/codetaster-cli" },
-    { name = "codetaster-lib", editable = "packages/codetaster-lib" },
-]
+requires-dist = [{ name = "codetaster", editable = "packages/codetaster" }]
 
 [package.metadata.requires-dev]
 dev = [
