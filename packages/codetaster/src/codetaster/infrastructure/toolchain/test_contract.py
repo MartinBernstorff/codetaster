@@ -7,16 +7,13 @@ from safe_result import Ok
 
 from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.secondary_ports.toolchain import Toolchain
-from codetaster.infrastructure.fakes.call_log import CallLog
 from codetaster.infrastructure.toolchain.fake_toolchain import FakeToolchain
 from codetaster.infrastructure.toolchain.proto_toolchain import ProtoToolchain
 
 
 @pytest.fixture(params=["proto", "fake"])
 def toolchain(request: pytest.FixtureRequest) -> Toolchain:
-    return (
-        ProtoToolchain() if request.param == "proto" else FakeToolchain(CallLog.fake())
-    )
+    return ProtoToolchain() if request.param == "proto" else FakeToolchain()
 
 
 def test_installing_with_nothing_pinned_succeeds(

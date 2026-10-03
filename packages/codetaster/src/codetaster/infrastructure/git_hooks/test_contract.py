@@ -8,7 +8,6 @@ from safe_result import Ok
 
 from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.secondary_ports.git_hooks import GitHooks
-from codetaster.infrastructure.fakes.call_log import CallLog
 from codetaster.infrastructure.git_hooks.fake_git_hooks import FakeGitHooks
 from codetaster.infrastructure.git_hooks.lefthook_git_hooks import (
     LefthookGitHooks,
@@ -19,7 +18,7 @@ from codetaster.infrastructure.git_hooks.lefthook_git_hooks import (
 def hooks(request: pytest.FixtureRequest) -> GitHooks:
     if request.param == "lefthook":
         return LefthookGitHooks()
-    return FakeGitHooks(CallLog.fake())
+    return FakeGitHooks()
 
 
 @pytest.fixture

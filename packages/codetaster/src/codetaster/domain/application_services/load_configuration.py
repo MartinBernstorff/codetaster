@@ -21,7 +21,7 @@ from codetaster.domain.domain_model.configuration.secret_values import (
 )
 from codetaster.domain.domain_model.configuration.settings import Settings
 from codetaster.domain.domain_model.filesystem import Location, Locations
-from codetaster.domain.secondary_ports.config_file_reader import ConfigFileReader
+from codetaster.domain.secondary_ports.config_file_store import ConfigFileStore
 from codetaster.domain.secondary_ports.environment_variables import (
     EnvironmentVariables,
 )
@@ -45,7 +45,7 @@ class ConfigurationRequest(BaseModel):
 
 def load_configuration(
     request: ConfigurationRequest,
-    files: ConfigFileReader,
+    files: ConfigFileStore,
     environment: EnvironmentVariables,
 ) -> Result[Configuration, ConfigFileError]:
     """Defaults, overridden by developer config, overridden by project config.
@@ -90,7 +90,7 @@ def load_configuration(
 
 
 def find_project_config(
-    start: Location, conventions: ConfigConventions, files: ConfigFileReader
+    start: Location, conventions: ConfigConventions, files: ConfigFileStore
 ) -> Location | None:
     """Search `start` and its parents, up to and including the repository root."""
     for directory in start.lineage().root:
@@ -103,7 +103,7 @@ def find_project_config(
 
 
 def read_model[M: BaseModel](
-    model: type[M], location: Location, files: ConfigFileReader
+    model: type[M], location: Location, files: ConfigFileStore
 ) -> Result[M | None, ConfigFileError]:
     read = files.read_document(location)
     if isinstance(read, Err):

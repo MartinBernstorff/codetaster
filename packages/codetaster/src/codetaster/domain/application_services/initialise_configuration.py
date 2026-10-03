@@ -18,8 +18,7 @@ from codetaster.domain.domain_model.configuration.errors import (
 )
 from codetaster.domain.domain_model.configuration.template import SettingsTemplate
 from codetaster.domain.domain_model.filesystem import Location
-from codetaster.domain.secondary_ports.config_file_reader import ConfigFileReader
-from codetaster.domain.secondary_ports.config_file_writer import ConfigFileWriter
+from codetaster.domain.secondary_ports.config_file_store import ConfigFileStore
 from codetaster.domain.secondary_ports.environment_variables import (
     EnvironmentVariables,
 )
@@ -62,8 +61,7 @@ type InitialisationError = NoProjectRootError | ConfigFileExistsError | ConfigFi
 
 def initialise_configuration(
     request: InitialisationRequest,
-    files: ConfigFileReader,
-    writer: ConfigFileWriter,
+    files: ConfigFileStore,
     environment: EnvironmentVariables,
 ) -> Result[Location, InitialisationError]:
     """Write a config file listing every setting, commented out at its default.
@@ -77,7 +75,7 @@ def initialise_configuration(
     location = target.value
     if request.existing_file is ExistingFilePolicy.REFUSE and files.exists(location):
         return Err(ConfigFileExistsError(location))
-    written = writer.write_template(location, SettingsTemplate.from_settings_schema())
+    written = files.write_template(location, SettingsTemplate.from_settings_schema())
     if isinstance(written, Err):
         return written
     return Ok(location)
@@ -85,7 +83,7 @@ def initialise_configuration(
 
 def config_file_for_scope(
     request: InitialisationRequest,
-    files: ConfigFileReader,
+    files: ConfigFileStore,
     environment: EnvironmentVariables,
 ) -> Result[Location, NoProjectRootError]:
     conventions = request.conventions

@@ -8,21 +8,27 @@ from codetaster.domain.domain_model.configuration.errors import (
     ConfigFileError,
     ErrorReason,
 )
+from codetaster.domain.domain_model.configuration.template import SettingsTemplate
 from codetaster.domain.domain_model.filesystem import Location
-from codetaster.domain.secondary_ports.config_file_reader import ConfigFileReader
-from codetaster.infrastructure.config_file_reader.toml_parsing import (
+from codetaster.domain.secondary_ports.config_file_store import ConfigFileStore
+from codetaster.infrastructure.config_file_store.commented_toml import (
+    render_commented_template,
+)
+from codetaster.infrastructure.config_file_store.toml_parsing import (
     FileContent,
     parse_toml_document,
 )
 
 
-class InMemoryConfigFileReader(ConfigFileReader):
+class InMemoryConfigFileStore(ConfigFileStore):
+    """Keeps files in `files`, so tests can inspect what was written."""
+
     def __init__(
         self,
         files: Mapping[Location, FileContent],
         directories: Iterable[Location] = (),
     ) -> None:
-        self._files = dict(files)
+        self.files = dict(files)
         self._directories = frozenset(directories)
 
     @override
@@ -33,11 +39,22 @@ class InMemoryConfigFileReader(ConfigFileReader):
             return Err(
                 ConfigFileError(location, ErrorReason("unreadable: a directory"))
             )
-        content = self._files.get(location)
+        content = self.files.get(location)
         if content is None:
             return Ok(None)
         return parse_toml_document(content, location)
 
     @override
     def exists(self, location: Location) -> bool:
-        return location in self._files or location in self._directories
+        return location in self.files or location in self._directories
+
+    @override
+    def write_template(
+        self, location: Location, template: SettingsTemplate
+    ) -> Result[None, ConfigFileError]:
+        if location in self._directories:
+            return Err(
+                ConfigFileError(location, ErrorReason("unwritable: a directory"))
+            )
+        self.files[location] = render_commented_template(template)
+        return Ok(None)

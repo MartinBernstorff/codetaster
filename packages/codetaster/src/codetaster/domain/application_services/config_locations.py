@@ -6,7 +6,7 @@ from codetaster.domain.domain_model.configuration.conventions import (
     ConfigConventions,
 )
 from codetaster.domain.domain_model.filesystem import Location
-from codetaster.domain.secondary_ports.config_file_reader import ConfigFileReader
+from codetaster.domain.secondary_ports.config_file_store import ConfigFileStore
 from codetaster.domain.secondary_ports.environment_variables import (
     EnvironmentVariables,
 )
@@ -26,7 +26,7 @@ def resolve_config_root(
 
 
 def find_repository_root(
-    start: Location, conventions: ConfigConventions, files: ConfigFileReader
+    start: Location, conventions: ConfigConventions, files: ConfigFileStore
 ) -> Location | None:
     """The nearest of `start` and its parents that contains the repository marker."""
     for directory in start.lineage().root:

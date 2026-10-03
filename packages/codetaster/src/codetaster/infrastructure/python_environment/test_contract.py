@@ -10,7 +10,6 @@ from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.secondary_ports.python_environment import (
     PythonEnvironment,
 )
-from codetaster.infrastructure.fakes.call_log import CallLog
 from codetaster.infrastructure.python_environment.fake_python_environment import (
     FakePythonEnvironment,
 )
@@ -23,7 +22,7 @@ from codetaster.infrastructure.python_environment.uv_python_environment import (
 def environment(request: pytest.FixtureRequest) -> PythonEnvironment:
     if request.param == "uv":
         return UvPythonEnvironment()
-    return FakePythonEnvironment(CallLog.fake())
+    return FakePythonEnvironment()
 
 
 @pytest.fixture

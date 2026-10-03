@@ -26,8 +26,7 @@ from codetaster.domain.domain_model.configuration.errors import (
 )
 from codetaster.domain.domain_model.environment import VariableName
 from codetaster.domain.domain_model.filesystem import Location, PathName
-from codetaster.infrastructure.config_file_reader.local import LocalConfigFileReader
-from codetaster.infrastructure.config_file_writer.local import LocalConfigFileWriter
+from codetaster.infrastructure.config_file_store.local import LocalConfigFileStore
 from codetaster.infrastructure.environment_variables.os_environment import (
     OsEnvironmentVariables,
 )
@@ -60,7 +59,7 @@ def load_current_configuration() -> Configuration:
     """Load configuration for the current process, or exit with a message."""
     match load_configuration(
         current_configuration_request(),
-        LocalConfigFileReader(),
+        LocalConfigFileStore(),
         OsEnvironmentVariables(),
     ):
         case Ok(configuration):
@@ -117,8 +116,7 @@ def init_config(
     )
     match initialise_configuration(
         request,
-        LocalConfigFileReader(),
-        LocalConfigFileWriter(),
+        LocalConfigFileStore(),
         OsEnvironmentVariables(),
     ):
         case Ok(location):

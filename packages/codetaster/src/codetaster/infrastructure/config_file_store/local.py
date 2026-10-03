@@ -7,15 +7,19 @@ from codetaster.domain.domain_model.configuration.errors import (
     ConfigFileError,
     ErrorReason,
 )
+from codetaster.domain.domain_model.configuration.template import SettingsTemplate
 from codetaster.domain.domain_model.filesystem import Location
-from codetaster.domain.secondary_ports.config_file_reader import ConfigFileReader
-from codetaster.infrastructure.config_file_reader.toml_parsing import (
+from codetaster.domain.secondary_ports.config_file_store import ConfigFileStore
+from codetaster.infrastructure.config_file_store.commented_toml import (
+    render_commented_template,
+)
+from codetaster.infrastructure.config_file_store.toml_parsing import (
     FileContent,
     parse_toml_document,
 )
 
 
-class LocalConfigFileReader(ConfigFileReader):
+class LocalConfigFileStore(ConfigFileStore):
     @override
     def read_document(
         self, location: Location
@@ -31,3 +35,15 @@ class LocalConfigFileReader(ConfigFileReader):
     @override
     def exists(self, location: Location) -> bool:
         return location.root.exists()
+
+    @override
+    def write_template(
+        self, location: Location, template: SettingsTemplate
+    ) -> Result[None, ConfigFileError]:
+        content = render_commented_template(template)
+        try:
+            location.root.parent.mkdir(parents=True, exist_ok=True)
+            _ = location.root.write_text(content.root, encoding="utf-8")
+        except OSError as error:
+            return Err(ConfigFileError(location, ErrorReason(f"unwritable: {error}")))
+        return Ok(None)

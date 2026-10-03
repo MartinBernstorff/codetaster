@@ -13,10 +13,10 @@ from codetaster.domain.domain_model.environment import VariableValue
 from codetaster.domain.domain_model.filesystem import Location, Locations, PathName
 
 # Domain tests use the fakes from infrastructure, which tach otherwise forbids.
-from codetaster.infrastructure.config_file_reader.in_memory import (
-    InMemoryConfigFileReader,
+from codetaster.infrastructure.config_file_store.in_memory import (
+    InMemoryConfigFileStore,
 )
-from codetaster.infrastructure.config_file_reader.toml_parsing import FileContent
+from codetaster.infrastructure.config_file_store.toml_parsing import FileContent
 from codetaster.infrastructure.environment_variables.in_memory import (
     InMemoryEnvironmentVariables,
 )
@@ -58,7 +58,7 @@ def api_token_setting(token: ApiToken) -> FileContent:
 def test_defaults_when_no_files_exist() -> None:
     result = load_configuration(
         ConfigurationRequest.fake(),
-        InMemoryConfigFileReader({}),
+        InMemoryConfigFileStore({}),
         InMemoryEnvironmentVariables({}),
     )
 
@@ -76,7 +76,7 @@ def test_project_config_overrides_developer_config() -> None:
     developer = developer_config_location(request)
     project = project_config_location(request)
     project_format = LogFormat.TEXT
-    files = InMemoryConfigFileReader(
+    files = InMemoryConfigFileStore(
         {
             developer: log_format_setting(LogFormat.JSON),
             project: log_format_setting(project_format),
@@ -96,7 +96,7 @@ def test_project_config_overrides_developer_config() -> None:
 def test_developer_config_survives_project_config_that_omits_the_field() -> None:
     request = ConfigurationRequest.fake()
     developer_format = LogFormat.JSON
-    files = InMemoryConfigFileReader(
+    files = InMemoryConfigFileStore(
         {
             developer_config_location(request): log_format_setting(developer_format),
             project_config_location(request): FileContent(""),
@@ -119,7 +119,7 @@ def test_xdg_config_home_replaces_dot_config() -> None:
     developer = xdg_config_home.joinpath(conventions.app_directory).joinpath(
         conventions.developer_file
     )
-    files = InMemoryConfigFileReader({developer: FileContent.fake()})
+    files = InMemoryConfigFileStore({developer: FileContent.fake()})
     environment = InMemoryEnvironmentVariables(
         {conventions.xdg_config_home_variable: VariableValue(str(xdg_config_home.root))}
     )
@@ -136,7 +136,7 @@ def test_xdg_config_home_replaces_dot_config() -> None:
 def test_relative_xdg_config_home_is_ignored() -> None:
     request = ConfigurationRequest.fake()
     developer = developer_config_location(request)
-    files = InMemoryConfigFileReader({developer: FileContent.fake()})
+    files = InMemoryConfigFileStore({developer: FileContent.fake()})
     environment = InMemoryEnvironmentVariables(
         {request.conventions.xdg_config_home_variable: VariableValue("relative")}
     )
@@ -153,7 +153,7 @@ def test_relative_xdg_config_home_is_ignored() -> None:
 def test_project_config_is_found_in_a_parent_directory() -> None:
     repository_request = ConfigurationRequest.fake()
     project = project_config_location(repository_request)
-    files = InMemoryConfigFileReader(
+    files = InMemoryConfigFileStore(
         {project: FileContent.fake()},
         [repository_marker_location(repository_request)],
     )
@@ -172,7 +172,7 @@ def test_project_config_is_found_in_a_parent_directory() -> None:
 def test_project_search_stops_at_the_repository_root() -> None:
     request = ConfigurationRequest.fake()
     above_repository = Location(request.working_directory.root.parent)
-    files = InMemoryConfigFileReader(
+    files = InMemoryConfigFileStore(
         {
             above_repository.joinpath(
                 request.conventions.project_file
@@ -194,7 +194,7 @@ def test_api_token_from_environment_overrides_secrets_file() -> None:
     request = ConfigurationRequest.fake()
     secrets_file = secrets_file_location(request)
     environment_token = VariableValue("from-env")
-    files = InMemoryConfigFileReader(
+    files = InMemoryConfigFileStore(
         {secrets_file: api_token_setting(ApiToken(SecretStr("from-file")))}
     )
     environment = InMemoryEnvironmentVariables(
@@ -216,7 +216,7 @@ def test_api_token_from_environment_overrides_secrets_file() -> None:
 def test_api_token_falls_back_to_secrets_file() -> None:
     request = ConfigurationRequest.fake()
     file_token = ApiToken.fake()
-    files = InMemoryConfigFileReader(
+    files = InMemoryConfigFileStore(
         {secrets_file_location(request): api_token_setting(file_token)}
     )
     environment = InMemoryEnvironmentVariables(
@@ -236,7 +236,7 @@ def test_unknown_setting_is_an_error_naming_file_and_field() -> None:
     request = ConfigurationRequest.fake()
     project = project_config_location(request)
     unknown_field = "log_fromat"
-    files = InMemoryConfigFileReader(
+    files = InMemoryConfigFileStore(
         {project: FileContent(f'{unknown_field} = "json"\n')}
     )
 
@@ -253,7 +253,7 @@ def test_unknown_setting_is_an_error_naming_file_and_field() -> None:
 def test_malformed_developer_config_is_an_error() -> None:
     request = ConfigurationRequest.fake()
     developer = developer_config_location(request)
-    files = InMemoryConfigFileReader({developer: FileContent("log_format = ")})
+    files = InMemoryConfigFileStore({developer: FileContent("log_format = ")})
 
     result = load_configuration(request, files, InMemoryEnvironmentVariables({}))
 

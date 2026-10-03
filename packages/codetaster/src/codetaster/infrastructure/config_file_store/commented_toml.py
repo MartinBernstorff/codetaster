@@ -1,7 +1,7 @@
 import tomli_w
 
 from codetaster.domain.domain_model.configuration.template import SettingsTemplate
-from codetaster.infrastructure.config_file_reader.toml_parsing import FileContent
+from codetaster.infrastructure.config_file_store.toml_parsing import FileContent
 
 
 def render_commented_template(template: SettingsTemplate) -> FileContent:
