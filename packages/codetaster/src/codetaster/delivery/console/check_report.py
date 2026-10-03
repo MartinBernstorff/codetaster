@@ -1,4 +1,4 @@
-"""The `--format json` output of `codetaster check`. Documented in docs/check-output.md."""
+"""The `--format json` output of `codetaster check`."""
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
