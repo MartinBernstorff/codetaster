@@ -15,6 +15,9 @@ from codetaster.domain.domain_model.configuration.errors import (
     ConfigFileError,
     ErrorReason,
 )
+from codetaster.domain.domain_model.configuration.review_settings import (
+    ProjectSettings,
+)
 from codetaster.domain.domain_model.configuration.secret_values import (
     ApiToken,
     Secrets,
@@ -54,22 +57,29 @@ def load_configuration(
     """
     conventions = request.conventions
     config_root = resolve_config_root(request.home, conventions, environment)
-    candidates = [
-        config_root.joinpath(conventions.developer_file),
-        find_project_config(request.working_directory, conventions, files),
-    ]
 
     settings = Settings()
     loaded: list[Location] = []
-    for location in candidates:
-        if location is None:
-            continue
-        read = read_model(Settings, location, files)
-        if isinstance(read, Err):
-            return read
-        if read.value is not None:
-            settings = settings.overridden_by(read.value)
-            loaded.append(location)
+    developer_location = config_root.joinpath(conventions.developer_file)
+    developer = read_developer_settings(developer_location, files)
+    if isinstance(developer, Err):
+        return developer
+    if developer.value is not None:
+        settings = settings.overridden_by(developer.value)
+        loaded.append(developer_location)
+
+    review = None
+    project_location = find_project_config(
+        request.working_directory, conventions, files
+    )
+    if project_location is not None:
+        project = read_model(ProjectSettings, project_location, files)
+        if isinstance(project, Err):
+            return project
+        if project.value is not None:
+            settings = settings.overridden_by(project.value)
+            review = project.value.review
+            loaded.append(project_location)
 
     secrets_location = config_root.joinpath(conventions.secrets_file)
     file_secrets = read_model(Secrets, secrets_location, files)
@@ -84,9 +94,35 @@ def load_configuration(
             secrets=secrets_with_environment_overrides(
                 file_secrets.value or Secrets(), conventions, environment
             ),
+            review=review,
             loaded_files=Locations(tuple(loaded)),
         )
     )
+
+
+def read_developer_settings(
+    location: Location, files: ConfigFileStore
+) -> Result[Settings | None, ConfigFileError]:
+    """Like `read_model`, but names a project-only section if it is present."""
+    read = files.read_document(location)
+    if isinstance(read, Err):
+        return read
+    if read.value is None:
+        return Ok(None)
+    project_only = sorted(
+        ProjectSettings.model_fields.keys() - Settings.model_fields.keys()
+    )
+    for section in project_only:
+        if section in read.value.root:
+            return Err(
+                ConfigFileError(
+                    location,
+                    ErrorReason(
+                        f"[{section}] is project-only; move it to the project config"
+                    ),
+                )
+            )
+    return validate_document(Settings, read.value, location)
 
 
 def find_project_config(

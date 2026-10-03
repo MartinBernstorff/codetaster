@@ -3,10 +3,12 @@ from typing import Annotated
 
 import typer
 
+from codetaster.delivery.console.check_command import check_app
 from codetaster.delivery.console.config_command import config_app
 
 app = typer.Typer(no_args_is_help=True)
 app.add_typer(config_app, name="config")
+app.add_typer(check_app)
 
 
 @app.callback()

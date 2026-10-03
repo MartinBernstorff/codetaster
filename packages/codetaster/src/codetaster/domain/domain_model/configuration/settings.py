@@ -28,5 +28,8 @@ class Settings(BaseModel):
     def overridden_by(self, override: Settings) -> Settings:
         """Fields explicitly set in `override` win; the rest keep this value."""
         return Settings.model_validate(
-            self.model_dump() | override.model_dump(exclude_unset=True)
+            self.model_dump()
+            | override.model_dump(
+                exclude_unset=True, include=set(Settings.model_fields)
+            )
         )
