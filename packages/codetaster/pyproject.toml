@@ -1,0 +1,18 @@
+[project]
+name = "codetaster"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "typer>=0.20",
+    "pydantic>=2.12",
+    "safe-result>=4.0.3",
+    "tomli-w>=1.2",
+]
+
+[project.scripts]
+codetaster = "codetaster.delivery.console.app:app"
+codetaster-manage = "codetaster.delivery.management.app:app"
+
+[build-system]
+requires = ["uv_build>=0.9,<0.10"]
+build-backend = "uv_build"

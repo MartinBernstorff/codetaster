@@ -1,0 +1,10 @@
+$schema: 'https://moonrepo.dev/schemas/workspace.json'
+
+# A single root project: tach, pyrefly and noprim check across package boundaries,
+# so they cannot be split per package.
+projects:
+  codetaster: '.'
+
+vcs:
+  defaultBranch: 'main'
+  provider: 'github'

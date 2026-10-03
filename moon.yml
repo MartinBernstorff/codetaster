@@ -1,0 +1,103 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+language: 'python'
+stack: 'backend'
+layer: 'application'
+tags: ['backend']
+
+fileGroups:
+  sources:
+    - 'packages/*/src/**/*.py'
+  manifests:
+    - 'pyproject.toml'
+    - 'packages/*/pyproject.toml'
+    - 'uv.lock'
+  workflows:
+    - '.github/workflows/*.yml'
+
+tasks:
+  # Fast enough for pre-commit. Fixes what it can, then checks the rest.
+  phase-1:
+    command: 'noop'
+    deps:
+      - 'format'
+      - 'typecheck'
+      - 'modularity'
+      - 'noprim'
+      - 'actionlint'
+    options:
+      runInCI: false
+
+  # Everything, check-only. This is what CI runs.
+  full:
+    command: 'noop'
+    deps:
+      - 'lint'
+      - 'format-check'
+      - 'typecheck'
+      - 'modularity'
+      - 'noprim'
+      - 'actionlint'
+      - 'test'
+
+  test:
+    script: 'uv run pytest'
+    inputs:
+      - '@group(sources)'
+      - '@group(manifests)'
+      - 'pytest.toml'
+    options:
+      outputStyle: 'buffer-only-failure'
+
+  typecheck:
+    script: 'uv run pyrefly check'
+    inputs:
+      - '@group(sources)'
+      - '@group(manifests)'
+      - 'pyrefly.toml'
+
+  modularity:
+    script: 'uv run tach check && uv run tach check-external'
+    inputs:
+      - '@group(sources)'
+      - '@group(manifests)'
+      - 'tach.toml'
+
+  noprim:
+    script: 'uv run noprim check packages'
+    inputs:
+      - '@group(sources)'
+      - '@group(manifests)'
+      - 'noprim.toml'
+
+  lint:
+    script: 'uv run ruff check .'
+    inputs:
+      - '@group(sources)'
+      - 'ruff.toml'
+
+  lint-fix:
+    script: 'uv run ruff check --fix .'
+    options:
+      cache: false
+      runInCI: false
+
+  format-check:
+    script: 'uv run ruff format --check .'
+    inputs:
+      - '@group(sources)'
+      - 'ruff.toml'
+
+  # Runs after lint-fix, because both rewrite the same files.
+  format:
+    script: 'uv run ruff format .'
+    deps:
+      - 'lint-fix'
+    options:
+      cache: false
+      runInCI: false
+
+  actionlint:
+    script: 'uv run actionlint'
+    inputs:
+      - '@group(workflows)'

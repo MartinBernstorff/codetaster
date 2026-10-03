@@ -1,0 +1,76 @@
+# Enforces the "universal architecture":
+#
+#   delivery.console    -> domain.{features, application_services, domain_model}, infrastructure
+#   delivery.management -> same as delivery.console
+#   domain.features             -> domain.application_services, domain.domain_model
+#   domain.application_services -> domain.secondary_ports, domain.domain_model
+#   domain.secondary_ports      -> domain.domain_model
+#   infrastructure              -> domain.secondary_ports, domain.domain_model
+#
+# Delivery is the composition root, so it may wire in infrastructure. The product
+# CLI (console) and the management commands never depend on each other. The domain
+# never depends on infrastructure or delivery.
+#
+# Not enforced: application services (use-cases) must not depend on each other.
+# Tach assigns every file under domain/application_services to one module, so
+# sibling imports inside it are invisible. Declare each use-case as its own
+# module here if this needs enforcing.
+source_roots = ["packages/codetaster/src"]
+forbid_circular_dependencies = true
+# Tests may wire in fakes from infrastructure, which the layers below forbid for
+# the code under test.
+exclude = ["**/tests", "**/docs", "**/*__pycache__", "**/*egg-info", "**/test_*.py"]
+
+# pytest is a workspace-level dev dependency, not a dependency of the package.
+[external]
+exclude = ["pytest"]
+
+[[modules]]
+path = "codetaster"
+depends_on = []
+
+[[modules]]
+path = "codetaster.delivery"
+depends_on = []
+
+[[modules]]
+path = "codetaster.delivery.console"
+depends_on = [
+  "codetaster.domain.features",
+  "codetaster.domain.application_services",
+  "codetaster.domain.domain_model",
+  "codetaster.infrastructure",
+]
+
+[[modules]]
+path = "codetaster.delivery.management"
+depends_on = [
+  "codetaster.domain.features",
+  "codetaster.domain.application_services",
+  "codetaster.domain.domain_model",
+  "codetaster.infrastructure",
+]
+
+[[modules]]
+path = "codetaster.domain"
+depends_on = []
+
+[[modules]]
+path = "codetaster.domain.features"
+depends_on = ["codetaster.domain.application_services", "codetaster.domain.domain_model"]
+
+[[modules]]
+path = "codetaster.domain.application_services"
+depends_on = ["codetaster.domain.secondary_ports", "codetaster.domain.domain_model"]
+
+[[modules]]
+path = "codetaster.domain.secondary_ports"
+depends_on = ["codetaster.domain.domain_model"]
+
+[[modules]]
+path = "codetaster.domain.domain_model"
+depends_on = []
+
+[[modules]]
+path = "codetaster.infrastructure"
+depends_on = ["codetaster.domain.secondary_ports", "codetaster.domain.domain_model"]
