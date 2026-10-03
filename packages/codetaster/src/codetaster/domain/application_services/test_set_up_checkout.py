@@ -13,15 +13,16 @@ from codetaster.infrastructure.toolchain.fake_toolchain import FakeToolchain
 
 def test_installs_tools_then_dependencies_then_hooks() -> None:
     log = CallLog.fake()
+    checkout = CheckoutPath.fake()
 
     result = set_up_checkout(
         FakeToolchain(log),
         FakePythonEnvironment(log),
         FakeGitHooks(log),
-        CheckoutPath.fake(),
+        checkout,
     )
 
-    assert result == Ok(CheckoutPath.fake())
+    assert result == Ok(checkout)
     assert log == CallLog(
         [
             RecordedCall.INSTALL_PINNED_TOOLS,

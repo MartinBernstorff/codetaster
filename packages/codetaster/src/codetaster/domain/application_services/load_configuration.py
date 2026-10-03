@@ -3,6 +3,9 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, SecretStr, ValidationError
 from safe_result import Err, Ok, Result
 
+from codetaster.domain.application_services.config_locations import (
+    resolve_config_root,
+)
 from codetaster.domain.domain_model.configuration.configuration import Configuration
 from codetaster.domain.domain_model.configuration.conventions import (
     ConfigConventions,
@@ -50,7 +53,7 @@ def load_configuration(
     Secrets come from environment variables, falling back to the secrets file.
     """
     conventions = request.conventions
-    config_root = resolve_config_root(request, environment)
+    config_root = resolve_config_root(request.home, conventions, environment)
     candidates = [
         config_root.joinpath(conventions.developer_file),
         find_project_config(request.working_directory, conventions, files),
@@ -84,20 +87,6 @@ def load_configuration(
             loaded_files=Locations(tuple(loaded)),
         )
     )
-
-
-def resolve_config_root(
-    request: ConfigurationRequest, environment: EnvironmentVariables
-) -> Location:
-    """`$XDG_CONFIG_HOME/<app>`, or `~/.config/<app>` if that is unset or relative."""
-    conventions = request.conventions
-    xdg_config_home = environment.value_of(conventions.xdg_config_home_variable)
-    base = (
-        Location(Path(xdg_config_home.root))
-        if xdg_config_home is not None and Path(xdg_config_home.root).is_absolute()
-        else request.home.joinpath(conventions.fallback_config_home)
-    )
-    return base.joinpath(conventions.app_directory)
 
 
 def find_project_config(

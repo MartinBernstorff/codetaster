@@ -39,6 +39,7 @@ source = { editable = "packages/codetaster" }
 dependencies = [
     { name = "pydantic" },
     { name = "safe-result" },
+    { name = "tomli-w" },
     { name = "typer" },
 ]
 
@@ -46,6 +47,7 @@ dependencies = [
 requires-dist = [
     { name = "pydantic", specifier = ">=2.12" },
     { name = "safe-result", specifier = ">=4.0.3" },
+    { name = "tomli-w", specifier = ">=1.2" },
     { name = "typer", specifier = ">=0.20" },
 ]
 

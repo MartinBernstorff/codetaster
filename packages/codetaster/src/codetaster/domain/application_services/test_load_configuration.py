@@ -9,8 +9,8 @@ from codetaster.domain.application_services.load_configuration import (
 )
 from codetaster.domain.domain_model.configuration.secret_values import ApiToken
 from codetaster.domain.domain_model.configuration.settings import LogFormat
-from codetaster.domain.domain_model.environment import VariableName, VariableValue
-from codetaster.domain.domain_model.filesystem import Location, Locations
+from codetaster.domain.domain_model.environment import VariableValue
+from codetaster.domain.domain_model.filesystem import Location, Locations, PathName
 
 # Domain tests use the fakes from infrastructure, which tach otherwise forbids.
 from codetaster.infrastructure.config_file_reader.in_memory import (
@@ -20,6 +20,39 @@ from codetaster.infrastructure.config_file_reader.toml_parsing import FileConten
 from codetaster.infrastructure.environment_variables.in_memory import (
     InMemoryEnvironmentVariables,
 )
+
+
+def default_config_directory(request: ConfigurationRequest) -> Location:
+    conventions = request.conventions
+    return request.home.joinpath(conventions.fallback_config_home).joinpath(
+        conventions.app_directory
+    )
+
+
+def developer_config_location(request: ConfigurationRequest) -> Location:
+    return default_config_directory(request).joinpath(
+        request.conventions.developer_file
+    )
+
+
+def secrets_file_location(request: ConfigurationRequest) -> Location:
+    return default_config_directory(request).joinpath(request.conventions.secrets_file)
+
+
+def project_config_location(request: ConfigurationRequest) -> Location:
+    return request.working_directory.joinpath(request.conventions.project_file)
+
+
+def repository_marker_location(request: ConfigurationRequest) -> Location:
+    return request.working_directory.joinpath(request.conventions.repository_marker)
+
+
+def log_format_setting(log_format: LogFormat) -> FileContent:
+    return FileContent(f'log_format = "{log_format}"\n')
+
+
+def api_token_setting(token: ApiToken) -> FileContent:
+    return FileContent(f'api_token = "{token.root.get_secret_value()}"\n')
 
 
 def test_defaults_when_no_files_exist() -> None:
@@ -39,53 +72,59 @@ def test_defaults_when_no_files_exist() -> None:
 
 
 def test_project_config_overrides_developer_config() -> None:
-    developer = Location(Path("/home/fake/.config/codetaster/config.toml"))
-    project = Location(Path("/home/fake/repo/codetaster.toml"))
+    request = ConfigurationRequest.fake()
+    developer = developer_config_location(request)
+    project = project_config_location(request)
+    project_format = LogFormat.TEXT
     files = InMemoryConfigFileReader(
         {
-            developer: FileContent('log_format = "json"\n'),
-            project: FileContent('log_format = "text"\n'),
+            developer: log_format_setting(LogFormat.JSON),
+            project: log_format_setting(project_format),
         }
     )
 
-    result = load_configuration(
-        ConfigurationRequest.fake(), files, InMemoryEnvironmentVariables({})
-    )
+    result = load_configuration(request, files, InMemoryEnvironmentVariables({}))
 
     match result:
         case Ok(configuration):
-            assert configuration.settings.log_format == LogFormat.TEXT
+            assert configuration.settings.log_format == project_format
             assert configuration.loaded_files == Locations((developer, project))
         case Err(error):
             raise error
 
 
 def test_developer_config_survives_project_config_that_omits_the_field() -> None:
-    developer = Location(Path("/home/fake/.config/codetaster/config.toml"))
-    project = Location(Path("/home/fake/repo/codetaster.toml"))
+    request = ConfigurationRequest.fake()
+    developer_format = LogFormat.JSON
     files = InMemoryConfigFileReader(
-        {developer: FileContent('log_format = "json"\n'), project: FileContent("")}
+        {
+            developer_config_location(request): log_format_setting(developer_format),
+            project_config_location(request): FileContent(""),
+        }
     )
 
-    result = load_configuration(
-        ConfigurationRequest.fake(), files, InMemoryEnvironmentVariables({})
-    )
+    result = load_configuration(request, files, InMemoryEnvironmentVariables({}))
 
     match result:
         case Ok(configuration):
-            assert configuration.settings.log_format == LogFormat.JSON
+            assert configuration.settings.log_format == developer_format
         case Err(error):
             raise error
 
 
 def test_xdg_config_home_replaces_dot_config() -> None:
-    developer = Location(Path("/xdg/codetaster/config.toml"))
-    files = InMemoryConfigFileReader({developer: FileContent('log_format = "json"\n')})
+    request = ConfigurationRequest.fake()
+    conventions = request.conventions
+    xdg_config_home = Location(Path("/xdg"))
+    developer = xdg_config_home.joinpath(conventions.app_directory).joinpath(
+        conventions.developer_file
+    )
+    files = InMemoryConfigFileReader({developer: FileContent.fake()})
     environment = InMemoryEnvironmentVariables(
-        {VariableName("XDG_CONFIG_HOME"): VariableValue("/xdg")}
+        {conventions.xdg_config_home_variable: VariableValue(str(xdg_config_home.root))}
     )
 
-    result = load_configuration(ConfigurationRequest.fake(), files, environment)
+    result = load_configuration(request, files, environment)
 
     match result:
         case Ok(configuration):
@@ -95,13 +134,14 @@ def test_xdg_config_home_replaces_dot_config() -> None:
 
 
 def test_relative_xdg_config_home_is_ignored() -> None:
-    developer = Location(Path("/home/fake/.config/codetaster/config.toml"))
-    files = InMemoryConfigFileReader({developer: FileContent('log_format = "json"\n')})
+    request = ConfigurationRequest.fake()
+    developer = developer_config_location(request)
+    files = InMemoryConfigFileReader({developer: FileContent.fake()})
     environment = InMemoryEnvironmentVariables(
-        {VariableName("XDG_CONFIG_HOME"): VariableValue("relative")}
+        {request.conventions.xdg_config_home_variable: VariableValue("relative")}
     )
 
-    result = load_configuration(ConfigurationRequest.fake(), files, environment)
+    result = load_configuration(request, files, environment)
 
     match result:
         case Ok(configuration):
@@ -111,14 +151,14 @@ def test_relative_xdg_config_home_is_ignored() -> None:
 
 
 def test_project_config_is_found_in_a_parent_directory() -> None:
-    project = Location(Path("/home/fake/repo/codetaster.toml"))
+    repository_request = ConfigurationRequest.fake()
+    project = project_config_location(repository_request)
     files = InMemoryConfigFileReader(
-        {project: FileContent('log_format = "json"\n')},
-        [Location(Path("/home/fake/repo/.git"))],
+        {project: FileContent.fake()},
+        [repository_marker_location(repository_request)],
     )
-    request = ConfigurationRequest.fake().model_copy(
-        update={"working_directory": Location(Path("/home/fake/repo/src/deep"))}
-    )
+    subdirectory = repository_request.working_directory.joinpath(PathName("src"))
+    request = repository_request.model_copy(update={"working_directory": subdirectory})
 
     result = load_configuration(request, files, InMemoryEnvironmentVariables({}))
 
@@ -130,15 +170,18 @@ def test_project_config_is_found_in_a_parent_directory() -> None:
 
 
 def test_project_search_stops_at_the_repository_root() -> None:
-    outside = Location(Path("/home/fake/codetaster.toml"))
+    request = ConfigurationRequest.fake()
+    above_repository = Location(request.working_directory.root.parent)
     files = InMemoryConfigFileReader(
-        {outside: FileContent('log_format = "json"\n')},
-        [Location(Path("/home/fake/repo/.git"))],
+        {
+            above_repository.joinpath(
+                request.conventions.project_file
+            ): FileContent.fake()
+        },
+        [repository_marker_location(request)],
     )
 
-    result = load_configuration(
-        ConfigurationRequest.fake(), files, InMemoryEnvironmentVariables({})
-    )
+    result = load_configuration(request, files, InMemoryEnvironmentVariables({}))
 
     match result:
         case Ok(configuration):
@@ -148,65 +191,71 @@ def test_project_search_stops_at_the_repository_root() -> None:
 
 
 def test_api_token_from_environment_overrides_secrets_file() -> None:
-    secrets_file = Location(Path("/home/fake/.config/codetaster/secrets.toml"))
+    request = ConfigurationRequest.fake()
+    secrets_file = secrets_file_location(request)
+    environment_token = VariableValue("from-env")
     files = InMemoryConfigFileReader(
-        {secrets_file: FileContent('api_token = "from-file"\n')}
+        {secrets_file: api_token_setting(ApiToken(SecretStr("from-file")))}
     )
     environment = InMemoryEnvironmentVariables(
-        {VariableName("CODETASTER_API_TOKEN"): VariableValue("from-env")}
+        {request.conventions.api_token_variable: environment_token}
     )
 
-    result = load_configuration(ConfigurationRequest.fake(), files, environment)
+    result = load_configuration(request, files, environment)
 
     match result:
         case Ok(configuration):
-            assert configuration.secrets.api_token == ApiToken(SecretStr("from-env"))
+            assert configuration.secrets.api_token == ApiToken(
+                SecretStr(environment_token.root)
+            )
             assert configuration.loaded_files == Locations((secrets_file,))
         case Err(error):
             raise error
 
 
 def test_api_token_falls_back_to_secrets_file() -> None:
-    secrets_file = Location(Path("/home/fake/.config/codetaster/secrets.toml"))
+    request = ConfigurationRequest.fake()
+    file_token = ApiToken.fake()
     files = InMemoryConfigFileReader(
-        {secrets_file: FileContent('api_token = "from-file"\n')}
+        {secrets_file_location(request): api_token_setting(file_token)}
     )
     environment = InMemoryEnvironmentVariables(
-        {VariableName("CODETASTER_API_TOKEN"): VariableValue("")}
+        {request.conventions.api_token_variable: VariableValue("")}
     )
 
-    result = load_configuration(ConfigurationRequest.fake(), files, environment)
+    result = load_configuration(request, files, environment)
 
     match result:
         case Ok(configuration):
-            assert configuration.secrets.api_token == ApiToken(SecretStr("from-file"))
+            assert configuration.secrets.api_token == file_token
         case Err(error):
             raise error
 
 
 def test_unknown_setting_is_an_error_naming_file_and_field() -> None:
-    project = Location(Path("/home/fake/repo/codetaster.toml"))
-    files = InMemoryConfigFileReader({project: FileContent('log_fromat = "json"\n')})
-
-    result = load_configuration(
-        ConfigurationRequest.fake(), files, InMemoryEnvironmentVariables({})
+    request = ConfigurationRequest.fake()
+    project = project_config_location(request)
+    unknown_field = "log_fromat"
+    files = InMemoryConfigFileReader(
+        {project: FileContent(f'{unknown_field} = "json"\n')}
     )
+
+    result = load_configuration(request, files, InMemoryEnvironmentVariables({}))
 
     match result:
         case Err(error):
             assert error.location == project
-            assert "log_fromat" in error.reason.root
+            assert unknown_field in error.reason.root
         case Ok(configuration):
             raise AssertionError(configuration)
 
 
 def test_malformed_developer_config_is_an_error() -> None:
-    developer = Location(Path("/home/fake/.config/codetaster/config.toml"))
+    request = ConfigurationRequest.fake()
+    developer = developer_config_location(request)
     files = InMemoryConfigFileReader({developer: FileContent("log_format = ")})
 
-    result = load_configuration(
-        ConfigurationRequest.fake(), files, InMemoryEnvironmentVariables({})
-    )
+    result = load_configuration(request, files, InMemoryEnvironmentVariables({}))
 
     match result:
         case Err(error):

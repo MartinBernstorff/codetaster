@@ -35,20 +35,22 @@ def build_variables(
 
 
 def test_returns_value_of_set_variable(build_variables: VariablesFactory) -> None:
-    name = VariableName("CODETASTER_CONTRACT_TEST_SET")
-    variables = build_variables({name: VariableValue("hello")})
+    name = VariableName.fake()
+    value = VariableValue.fake()
+    variables = build_variables({name: value})
 
-    assert variables.value_of(name) == VariableValue("hello")
+    assert variables.value_of(name) == value
 
 
 def test_unset_variable_is_none(build_variables: VariablesFactory) -> None:
     variables = build_variables({})
 
-    assert variables.value_of(VariableName("CODETASTER_CONTRACT_TEST_UNSET")) is None
+    assert variables.value_of(VariableName.fake()) is None
 
 
 def test_empty_value_is_returned_as_is(build_variables: VariablesFactory) -> None:
-    name = VariableName("CODETASTER_CONTRACT_TEST_EMPTY")
-    variables = build_variables({name: VariableValue("")})
+    name = VariableName.fake()
+    empty_value = VariableValue("")
+    variables = build_variables({name: empty_value})
 
-    assert variables.value_of(name) == VariableValue("")
+    assert variables.value_of(name) == empty_value

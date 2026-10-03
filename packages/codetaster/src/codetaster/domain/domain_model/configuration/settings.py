@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LogFormat(StrEnum):
@@ -16,7 +16,10 @@ class Settings(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    log_format: LogFormat = LogFormat.TEXT
+    log_format: LogFormat = Field(
+        default=LogFormat.TEXT,
+        description='How log lines are formatted: "text" or "json".',
+    )
 
     @staticmethod
     def fake() -> Settings:

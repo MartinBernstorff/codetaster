@@ -13,6 +13,8 @@ def test_install_writes_the_pre_commit_hook(tmp_path: Path) -> None:
         "pre-commit:\n  jobs:\n    - run: 'true'\n"
     )
 
+    pre_commit_hook = tmp_path / ".git" / "hooks" / "pre-commit"
+
     _ = LefthookGitHooks().install_hooks(CheckoutPath(tmp_path))
 
-    assert (tmp_path / ".git" / "hooks" / "pre-commit").exists()
+    assert pre_commit_hook.exists()
