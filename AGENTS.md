@@ -37,7 +37,7 @@ uv run codetaster-cli setup   # proto install, uv sync, lefthook install
 
 ## Python
 
-- **Never use primitives as function parameters, fields or return types.** Wrap them in a Pydantic `RootModel`: `BranchName` says what a `str` is. Enforced by `moon run :noprim`. The only exemption is `bool` options on Typer commands.
+- **Never use primitives as function parameters, fields or return types.** Wrap them in a Pydantic `RootModel`: `CheckoutPath` says what a `Path` is. Enforced by `moon run :noprim`. The only exemption is `bool` options on Typer commands.
 - **Every domain model and RootModel has a `@staticmethod fake()`** that returns an instance with a default for every value. Aggregates build their defaults by calling `.fake()` on their members.
 - **No `tests/` folder.** Tests live next to the code they test, as `test_<module>.py`.
 - **When a module needs multiple files, make it a folder.** Keep `__init__.py` files empty.
