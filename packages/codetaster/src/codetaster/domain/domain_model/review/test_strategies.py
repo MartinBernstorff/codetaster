@@ -14,6 +14,7 @@ from codetaster.domain.domain_model.review.ratings import (
     RatingReason,
     RatingTarget,
 )
+from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 
 
 def blob_shas() -> st.SearchStrategy[BlobSha]:
@@ -37,6 +38,17 @@ def file_changes() -> st.SearchStrategy[FileChange]:
         st.builds(FileChange, before=file_versions(), after=st.none()),
         st.builds(FileChange, before=file_versions(), after=file_versions()),
     )
+
+
+def distinct_file_changes() -> st.SearchStrategy[list[FileChange]]:
+    """Changes to different files, as in one diff."""
+    return st.lists(
+        file_changes(), max_size=20, unique_by=lambda change: change.path().root
+    )
+
+
+def top_rated_percentages() -> st.SearchStrategy[TopRatedPercentage]:
+    return st.builds(TopRatedPercentage, st.integers(min_value=0, max_value=100))
 
 
 def probabilities() -> st.SearchStrategy[Probability]:

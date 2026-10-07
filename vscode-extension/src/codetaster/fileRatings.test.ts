@@ -6,34 +6,34 @@ import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
 function ratedFileReport(path: string, probability: number, reason: string): FileReport {
 	return {
 		path, previous_path: null, change_type: 'modified', base_probability: 0.1,
-		rating: { probability, reason }, unrated: false, probability: Math.max(0.1, probability), draw: 0.5,
+		rating: { probability, reason }, unrated: false, draw: 0.5,
 	};
 }
 
 function unratedFileReport(path: string): FileReport {
 	return {
 		path, previous_path: null, change_type: 'modified', base_probability: 0.1,
-		rating: null, unrated: true, probability: 0.1, draw: 0.5,
+		rating: null, unrated: true, draw: 0.5,
 	};
 }
 
 describe('fileHover', () => {
-	it('shows a rated file\'s final probability and the AI\'s reason', () => {
+	it('shows a rated file\'s AI rating and reason', () => {
 		const hover = fileHover('/repo/src/a.py', ratedFileReport('src/a.py', 0.8, 'Changes the retry logic.'));
 
-		assert.strictEqual(hover, '/repo/src/a.py\n\nReview probability: 80%\nAI reason: Changes the retry logic.');
+		assert.strictEqual(hover, '/repo/src/a.py\n\nAI rating: 80%\nAI reason: Changes the retry logic.');
 	});
 
-	it('marks an unrated file and shows the base probability it falls back to', () => {
+	it('marks an unrated file', () => {
 		const hover = fileHover('/repo/src/a.py', unratedFileReport('src/a.py'));
 
-		assert.strictEqual(hover, '/repo/src/a.py\n\nReview probability: 10%\nUnrated: no AI rating matches this version of the file.');
+		assert.strictEqual(hover, '/repo/src/a.py\n\nUnrated: no AI rating matches this version of the file.');
 	});
 
 	it('keeps fractional percentages instead of rounding them to 0%', () => {
-		const hover = fileHover('a.py', { ...unratedFileReport('a.py'), base_probability: 0.005, probability: 0.005 });
+		const hover = fileHover('a.py', ratedFileReport('a.py', 0.005, 'Reason.'));
 
-		assert.match(hover, /Review probability: 0\.5%/);
+		assert.match(hover, /AI rating: 0\.5%/);
 	});
 
 	it('says when the check did not list the file', () => {
@@ -73,10 +73,11 @@ describe('fileReportsByPath', () => {
 		const sampled = unratedFileReport('b.py');
 		const noReview = unratedFileReport('c.py');
 		const report: CheckReport = {
-			schema_version: 2,
+			schema_version: 3,
 			needs_review: true,
 			base: { ref: 'main', merge_base: 'a'.repeat(40) },
 			head: { commit: 'b'.repeat(40) },
+			top_rated_percentage: 20,
 			'needs-review': [needsReview],
 			sampled: [sampled],
 			'no-review': [noReview],

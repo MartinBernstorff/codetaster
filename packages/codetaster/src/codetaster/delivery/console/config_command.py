@@ -71,6 +71,7 @@ def echo_configuration(configuration: Configuration) -> None:
     else:
         typer.echo(f"  base_branch = {review.base_branch}")
         typer.echo(f"  base_probability = {review.base_probability.root}")
+        typer.echo(f"  top_rated_percentage = {review.top_rated_percentage.root}")
     typer.echo("Secrets:")
     typer.echo(f"  api_token = {'(not set)' if api_token is None else '**********'}")
 

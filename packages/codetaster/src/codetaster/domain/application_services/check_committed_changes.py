@@ -10,9 +10,9 @@ from codetaster.domain.domain_model.review.ratings_validation import (
     InvalidRatingsFile,
 )
 from codetaster.domain.domain_model.review.sampling import (
-    FileAssessments,
-    assess_file_change,
+    assess_file_changes,
 )
+from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 from codetaster.domain.domain_services.branch_change import (
     BranchChangeError,
     read_branch_change,
@@ -26,10 +26,13 @@ class CheckRequest(BaseModel):
 
     checkout: CheckoutPath
     base_override: RevisionName | None
+    top_rated_override: TopRatedPercentage | None
 
     @staticmethod
     def fake() -> CheckRequest:
-        return CheckRequest(checkout=CheckoutPath.fake(), base_override=None)
+        return CheckRequest(
+            checkout=CheckoutPath.fake(), base_override=None, top_rated_override=None
+        )
 
 
 def check_committed_changes(
@@ -42,7 +45,8 @@ def check_committed_changes(
 
     A file's AI rating applies if it matches the file's change. Without a ratings
     file every file is unrated, and so with an invalid one, which is reported. The
-    ratings file itself is never assessed.
+    ratings file itself is never assessed. `top_rated_override` replaces
+    `[review] top_rated_percentage`.
     """
     branch = read_branch_change(
         request.checkout, request.base_override, configuration, committed_changes
@@ -59,19 +63,16 @@ def check_committed_changes(
         )
     elif ratings.value is not None:
         ratings_file = ratings.value
-    base_probability = branch.value.review.base_probability
+    review = branch.value.review
+    top_rated = request.top_rated_override or review.top_rated_percentage
     return Ok(
         CheckResult(
             base=change.base,
             merge_base=change.merge_base,
             head=change.head,
-            assessments=FileAssessments(
-                tuple(
-                    assess_file_change(
-                        file, base_probability, ratings_file.rating_for(file)
-                    )
-                    for file in change.files.root
-                )
+            top_rated_percentage=top_rated,
+            assessments=assess_file_changes(
+                change.files, review.base_probability, ratings_file, top_rated
             ),
             working_tree=branch.value.working_tree,
             ratings_problem=ratings_problem,

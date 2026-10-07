@@ -72,21 +72,23 @@ def echo_rating_instructions(
     result: RatingsTemplateResult, checkout: CheckoutPath, base: RevisionName | None
 ) -> None:
     base_probability = result.base_probability.root
+    top_rated = result.top_rated_percentage.root
     location = result.ratings_location
     validate = ratings_command_line(RatingsSubcommand.VALIDATE, checkout, base)
     typer.echo(f"""\
 Rate how likely each file changed on this branch is to need human review.
 
-codetaster decides which changed files a human reviews. Each file gets a random
-draw from 0 to 1. A file needs review if its draw is below your rating, and is
-sampled for review if its draw is below the base probability, {base_probability}.
-So a rating can only raise a file's chance of review: a rating below
-{base_probability} does not lower it.
+codetaster decides which changed files a human reviews. The files with the
+highest ratings, {top_rated}% of the changed files rounded up, need review. Every
+other file is sampled for review with the base probability, {base_probability}.
+So what matters is how your ratings rank the files: a low rating does not lower
+a file's chance of being sampled.
 
 Fill in every entry of the JSON template below:
 - "probability": from 0 to 1, how likely the change to this file is to need
   human review. Rate risky, subtle or hard-to-undo changes high, and mechanical
-  or well-tested ones low.
+  or well-tested ones low. Avoid ties: of equally rated files, codetaster picks
+  at random.
 - "reason": one sentence on why.
 - Leave "path" and "blob" as they are. A rating applies only to the file
   content with that blob SHA, so editing the file afterwards makes the rating

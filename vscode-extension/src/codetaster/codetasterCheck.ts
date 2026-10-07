@@ -17,9 +17,19 @@ function checkError(message: string): CheckOutcome {
 	return { kind: 'error', message };
 }
 
-/** Runs `codetaster check <checkout> --base <base> --format json` and parses its report. */
-export async function runCodetasterCheck(process: CodetasterProcess, executable: string, checkout: string, base: string): Promise<CheckOutcome> {
-	const outcome = await process.runCodetaster(executable, ['check', checkout, '--base', base, '--format', 'json'], checkout);
+/**
+ * Runs `codetaster check <checkout> --base <base> --format json` and parses its report.
+ * `topRatedPercentage` is passed as `--top-rated-percentage` if given.
+ */
+export async function runCodetasterCheck(
+	process: CodetasterProcess,
+	executable: string,
+	checkout: string,
+	base: string,
+	topRatedPercentage?: number,
+): Promise<CheckOutcome> {
+	const topRatedArgs = topRatedPercentage === undefined ? [] : ['--top-rated-percentage', String(topRatedPercentage)];
+	const outcome = await process.runCodetaster(executable, ['check', checkout, '--base', base, ...topRatedArgs, '--format', 'json'], checkout);
 	if (outcome.kind === 'failedToStart') {
 		return checkError(`Could not run "${executable}" (${outcome.message}). Install codetaster on your PATH or set codetaster.executablePath.`);
 	}
@@ -48,12 +58,14 @@ export interface CheckTarget {
 	readonly fileListKey: string;
 	/** The checkout's HEAD commit; the check re-runs when it changes, e.g. after a local commit. */
 	readonly localHead: string | undefined;
+	/** Overrides the project config's `[review] top_rated_percentage`, if given. */
+	readonly topRatedPercentage: number | undefined;
 }
 
 /**
  * The check results the PR file views group by. Only a checked-out PR is checked.
- * A check re-runs only when the checkout, its HEAD commit, the base or the PR's file list
- * changes, after it failed, or on refresh, so tree refreshes (viewed state, comments)
+ * A check re-runs only when the checkout, its HEAD commit, the base, the top-rated
+ * percentage or the PR's file list changes, after it failed, or on refresh, so tree refreshes (viewed state, comments)
  * don't each start a process.
  */
 export class CodetasterChecks {
@@ -67,14 +79,14 @@ export class CodetasterChecks {
 
 	/** The PR's check, or undefined if the PR is not checked out. */
 	checkFor(target: CheckTarget): Promise<CheckOutcome> | undefined {
-		const { checkout, base, fileListKey, localHead } = target;
+		const { checkout, base, fileListKey, localHead, topRatedPercentage } = target;
 		if (checkout === undefined) {
 			return undefined;
 		}
-		const cacheKey = JSON.stringify([checkout, base, fileListKey, localHead ?? null]);
+		const cacheKey = JSON.stringify([checkout, base, fileListKey, localHead ?? null, topRatedPercentage ?? null]);
 		let check = this.checks.get(cacheKey);
 		if (!check) {
-			const started = runCodetasterCheck(this.process, this.executable(), checkout, base);
+			const started = runCodetasterCheck(this.process, this.executable(), checkout, base, topRatedPercentage);
 			check = started;
 			this.checks.set(cacheKey, started);
 			// Errors are not cached, so the next tree refresh retries.
