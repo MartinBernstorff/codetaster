@@ -30,10 +30,17 @@ class CheckResult(BaseModel):
         )
 
     def verdict(self) -> Verdict:
-        """Needs review if any file does."""
-        if any(
-            assessment.verdict is Verdict.NEEDS_REVIEW
-            for assessment in self.assessments.root
-        ):
-            return Verdict.NEEDS_REVIEW
-        return Verdict.NO_REVIEW
+        """The most urgent group any file is in, or no-review without files."""
+        present = {assessment.verdict for assessment in self.assessments.root}
+        return next(
+            (verdict for verdict in Verdict if verdict in present), Verdict.NO_REVIEW
+        )
+
+    def assessments_with(self, verdict: Verdict) -> FileAssessments:
+        return FileAssessments(
+            tuple(
+                assessment
+                for assessment in self.assessments.root
+                if assessment.verdict is verdict
+            )
+        )

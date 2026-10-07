@@ -24,7 +24,7 @@ class SchemaVersion(RootModel[int]):
 
     @staticmethod
     def fake() -> SchemaVersion:
-        return SchemaVersion(1)
+        return SchemaVersion(2)
 
 
 class ReportFlag(RootModel[bool]):
@@ -78,8 +78,8 @@ class FileReport(BaseModel):
         description="The probability, from 0 to 1, that this file needs review."
     )
     draw: Draw = Field(
-        description="From 0 inclusive to 1 exclusive. The file needs review if "
-        "draw < probability. SHA-256 over the JSON array [before_path, "
+        description="From 0 inclusive to 1 exclusive. The file is sampled if "
+        "draw < base_probability. SHA-256 over the JSON array [before_path, "
         "before_blob, after_path, after_blob], null for a missing side, with the "
         "first 53 bits divided by 2^53. It changes only when the file's change does."
     )
@@ -90,7 +90,12 @@ class FileReport(BaseModel):
 
 
 class CheckReport(BaseModel):
-    """Which changed files need human review. Files are ordered by path."""
+    """Which changed files need human review, in three groups. Every changed file
+    is in exactly one group. Files are ordered by path.
+
+    Schema version 2 added `sampled`. In version 1, `needs-review` held the files
+    that are now `sampled`.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -98,7 +103,9 @@ class CheckReport(BaseModel):
         description="Bumped when a field is removed or changes meaning. New fields "
         "can appear without a bump, so ignore fields you don't know."
     )
-    needs_review: ReportFlag = Field(description="true if any file is in needs-review.")
+    needs_review: ReportFlag = Field(
+        description="true if any file is in needs-review or sampled."
+    )
     override_label_applied: ReportFlag = Field(
         description="true if a PR label forced every file into needs-review. "
         "Always false for now."
@@ -107,10 +114,17 @@ class CheckReport(BaseModel):
     head: HeadReport
     needs_review_files: tuple[FileReport, ...] = Field(
         serialization_alias="needs-review",
-        description="The files that need human review.",
+        description="The files whose rating says they need human review. Empty "
+        "until files can be rated.",
+    )
+    sampled_files: tuple[FileReport, ...] = Field(
+        serialization_alias="sampled",
+        description="The files not in needs-review that were picked at random, at "
+        "base_probability, for human review.",
     )
     no_review_files: tuple[FileReport, ...] = Field(
-        serialization_alias="no-review", description="The files that don't."
+        serialization_alias="no-review",
+        description="The files that need no human review.",
     )
 
     @staticmethod
@@ -122,18 +136,18 @@ def check_report_from_result(result: CheckResult) -> CheckReport:
     def files_with(verdict: Verdict) -> tuple[FileReport, ...]:
         return tuple(
             file_report_from_assessment(assessment)
-            for assessment in result.assessments.root
-            if assessment.verdict is verdict
+            for assessment in result.assessments_with(verdict).root
         )
 
     return CheckReport(
-        schema_version=SchemaVersion(1),
-        needs_review=ReportFlag(root=result.verdict() is Verdict.NEEDS_REVIEW),
+        schema_version=SchemaVersion(2),
+        needs_review=ReportFlag(root=result.verdict() is not Verdict.NO_REVIEW),
         # Nothing applies an override label yet.
         override_label_applied=ReportFlag(root=False),
         base=BaseReport(ref=result.base, merge_base=result.merge_base),
         head=HeadReport(commit=result.head),
         needs_review_files=files_with(Verdict.NEEDS_REVIEW),
+        sampled_files=files_with(Verdict.SAMPLED),
         no_review_files=files_with(Verdict.NO_REVIEW),
     )
 

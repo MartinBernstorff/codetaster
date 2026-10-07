@@ -27,7 +27,15 @@ class Draw(RootModel[Annotated[float, Field(ge=0, lt=1)]]):
 
 
 class Verdict(StrEnum):
+    """The group a changed file is reported in, most urgent first.
+
+    needs-review: the draw is below the file's rating.
+    sampled: not needs-review, but the draw is below the base probability.
+    no-review: everything else.
+    """
+
     NEEDS_REVIEW = "needs-review"
+    SAMPLED = "sampled"
     NO_REVIEW = "no-review"
 
 
@@ -52,7 +60,7 @@ def draw_for_file_change(change: FileChange) -> Draw:
 
 
 class FileAssessment(BaseModel):
-    """Whether a changed file needs review, and what decided it."""
+    """Which group a changed file is in, and what decided it."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -84,14 +92,14 @@ class FileAssessments(RootModel[tuple[FileAssessment, ...]]):
 def assess_file_change(
     change: FileChange, base_probability: Probability
 ) -> FileAssessment:
-    probability = base_probability
+    """Without a rating a file can only be sampled, never needs-review."""
     draw = draw_for_file_change(change)
     return FileAssessment(
         change=change,
         base_probability=base_probability,
-        probability=probability,
+        probability=base_probability,
         draw=draw,
-        verdict=Verdict.NEEDS_REVIEW
-        if draw.root < probability.root
+        verdict=Verdict.SAMPLED
+        if draw.root < base_probability.root
         else Verdict.NO_REVIEW,
     )
