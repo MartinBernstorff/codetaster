@@ -227,3 +227,6 @@ __marimo__/
 # the Python patterns above would otherwise hide.
 !/vscode-extension/build/
 !/vscode-extension/src/env/
+
+# Local notes.
+/docs
