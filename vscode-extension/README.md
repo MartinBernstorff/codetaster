@@ -10,11 +10,19 @@ Left out of the copy: `documentation/`, `.readme/`, `.github/`, `.husky/`, `azur
 
 Edits to upstream files:
 
-- `package.json`: `publisher` is `codetaster`.
+- `package.json`: `publisher` is `codetaster`; the `codetaster.executablePath` setting and the `codetaster.refreshCheck` command and its view title buttons.
 - `package.nls.json`: `displayName`.
 - `src/constants.ts`: `EXTENSION_ID`.
+- `src/extension.ts`: calls `registerCodetaster`.
+- `src/view/treeNodes/filesCategoryNode.ts`, `src/view/treeNodes/pullRequestNode.ts`: build the file list with `codetasterFileNodes`, and refresh on `codetasterChecks.onDidRefresh`.
+- `src/view/treeNodes/repositoryChangesNode.ts`: passes the checkout root to `FilesCategoryNode`.
+- `webpack.config.js`: `child_process` is empty in the web extension host.
 
 Sync with upstream only when needed. Put codetaster changes in new files under `src/codetaster/`, and keep edits to upstream files to small hook points, listed above.
+
+## codetaster grouping
+
+When a PR's file list loads, the extension runs `codetaster check <checkout> --format json` in the local checkout and shows the files under "Needs review (n)", "Sampled (n)" and "No review (n)". PR files the check does not list appear under "Not in codetaster check (n)". If the check fails, the view shows the error and no files. The check re-runs when the PR's head or file list changes, or on "codetaster: Refresh Check". `codetaster.executablePath` sets the executable (default: `codetaster` on PATH).
 
 ## Tasks
 

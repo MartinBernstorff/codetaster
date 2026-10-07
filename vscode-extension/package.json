@@ -1012,7 +1012,7 @@
 		"commands": [
 			{
 				"command": "codetaster.refreshCheck",
-				"title": "Refresh codetaster Check",
+				"title": "Refresh Check",
 				"icon": "$(checklist)",
 				"category": "codetaster"
 			},
