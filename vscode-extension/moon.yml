@@ -1,0 +1,100 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+# A vendored copy of microsoft/vscode-pull-request-github. See README.md.
+language: 'typescript'
+toolchains:
+  default: 'node'
+tags: ['vscode-extension']
+
+fileGroups:
+  manifests:
+    - 'package.json'
+    - 'package-lock.json'
+  sources:
+    - 'src/**/*'
+    - 'webviews/**/*'
+    - 'common/**/*'
+    - 'resources/**/*'
+    - 'package.nls.json'
+    - 'tsconfig*.json'
+    - 'webpack.config.js'
+
+tasks:
+  # Everything CI runs for the extension.
+  full:
+    command: 'noop'
+    deps:
+      - 'package'
+      - 'test'
+
+  # Installs upstream's locked dependencies. `npm ci` would wipe node_modules on
+  # every run, so it only runs when package-lock.json differs from the last install.
+  # Scripts are skipped: upstream's postinstall downloads unpinned VS Code typings
+  # (see `typings`) and its prepare script installs husky git hooks.
+  install:
+    script: |
+      stamp=node_modules/.codetaster-installed-lock
+      if ! cmp -s package-lock.json "$stamp"; then
+        npm ci --ignore-scripts --no-audit --no-fund
+        cp package-lock.json "$stamp"
+      fi
+    inputs:
+      - '@group(manifests)'
+    options:
+      cache: false
+      outputStyle: 'buffer-only-failure'
+
+  # vscode.d.ts at the VS Code release matching `engines.vscode`. Upstream downloads
+  # it from VS Code's main branch; the proposed-API typings are committed.
+  typings:
+    script: 'cd src/@types && node ../../node_modules/@vscode/dts/index.js 1.130.0 -f'
+    deps:
+      - 'install'
+    outputs:
+      - 'src/@types/vscode.d.ts'
+    options:
+      outputStyle: 'buffer-only-failure'
+
+  build:
+    script: 'npm run bundle'
+    deps:
+      - 'typings'
+    inputs:
+      - '@group(manifests)'
+      - '@group(sources)'
+    outputs:
+      - 'dist'
+    options:
+      outputStyle: 'buffer-only-failure'
+
+  # Writes codetaster.vsix.
+  package:
+    script: 'npx --yes @vscode/vsce@4.0.0 package --no-dependencies --out codetaster.vsix'
+    deps:
+      - 'build'
+    inputs:
+      - '@group(manifests)'
+      - 'package.nls.json'
+      - 'README.md'
+      - 'LICENSE'
+      - 'CHANGELOG.md'
+      - '.vscodeignore'
+      - 'resources/**/*'
+      - 'src/lm/skills/**/*'
+    outputs:
+      - 'codetaster.vsix'
+    options:
+      outputStyle: 'buffer-only-failure'
+
+  # codetaster's own tests. Upstream's suite is not run.
+  test:
+    script: 'node_modules/.bin/mocha --require ts-node/register "src/codetaster/**/*.test.ts"'
+    deps:
+      - 'install'
+    env:
+      TS_NODE_PROJECT: 'tsconfig.codetaster.json'
+    inputs:
+      - '@group(manifests)'
+      - '@group(sources)'
+    options:
+      outputStyle: 'buffer-only-failure'

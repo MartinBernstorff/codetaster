@@ -6,14 +6,8 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from codetaster.domain.domain_model.review.changes import FileChange
-
-
-class Probability(RootModel[Annotated[float, Field(ge=0, le=1)]]):
-    model_config = ConfigDict(frozen=True)
-
-    @staticmethod
-    def fake() -> Probability:
-        return Probability(0.5)
+from codetaster.domain.domain_model.review.probability import Probability
+from codetaster.domain.domain_model.review.ratings import FileRating
 
 
 class Draw(RootModel[Annotated[float, Field(ge=0, lt=1)]]):
@@ -27,7 +21,15 @@ class Draw(RootModel[Annotated[float, Field(ge=0, lt=1)]]):
 
 
 class Verdict(StrEnum):
+    """The group a changed file is reported in, most urgent first.
+
+    needs-review: the draw is below the file's rating.
+    sampled: not needs-review, but the draw is below the base probability.
+    no-review: everything else.
+    """
+
     NEEDS_REVIEW = "needs-review"
+    SAMPLED = "sampled"
     NO_REVIEW = "no-review"
 
 
@@ -52,12 +54,16 @@ def draw_for_file_change(change: FileChange) -> Draw:
 
 
 class FileAssessment(BaseModel):
-    """Whether a changed file needs review, and what decided it."""
+    """Which group a changed file is in, and what decided it.
+
+    `rating` is `None` if the file is unrated.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     change: FileChange
     base_probability: Probability
+    rating: FileRating | None
     probability: Probability
     draw: Draw
     verdict: Verdict
@@ -67,6 +73,7 @@ class FileAssessment(BaseModel):
         return FileAssessment(
             change=FileChange.fake(),
             base_probability=Probability.fake(),
+            rating=None,
             probability=Probability.fake(),
             draw=Draw.fake(),
             verdict=Verdict.NO_REVIEW,
@@ -82,16 +89,27 @@ class FileAssessments(RootModel[tuple[FileAssessment, ...]]):
 
 
 def assess_file_change(
-    change: FileChange, base_probability: Probability
+    change: FileChange, base_probability: Probability, rating: FileRating | None
 ) -> FileAssessment:
-    probability = base_probability
+    """needs-review if the draw is below the rating, else sampled if it is below
+    the base probability. Without a rating a file can never need review.
+
+    The caller matches `rating` to `change`; see `RatingsFile.rating_for`.
+    """
     draw = draw_for_file_change(change)
+    if rating is not None and draw.root < rating.probability.root:
+        verdict = Verdict.NEEDS_REVIEW
+    elif draw.root < base_probability.root:
+        verdict = Verdict.SAMPLED
+    else:
+        verdict = Verdict.NO_REVIEW
     return FileAssessment(
         change=change,
         base_probability=base_probability,
-        probability=probability,
+        rating=rating,
+        probability=base_probability
+        if rating is None
+        else Probability(max(base_probability.root, rating.probability.root)),
         draw=draw,
-        verdict=Verdict.NEEDS_REVIEW
-        if draw.root < probability.root
-        else Verdict.NO_REVIEW,
+        verdict=verdict,
     )

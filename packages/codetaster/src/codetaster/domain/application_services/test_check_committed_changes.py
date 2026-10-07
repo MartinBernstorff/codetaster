@@ -20,11 +20,21 @@ from codetaster.domain.domain_model.review.changes import (
 )
 from codetaster.domain.domain_model.review.check_result import CheckResult
 from codetaster.domain.domain_model.review.errors import UnknownRevisionError
-from codetaster.domain.domain_model.review.sampling import Probability
+from codetaster.domain.domain_model.review.probability import Probability
+from codetaster.domain.domain_model.review.ratings import (
+    FileRating,
+    RatingsFile,
+    RatingsFileContent,
+    ratings_file_location,
+)
+from codetaster.domain.domain_model.review.sampling import Verdict
 
 # Domain tests use the fakes from infrastructure, which tach otherwise forbids.
 from codetaster.infrastructure.committed_changes.fake_committed_changes import (
     FakeCommittedChanges,
+)
+from codetaster.infrastructure.ratings_file_store.in_memory import (
+    InMemoryRatingsFileStore,
 )
 
 
@@ -50,9 +60,13 @@ def checked_result(
     configuration: Configuration,
     history: FakeCommittedChanges,
     request: CheckRequest | None = None,
+    ratings_files: InMemoryRatingsFileStore | None = None,
 ) -> CheckResult:
     match check_committed_changes(
-        request or CheckRequest.fake(), configuration, history
+        request or CheckRequest.fake(),
+        configuration,
+        history,
+        ratings_files or InMemoryRatingsFileStore({}),
     ):
         case Ok(result):
             return result
@@ -108,7 +122,10 @@ def test_missing_review_settings_is_an_error() -> None:
     configuration = Configuration.fake().model_copy(update={"review": None})
 
     result = check_committed_changes(
-        CheckRequest.fake(), configuration, FakeCommittedChanges(RevisionName.fake())
+        CheckRequest.fake(),
+        configuration,
+        FakeCommittedChanges(RevisionName.fake()),
+        InMemoryRatingsFileStore({}),
     )
 
     match result:
@@ -123,7 +140,9 @@ def test_unknown_base_is_an_error() -> None:
     request = CheckRequest.fake().model_copy(update={"base_override": unknown})
     history = history_with_feature_branch(RevisionName.fake(), RepositoryPath.fake())
 
-    result = check_committed_changes(request, Configuration.fake(), history)
+    result = check_committed_changes(
+        request, Configuration.fake(), history, InMemoryRatingsFileStore({})
+    )
 
     match result:
         case Err(UnknownRevisionError() as error):
@@ -143,3 +162,118 @@ def test_reports_a_dirty_working_tree() -> None:
     result = checked_result(configuration, history)
 
     assert result.working_tree is WorkingTreeState.DIRTY
+
+
+def ratings_at(
+    configuration: Configuration, *ratings: FileRating
+) -> InMemoryRatingsFileStore:
+    assert configuration.review is not None
+    store = InMemoryRatingsFileStore({})
+    store.write_ratings(
+        ratings_file_location(
+            CheckRequest.fake().checkout, configuration.review.ratings_path
+        ),
+        RatingsFile(ratings=ratings),
+    )
+    return store
+
+
+def certain_rating_at_head(
+    history: FakeCommittedChanges, path: RepositoryPath
+) -> FileRating:
+    """A rating of 1 for `path` as it is at the head of the current branch."""
+    head = history.commits[history.branches[history.current_branch]]
+    return FileRating.fake().model_copy(
+        update={"path": path, "blob": head.tree[path], "probability": Probability(1)}
+    )
+
+
+def test_a_matching_rating_applies() -> None:
+    configuration = configuration_with(Probability(0))
+    assert configuration.review is not None
+    path = RepositoryPath.fake()
+    history = history_with_feature_branch(configuration.review.base_branch, path)
+    rating = certain_rating_at_head(history, path)
+
+    result = checked_result(
+        configuration, history, ratings_files=ratings_at(configuration, rating)
+    )
+
+    [assessment] = result.assessments.root
+    assert assessment.rating == rating
+    assert assessment.verdict is Verdict.NEEDS_REVIEW
+
+
+def test_a_stale_rating_is_ignored() -> None:
+    configuration = configuration_with(Probability(0))
+    assert configuration.review is not None
+    path = RepositoryPath.fake()
+    history = history_with_feature_branch(configuration.review.base_branch, path)
+    rating = certain_rating_at_head(history, path)
+    _ = history.commit({path: BlobSha("e" * 40)})
+
+    result = checked_result(
+        configuration, history, ratings_files=ratings_at(configuration, rating)
+    )
+
+    [assessment] = result.assessments.root
+    assert assessment.rating is None
+    assert assessment.verdict is Verdict.NO_REVIEW
+
+
+def test_without_a_ratings_file_every_file_is_unrated() -> None:
+    configuration = Configuration.fake()
+    assert configuration.review is not None
+    paths = [RepositoryPath("one.py"), RepositoryPath("two.py")]
+    history = history_with_feature_branch(configuration.review.base_branch, *paths)
+
+    result = checked_result(configuration, history)
+
+    assert {assessment.rating for assessment in result.assessments.root} == {None}
+
+
+def test_the_ratings_file_is_never_assessed() -> None:
+    configuration = Configuration.fake()
+    assert configuration.review is not None
+    other = RepositoryPath("other.py")
+    history = history_with_feature_branch(
+        configuration.review.base_branch, configuration.review.ratings_path, other
+    )
+
+    result = checked_result(configuration, history)
+
+    assert [assessment.change.path() for assessment in result.assessments.root] == [
+        other
+    ]
+
+
+def test_an_invalid_ratings_file_leaves_every_file_unrated_and_is_reported() -> None:
+    configuration = Configuration.fake()
+    assert configuration.review is not None
+    history = history_with_feature_branch(
+        configuration.review.base_branch, RepositoryPath.fake()
+    )
+    location = ratings_file_location(
+        CheckRequest.fake().checkout, configuration.review.ratings_path
+    )
+    store = InMemoryRatingsFileStore({location: RatingsFileContent("not json")})
+
+    result = checked_result(configuration, history, ratings_files=store)
+
+    assert {assessment.rating for assessment in result.assessments.root} == {None}
+    assert result.ratings_problem is not None
+    assert result.ratings_problem.location == location
+
+
+def test_a_valid_ratings_file_is_no_problem() -> None:
+    configuration = Configuration.fake()
+    assert configuration.review is not None
+    history = history_with_feature_branch(
+        configuration.review.base_branch, RepositoryPath.fake()
+    )
+
+    result = checked_result(
+        configuration, history, ratings_files=ratings_at(configuration)
+    )
+
+    assert result.ratings_problem is None

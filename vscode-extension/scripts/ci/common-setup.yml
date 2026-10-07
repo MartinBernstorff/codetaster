@@ -1,0 +1,9 @@
+steps:
+  - task: NodeTool@0
+    displayName: Upgrade Node
+    inputs:
+      versionSpec: "20.x"
+
+  - script: npm ci
+    displayName: Install dependencies
+    retryCountOnTaskFailure: 3

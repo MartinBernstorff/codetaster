@@ -1,3 +1,4 @@
+import posixpath
 from enum import StrEnum
 from typing import Annotated, Self, override
 
@@ -52,6 +53,10 @@ class RepositoryPath(RootModel[str]):
     @staticmethod
     def fake() -> RepositoryPath:
         return RepositoryPath("src/module.py")
+
+    def normalised(self) -> RepositoryPath:
+        """Without `./`, `..` or repeated `/`, as git writes paths."""
+        return RepositoryPath(posixpath.normpath(self.root))
 
 
 class FileVersion(BaseModel):
@@ -122,6 +127,18 @@ class FileChanges(RootModel[tuple[FileChange, ...]]):
     @staticmethod
     def fake() -> FileChanges:
         return FileChanges((FileChange.fake(),))
+
+    def without(self, path: RepositoryPath) -> FileChanges:
+        """Drop the change whose file is at `path` after it, or was if it was deleted.
+
+        A file renamed away from `path` is kept.
+        """
+        dropped = path.normalised()
+        return FileChanges(
+            tuple(
+                change for change in self.root if change.path().normalised() != dropped
+            )
+        )
 
 
 class CommittedChange(BaseModel):

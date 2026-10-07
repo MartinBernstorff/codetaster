@@ -9,6 +9,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "actionlint-py>=1.7.12.25",
+    "hypothesis>=6.168.5",
     "lefthook>=2.1.16",
     "noprim>=0.4.0",
     "pyrefly>=1.3.2",

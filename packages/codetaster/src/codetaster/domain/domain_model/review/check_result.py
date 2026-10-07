@@ -5,6 +5,9 @@ from codetaster.domain.domain_model.review.changes import (
     RevisionName,
     WorkingTreeState,
 )
+from codetaster.domain.domain_model.review.ratings_validation import (
+    InvalidRatingsFile,
+)
 from codetaster.domain.domain_model.review.sampling import FileAssessments, Verdict
 
 
@@ -18,6 +21,8 @@ class CheckResult(BaseModel):
     head: CommitSha
     assessments: FileAssessments
     working_tree: WorkingTreeState
+    ratings_problem: InvalidRatingsFile | None
+    """Why the ratings file was ignored, leaving every file unrated."""
 
     @staticmethod
     def fake() -> CheckResult:
@@ -27,13 +32,21 @@ class CheckResult(BaseModel):
             head=CommitSha.fake(),
             assessments=FileAssessments.fake(),
             working_tree=WorkingTreeState.CLEAN,
+            ratings_problem=None,
         )
 
     def verdict(self) -> Verdict:
-        """Needs review if any file does."""
-        if any(
-            assessment.verdict is Verdict.NEEDS_REVIEW
-            for assessment in self.assessments.root
-        ):
-            return Verdict.NEEDS_REVIEW
-        return Verdict.NO_REVIEW
+        """The most urgent group any file is in, or no-review without files."""
+        present = {assessment.verdict for assessment in self.assessments.root}
+        return next(
+            (verdict for verdict in Verdict if verdict in present), Verdict.NO_REVIEW
+        )
+
+    def assessments_with(self, verdict: Verdict) -> FileAssessments:
+        return FileAssessments(
+            tuple(
+                assessment
+                for assessment in self.assessments.root
+                if assessment.verdict is verdict
+            )
+        )

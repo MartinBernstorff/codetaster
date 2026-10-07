@@ -59,6 +59,10 @@ class Repository(Protocol):
 
     def leave_uncommitted_file(self) -> None: ...
 
+    def subdirectory(self) -> CheckoutPath:
+        """A directory inside the checkout, below its root."""
+        ...
+
 
 class GitRepository(Repository):
     def __init__(self, root: Path) -> None:
@@ -120,6 +124,12 @@ class GitRepository(Repository):
     def leave_uncommitted_file(self) -> None:
         _ = (self.root / "uncommitted.txt").write_text("")
 
+    @override
+    def subdirectory(self) -> CheckoutPath:
+        directory = self.root / "sub" / "dir"
+        directory.mkdir(parents=True)
+        return CheckoutPath(directory)
+
 
 class InMemoryRepository(Repository):
     def __init__(self) -> None:
@@ -151,11 +161,16 @@ class InMemoryRepository(Repository):
     def leave_uncommitted_file(self) -> None:
         self.fake.working_tree = WorkingTreeState.DIRTY
 
+    @override
+    def subdirectory(self) -> CheckoutPath:
+        return CheckoutPath(self.checkout.root / "sub" / "dir")
+
 
 @pytest.fixture(params=["git", "fake"])
 def repository(request: pytest.FixtureRequest, tmp_path: Path) -> Repository:
     if request.param == "git":
-        return GitRepository(tmp_path)
+        # git reports the root with symlinks resolved, as in macOS's /var.
+        return GitRepository(tmp_path.resolve())
     return InMemoryRepository()
 
 
@@ -324,3 +339,13 @@ def test_files_are_ordered_by_path(repository: Repository) -> None:
     )
 
     assert [file.path() for file in change.files.root] == expected
+
+
+def test_the_repository_root_of_a_subdirectory_is_the_checkout(
+    repository: Repository,
+) -> None:
+    _ = repository.commit({RepositoryPath("README.md"): FileText.fake()})
+
+    root = repository.changes.read_repository_root(repository.subdirectory())
+
+    assert root == Ok(repository.checkout)

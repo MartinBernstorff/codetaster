@@ -5,9 +5,56 @@ from codetaster.domain.domain_model.review.changes import (
     BlobSha,
     ChangeType,
     FileChange,
+    FileChanges,
     FileVersion,
     RepositoryPath,
 )
+
+
+def added(path: RepositoryPath) -> FileChange:
+    return FileChange(
+        before=None, after=FileVersion.fake().model_copy(update={"path": path})
+    )
+
+
+def test_without_drops_the_change_to_a_path() -> None:
+    dropped = RepositoryPath("dropped.py")
+    kept = added(RepositoryPath("kept.py"))
+
+    assert FileChanges((added(dropped), kept)).without(dropped) == FileChanges((kept,))
+
+
+def test_without_keeps_a_file_renamed_away_from_the_path() -> None:
+    path = RepositoryPath("dropped.py")
+    before = FileVersion.fake().model_copy(update={"path": path})
+    renamed = FileChanges((FileChange(before=before, after=FileVersion.fake()),))
+
+    assert renamed.without(path) == renamed
+
+
+def test_without_drops_a_file_renamed_to_the_path() -> None:
+    dropped = RepositoryPath("dropped.py")
+    after = FileVersion.fake().model_copy(update={"path": dropped})
+    renamed = FileChange(before=FileVersion.fake(), after=after)
+
+    assert FileChanges((renamed,)).without(dropped) == FileChanges(())
+
+
+def test_without_drops_a_deleted_file_at_the_path() -> None:
+    dropped = RepositoryPath("dropped.py")
+    before = FileVersion.fake().model_copy(update={"path": dropped})
+    deleted = FileChange(before=before, after=None)
+
+    assert FileChanges((deleted,)).without(dropped) == FileChanges(())
+
+
+@pytest.mark.parametrize(
+    "spelling", ["./.codetaster/ratings.json", ".codetaster//ratings.json"]
+)
+def test_without_matches_another_spelling_of_the_path(spelling: str) -> None:
+    changes = FileChanges((added(RepositoryPath(".codetaster/ratings.json")),))
+
+    assert changes.without(RepositoryPath(spelling)) == FileChanges(())
 
 
 def test_a_file_only_after_is_added() -> None:

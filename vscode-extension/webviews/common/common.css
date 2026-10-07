@@ -1,0 +1,654 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body a {
+	text-decoration: var(--text-link-decoration);
+}
+
+h3 {
+	display: unset;
+	font-size: unset;
+	margin-block-start: unset;
+	margin-block-end: unset;
+	margin-inline-start: unset;
+	margin-inline-end: unset;
+	font-weight: unset;
+}
+
+body a:hover {
+	text-decoration: underline;
+}
+
+button,
+input[type='submit'] {
+	color: var(--vscode-button-foreground);
+	font-family: var(--vscode-font-family);
+	border-radius: 4px;
+	border: 1px solid transparent;
+	padding: 3px 12px;
+	font-size: 13px;
+	line-height: 18px;
+	white-space: nowrap;
+	user-select: none;
+}
+
+button:not(.icon-button):not(.danger):not(.secondary),
+input[type='submit'] {
+	background-color: var(--vscode-button-background);
+}
+
+input.select-left {
+	border-radius: 4px 0 0 4px;
+}
+
+button.select-right {
+	border-radius: 0 4px 4px 0;
+	width: 24px;
+	position: relative;
+}
+
+button.select-right span {
+	position: absolute;
+	top: 2px;
+	right: 4px;
+}
+
+button:focus,
+input[type='submit']:focus {
+	outline-color: var(--vscode-focusBorder);
+	outline-style: solid;
+	outline-width: 1px;
+	outline-offset: 2px;
+}
+
+button:hover:enabled,
+button:focus:enabled,
+input[type='submit']:focus:enabled,
+input[type='submit']:hover:enabled {
+	background-color: var(--vscode-button-hoverBackground);
+	cursor: pointer;
+}
+
+button.secondary {
+	background-color: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+	border-color: var(--vscode-button-secondaryBorder, transparent);
+}
+
+button.secondary:hover:enabled,
+button.secondary:focus:enabled,
+input[type='submit'].secondary:focus:enabled,
+input[type='submit'].secondary:hover:enabled {
+	background-color: var(--vscode-button-secondaryHoverBackground);
+}
+
+textarea,
+input[type='text'] {
+	display: block;
+	box-sizing: border-box;
+	padding: 8px;
+	width: 100%;
+	resize: vertical;
+	font-size: 13px;
+	border: 1px solid var(--vscode-dropdown-border);
+	background-color: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+	font-family: var(--vscode-font-family);
+	border-radius: 4px;
+}
+
+textarea::placeholder,
+input[type='text']::placeholder {
+	color: var(--vscode-input-placeholderForeground);
+}
+
+select {
+	display: block;
+	box-sizing: border-box;
+	padding: 4px 8px;
+	border-radius: 4px;
+	font-size: 13px;
+	border: 1px solid var(--vscode-dropdown-border);
+	background-color: var(--vscode-dropdown-background);
+	color: var(--vscode-dropdown-foreground);
+}
+
+textarea:focus,
+input[type='text']:focus,
+select:focus {
+	outline: 1px solid var(--vscode-focusBorder);
+}
+
+input[type='checkbox'] {
+	appearance: none;
+	-webkit-appearance: none;
+	-moz-appearance: none;
+	width: 18px;
+	height: 18px;
+	min-width: 18px;
+	min-height: 18px;
+	flex-shrink: 0;
+	margin: 0;
+	border: 1px solid var(--vscode-checkbox-border);
+	background-color: var(--vscode-checkbox-background);
+	border-radius: 3px;
+	cursor: pointer;
+	outline: none;
+}
+
+input[type='checkbox']:checked {
+	background-color: var(--vscode-checkbox-selectBackground, var(--vscode-checkbox-background));
+}
+
+.checkbox-wrapper {
+	position: relative;
+	display: flex;
+	align-items: center;
+}
+
+.checkbox-wrapper::after {
+	content: '';
+	position: absolute;
+	top: 1px;
+	left: 6px;
+	width: 5px;
+	height: 10px;
+	border: solid var(--vscode-checkbox-foreground);
+	border-width: 0 1px 1px 0;
+	transform: rotate(45deg);
+	pointer-events: none;
+	opacity: 0;
+}
+
+.checkbox-wrapper:has(input:checked)::after {
+	opacity: 1;
+}
+
+/*
+ * Task list items rendered from markdown (e.g. `- [x] done`) produce
+ * `<li class="task-list-item"><input type="checkbox" checked disabled> ...</li>`
+ * without a `.checkbox-wrapper`, so the wrapper-based checkmark above does
+ * not apply. Pseudo-elements cannot be placed on `<input>` elements, so we
+ * draw the checkmark on the parent `<li>` using `:has()`, positioned over
+ * the checkbox.
+ */
+.task-list-item {
+	position: relative;
+}
+
+.task-list-item:has(> input[type='checkbox']:checked)::before,
+.task-list-item:has(> p > input[type='checkbox']:checked)::before {
+	content: '';
+	position: absolute;
+	top: 5px;
+	left: 6px;
+	width: 5px;
+	height: 10px;
+	border: solid var(--vscode-checkbox-foreground);
+	border-width: 0 1px 1px 0;
+	transform: rotate(45deg);
+	pointer-events: none;
+}
+
+input[type='checkbox']:focus {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 1px;
+}
+
+input[type='checkbox']:not(:checked):hover {
+	background-color: var(--vscode-inputOption-hoverBackground);
+}
+
+.vscode-high-contrast input[type='checkbox'] {
+	outline: 1px solid var(--vscode-contrastBorder);
+}
+
+.vscode-high-contrast input[type='checkbox']:focus {
+	outline: 1px solid var(--vscode-contrastActiveBorder);
+}
+
+:not(.copilot-icon)>svg path,
+.copilot-icon svg path:first-of-type {
+	fill: var(--vscode-foreground);
+}
+
+body button:disabled,
+input[type='submit']:disabled {
+	opacity: 0.4;
+	border: 1px solid var(--vscode-button-background, transparent) !important;
+}
+
+body .hidden {
+	display: none !important;
+}
+
+body img.avatar,
+body span.avatar-icon svg {
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+}
+
+body img.avatar {
+	vertical-align: middle;
+}
+
+.avatar-link {
+	flex-shrink: 0;
+}
+
+.icon-button {
+	display: flex;
+	padding: 2px;
+	background: transparent;
+	border-radius: 4px;
+	line-height: 0;
+}
+
+.icon-button:hover,
+.title .icon-button:hover,
+.title .icon-button:focus,
+.section .icon-button:hover,
+.section .icon-button:focus {
+	background-color: var(--vscode-toolbar-hoverBackground);
+	cursor: pointer;
+}
+
+.icon-button:focus,
+.title .icon-button:focus,
+.section .icon-button:focus {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 1px;
+}
+
+.label .icon-button:hover,
+.label .icon-button:focus {
+	background-color: transparent;
+}
+
+.section-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.section-item .avatar-link {
+	margin-right: 6px;
+}
+
+.section-item .avatar-container {
+	flex-shrink: 0;
+}
+
+.section-item .login {
+	width: 129px;
+	flex-shrink: 0;
+}
+
+.section-item img.avatar {
+	width: 20px;
+	height: 20px;
+}
+
+.section-icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 3px;
+}
+
+.section-icon.changes svg path {
+	fill: var(--vscode-list-errorForeground);
+}
+
+.section-icon.commented svg path,
+.section-icon.requested svg path {
+	fill: var(--vscode-list-warningForeground);
+}
+
+.section-icon.approved svg path {
+	fill: var(--vscode-issues-open);
+}
+
+.section-icon.issue-open svg path {
+	fill: var(--vscode-issues-open);
+}
+
+.section-icon.issue-closed svg path {
+	fill: var(--vscode-issues-closed);
+}
+
+.issue-item {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--vscode-foreground);
+	text-decoration: none;
+	overflow: hidden;
+}
+
+.issue-item:hover {
+	text-decoration: underline;
+	color: var(--vscode-foreground);
+}
+
+.issue-item-text {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	flex: 1;
+	min-width: 0;
+}
+
+.reviewer-icons {
+	display: flex;
+	gap: 4px;
+}
+
+.reviewer-icons [role='alert'] {
+	position: absolute;
+	width: 0;
+	height: 0;
+	overflow: hidden;
+}
+
+.push-right {
+	margin-left: auto;
+}
+
+.avatar-with-author {
+	display: flex;
+	align-items: center;
+}
+
+.author-link {
+	font-weight: 600;
+	color: var(--vscode-editor-foreground);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.status-item button {
+	margin-left: auto;
+	margin-right: 0;
+}
+
+.automerge-section {
+	display: flex;
+}
+
+.automerge-section,
+.status-section {
+	flex-wrap: wrap;
+}
+
+#status-checks .automerge-section {
+	align-items: center;
+	padding: 16px;
+	background: var(--vscode-panel-background);
+	border-bottom-left-radius: 6px;
+	border-bottom-right-radius: 6px;
+}
+
+.automerge-section .merge-select-container {
+	margin-left: 8px;
+}
+
+.automerge-checkbox-wrapper,
+.automerge-checkbox-label {
+	display: flex;
+	align-items: center;
+	margin-right: 4px;
+}
+
+.automerge-checkbox-label {
+	min-width: 80px;
+}
+
+.attestation-checkbox-wrapper {
+	display: flex;
+	align-items: center;
+	margin-right: 8px;
+}
+
+.attestation-checkbox-label {
+	margin-left: 4px;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.comment-actions-right {
+	display: flex;
+	flex-grow: 1;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+	min-width: 0;
+}
+
+/* When the dropdown is grouped with the attestation checkbox we don't want it
+to stretch and push the checkbox away from the button. */
+.comment-actions-right .dropdown-container.spreadable {
+	flex-grow: 0;
+	width: auto;
+}
+
+.merge-queue-title .merge-queue-pending {
+	color: var(--vscode-list-warningForeground);
+}
+
+.merge-queue-title .merge-queue-blocked {
+	color: var(--vscode-list-errorForeground);
+}
+
+.merge-queue-title {
+	font-weight: bold;
+	font-size: larger;
+}
+
+/** Theming */
+
+.vscode-high-contrast button:not(.secondary):not(.icon-button) {
+	background: var(--vscode-button-background);
+}
+
+
+.vscode-high-contrast input {
+	outline: none;
+	background: var(--vscode-input-background);
+	border: 1px solid var(--vscode-contrastBorder);
+}
+
+.vscode-high-contrast button:focus {
+	border: 1px solid var(--vscode-contrastActiveBorder);
+}
+
+.vscode-high-contrast button:hover {
+	border: 1px dotted var(--vscode-contrastActiveBorder);
+}
+
+::-webkit-scrollbar-corner {
+	display: none;
+}
+
+.labels-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.label {
+	display: flex;
+	justify-content: normal;
+	padding: 0 8px;
+	border-radius: 20px;
+	border-style: solid;
+	border-width: 1px;
+	background: var(--vscode-badge-background);
+	color: var(--vscode-badge-foreground);
+	font-size: 11px;
+	line-height: 18px;
+	font-weight: 600;
+}
+
+/* split button */
+
+.primary-split-button {
+	display: flex;
+	flex-grow: 1;
+	min-width: 0;
+	max-width: 260px;
+}
+
+button.split-left {
+	border-radius: 4px 0 0 4px;
+	flex-grow: 1;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	display: flex;
+	border: 1px solid var(--vscode-button-border, transparent);
+	border-right: none;
+}
+
+button.split-left:only-child {
+	border-radius: 4px;
+	border-right: 1px solid var(--vscode-button-border, transparent);
+}
+
+.split {
+	background-color: var(--vscode-button-background);
+	border-top: 1px solid var(--vscode-button-border);
+	border-bottom: 1px solid var(--vscode-button-border);
+	padding: 4px 0;
+}
+
+.split .separator {
+	height: 100%;
+	width: 1px;
+	background-color: var(--vscode-button-separator);
+}
+
+.split.disabled {
+	opacity: 0.4;
+	border-top: 1px solid var(--vscode-button-background);
+	border-bottom: 1px solid var(--vscode-button-background);
+}
+
+.split.secondary {
+	background-color: var(--vscode-button-secondaryBackground);
+	border-top: 1px solid var(--vscode-button-secondaryBorder);
+	border-bottom: 1px solid var(--vscode-button-secondaryBorder);
+}
+
+button.split-right {
+	border-radius: 0 4px 4px 0;
+	cursor: pointer;
+	width: 24px;
+	position: relative;
+	border: 1px solid var(--vscode-button-border, transparent);
+	border-left: none;
+}
+
+button.split-right:disabled {
+	cursor: default;
+}
+
+button.split-right .icon {
+	pointer-events: none;
+	position: absolute;
+	top: 4px;
+	right: 4px;
+}
+
+button.split-right .icon svg path {
+	fill: unset;
+}
+
+button.input-box {
+	display: block;
+	height: 24px;
+	margin-top: -4px;
+	padding-top: 2px;
+	padding-left: 8px;
+	text-align: left;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	color: var(--vscode-input-foreground) !important;
+	background-color: var(--vscode-input-background) !important;
+}
+
+button.input-box:active,
+button.input-box:focus {
+	color: var(--vscode-inputOption-activeForeground) !important;
+	background-color: var(--vscode-inputOption-activeBackground) !important;
+}
+
+button.input-box:hover:not(:disabled) {
+	background-color: var(--vscode-inputOption-hoverBackground) !important;
+}
+
+button.input-box:focus {
+	border-color: var(--vscode-focusBorder) !important;
+}
+
+.dropdown-container {
+	display: flex;
+	min-width: 0;
+	margin: 0;
+}
+
+.dropdown-container.spreadable {
+	flex-grow: 1;
+	width: 100%;
+}
+
+button.inlined-dropdown {
+	width: 100%;
+	max-width: 150px;
+	margin-right: 8px;
+	display: inline-block;
+	text-align: center;
+}
+
+button.inlined-dropdown:last-child {
+	margin-right: 0;
+}
+
+.spinner {
+	margin-top: 5px;
+	margin-left: 5px;
+}
+
+.commit-spinner-inline {
+	margin-left: 8px;
+	display: inline-flex;
+	align-items: center;
+	vertical-align: middle;
+	grid-column: none;
+}
+
+.commit-spinner-before {
+	margin-right: 6px;
+	display: inline-flex;
+	align-items: center;
+	vertical-align: middle;
+}
+
+.loading {
+	animation: spinner-rotate 1s linear infinite;
+}
+
+@keyframes spinner-rotate {
+	0% {
+		transform: rotate(0deg);
+	}
+
+	100% {
+		transform: rotate(360deg);
+	}
+}
