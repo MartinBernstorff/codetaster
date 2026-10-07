@@ -16,7 +16,10 @@ from codetaster.domain.domain_model.review.changes import (
     WorkingTreeState,
 )
 from codetaster.domain.domain_model.review.errors import UnknownRevisionError
-from codetaster.domain.domain_model.review.ratings import RatingTarget
+from codetaster.domain.domain_model.review.ratings import (
+    RatingTarget,
+    ratings_file_location,
+)
 
 # Domain tests use the fakes from infrastructure, which tach otherwise forbids.
 from codetaster.infrastructure.committed_changes.fake_committed_changes import (
@@ -99,7 +102,9 @@ def test_reports_the_review_settings_the_agent_needs() -> None:
 
     result = created_template(configuration, history)
 
-    assert result.ratings_path == configuration.review.ratings_path
+    assert result.ratings_location == ratings_file_location(
+        RatingsTemplateRequest.fake().checkout, configuration.review.ratings_path
+    )
     assert result.base_probability == configuration.review.base_probability
 
 

@@ -3,20 +3,18 @@ from safe_result import Err, Ok, Result
 
 from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.configuration.configuration import Configuration
-from codetaster.domain.domain_model.configuration.errors import (
-    MissingReviewSettingsError,
-)
+from codetaster.domain.domain_model.filesystem import Location
 from codetaster.domain.domain_model.review.changes import (
-    RepositoryPath,
     RevisionName,
     WorkingTreeState,
 )
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings_template import RatingsTemplate
-from codetaster.domain.secondary_ports.committed_changes import (
-    ChangeReadError,
-    CommittedChanges,
+from codetaster.domain.domain_services.branch_change import (
+    BranchChangeError,
+    read_branch_change,
 )
+from codetaster.domain.secondary_ports.committed_changes import CommittedChanges
 
 
 class RatingsTemplateRequest(BaseModel):
@@ -36,7 +34,7 @@ class RatingsTemplateResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     template: RatingsTemplate
-    ratings_path: RepositoryPath
+    ratings_location: Location
     base_probability: Probability
     working_tree: WorkingTreeState
 
@@ -44,41 +42,31 @@ class RatingsTemplateResult(BaseModel):
     def fake() -> RatingsTemplateResult:
         return RatingsTemplateResult(
             template=RatingsTemplate.fake(),
-            ratings_path=RepositoryPath(".codetaster/ratings.json"),
+            ratings_location=Location.fake(),
             base_probability=Probability.fake(),
             working_tree=WorkingTreeState.CLEAN,
         )
-
-
-type RatingsTemplateError = MissingReviewSettingsError | ChangeReadError
 
 
 def create_ratings_template(
     request: RatingsTemplateRequest,
     configuration: Configuration,
     committed_changes: CommittedChanges,
-) -> Result[RatingsTemplateResult, RatingsTemplateError]:
+) -> Result[RatingsTemplateResult, BranchChangeError]:
     """List every file changed since the merge base with the base, to be rated.
 
     The ratings file itself is left out, as `check` never assesses it.
     """
-    review = configuration.review
-    if review is None:
-        return Err(MissingReviewSettingsError())
-    base = request.base_override or review.base_branch
-    change = committed_changes.read_committed_change(request.checkout, base)
-    if isinstance(change, Err):
-        return change
-    working_tree = committed_changes.read_working_tree_state(request.checkout)
-    if isinstance(working_tree, Err):
-        return working_tree
+    branch = read_branch_change(
+        request.checkout, request.base_override, configuration, committed_changes
+    )
+    if isinstance(branch, Err):
+        return branch
     return Ok(
         RatingsTemplateResult(
-            template=RatingsTemplate.of_changes(
-                change.value.files.without(review.ratings_path)
-            ),
-            ratings_path=review.ratings_path,
-            base_probability=review.base_probability,
-            working_tree=working_tree.value,
+            template=RatingsTemplate.of_changes(branch.value.change.files),
+            ratings_location=branch.value.ratings_location,
+            base_probability=branch.value.review.base_probability,
+            working_tree=branch.value.working_tree,
         )
     )

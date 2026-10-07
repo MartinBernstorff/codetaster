@@ -3,7 +3,8 @@
 #   delivery.console    -> domain.{features, application_services, domain_model}, infrastructure
 #   delivery.management -> same as delivery.console
 #   domain.features             -> domain.application_services, domain.domain_model
-#   domain.application_services -> domain.secondary_ports, domain.domain_model
+#   domain.application_services -> domain.domain_services, domain.secondary_ports, domain.domain_model
+#   domain.domain_services      -> domain.secondary_ports, domain.domain_model
 #   domain.secondary_ports      -> domain.domain_model
 #   infrastructure              -> domain.secondary_ports, domain.domain_model
 #
@@ -61,6 +62,15 @@ depends_on = ["codetaster.domain.application_services", "codetaster.domain.domai
 
 [[modules]]
 path = "codetaster.domain.application_services"
+depends_on = [
+  "codetaster.domain.domain_services",
+  "codetaster.domain.secondary_ports",
+  "codetaster.domain.domain_model",
+]
+
+# Logic shared by use-cases, which must not import each other.
+[[modules]]
+path = "codetaster.domain.domain_services"
 depends_on = ["codetaster.domain.secondary_ports", "codetaster.domain.domain_model"]
 
 [[modules]]

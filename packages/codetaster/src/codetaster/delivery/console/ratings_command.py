@@ -23,7 +23,6 @@ from codetaster.domain.application_services.validate_ratings_file import (
 )
 from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.review.changes import RevisionName
-from codetaster.domain.domain_model.review.ratings import ratings_file_location
 from codetaster.domain.domain_model.review.ratings_validation import (
     DuplicateRating,
     InvalidRatingsFile,
@@ -73,7 +72,7 @@ def echo_rating_instructions(
     result: RatingsTemplateResult, checkout: CheckoutPath, base: RevisionName | None
 ) -> None:
     base_probability = result.base_probability.root
-    location = ratings_file_location(checkout, result.ratings_path)
+    location = result.ratings_location
     validate = ratings_command_line(RatingsSubcommand.VALIDATE, checkout, base)
     typer.echo(f"""\
 Rate how likely each file changed on this branch is to need human review.
