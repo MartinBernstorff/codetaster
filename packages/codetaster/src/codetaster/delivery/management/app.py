@@ -5,15 +5,29 @@ from typing import Annotated
 import typer
 from safe_result import Err, Ok, Result
 
+from codetaster.domain.application_services.install_vscode_extension import (
+    install_vscode_extension,
+)
 from codetaster.domain.application_services.set_up_checkout import set_up_checkout
 from codetaster.domain.domain_model.checkout import CheckoutPath
+from codetaster.domain.domain_model.filesystem import Location
+from codetaster.infrastructure.extension_build.moon_extension_build import (
+    MoonExtensionBuild,
+    MoonTarget,
+)
 from codetaster.infrastructure.git_hooks.lefthook_git_hooks import (
     LefthookGitHooks,
+)
+from codetaster.infrastructure.proposed_api_allowlist.argv_json_allowlist import (
+    ArgvJsonAllowlist,
 )
 from codetaster.infrastructure.python_environment.uv_python_environment import (
     UvPythonEnvironment,
 )
 from codetaster.infrastructure.toolchain.proto_toolchain import ProtoToolchain
+from codetaster.infrastructure.vscode_extensions.code_cli_extensions import (
+    CodeCliExtensions,
+)
 
 app = typer.Typer(
     no_args_is_help=True, help="Management commands for working on codetaster."
@@ -43,6 +57,24 @@ def setup() -> None:
             ProtoToolchain(),
             UvPythonEnvironment(),
             LefthookGitHooks(),
+            CheckoutPath(Path.cwd()),
+        )
+    )
+
+
+@app.command()
+def install_extension() -> None:
+    """Build the forked GitHub Pull Requests extension and install it into VS Code.
+
+    Builds the VSIX with `moon run vscode-extension:package`, adds the extension to
+    `enable-proposed-api` in `~/.vscode/argv.json` and installs it with `code`.
+    Restart VS Code afterwards. Safe to re-run.
+    """
+    _ = exit_on_error(
+        install_vscode_extension(
+            MoonExtensionBuild(MoonTarget("vscode-extension:package")),
+            ArgvJsonAllowlist(Location(Path.home() / ".vscode" / "argv.json")),
+            CodeCliExtensions(),
             CheckoutPath(Path.cwd()),
         )
     )

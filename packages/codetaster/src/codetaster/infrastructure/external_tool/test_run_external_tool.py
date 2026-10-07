@@ -13,6 +13,7 @@ from codetaster.domain.domain_model.tool_errors import (
 from codetaster.infrastructure.external_tool.run_external_tool import (
     OutputMode,
     ToolArguments,
+    ToolEnvironment,
     ToolOutput,
     run_external_tool,
 )
@@ -76,3 +77,17 @@ def test_logs_the_captured_output_of_a_failing_tool(
 
     assert stdout in caplog.text
     assert stderr in caplog.text
+
+
+def test_runs_the_tool_with_the_given_environment(tmp_path: Path) -> None:
+    value = "from the environment"
+
+    result = run_external_tool(
+        ToolArguments(("/bin/sh", "-c", 'printf %s "$CODETASTER_PROBE"')),
+        CheckoutPath(tmp_path),
+        OutputMode.CAPTURE,
+        InstallationHint.fake(),
+        ToolEnvironment({"CODETASTER_PROBE": value}),
+    )
+
+    assert result == Ok(ToolOutput(value))
