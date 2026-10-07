@@ -35,6 +35,7 @@ import { StateManager } from './issues/stateManager';
 import { IssueContextProvider } from './lm/issueContextProvider';
 import { PullRequestContextProvider, WorkspaceContextProvider } from './lm/pullRequestContextProvider';
 import { registerTools } from './lm/tools/tools';
+import { registerCodetaster } from './codetaster/verdictGroupNodes';
 import { migrate } from './migrations';
 import { NotificationsFeatureRegister } from './notifications/notificationsFeatureRegistar';
 import { NotificationsManager } from './notifications/notificationsManager';
@@ -341,6 +342,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<GitApi
 		await commands.focusView('github:activePullRequest:welcome');
 		showPRController.shouldShow = shouldShow;
 	});
+	registerCodetaster(context);
 	await setGitSettingContexts(context);
 
 	Logger.debug('Creating API implementation.', 'Activation');

@@ -93,6 +93,12 @@
 			"type": "object",
 			"title": "GitHub Pull Requests",
 			"properties": {
+				"codetaster.executablePath": {
+					"type": "string",
+					"default": "codetaster",
+					"markdownDescription": "The `codetaster` executable that groups pull request files by review verdict. A bare name is looked up on PATH.",
+					"scope": "machine-overridable"
+				},
 				"githubPullRequests.pullRequestTitle": {
 					"deprecationMessage": "The pull request title now uses the same defaults as GitHub, and can be edited before create.",
 					"type": "string",
@@ -1004,6 +1010,12 @@
 			]
 		},
 		"commands": [
+			{
+				"command": "codetaster.refreshCheck",
+				"title": "Refresh Check",
+				"icon": "$(checklist)",
+				"category": "codetaster"
+			},
 			{
 				"command": "github.api.preloadPullRequest",
 				"title": "Preload Pull Request",
@@ -2782,6 +2794,16 @@
 				}
 			],
 			"view/title": [
+				{
+					"command": "codetaster.refreshCheck",
+					"when": "view == prStatus:github",
+					"group": "navigation@3"
+				},
+				{
+					"command": "codetaster.refreshCheck",
+					"when": "gitHubOpenRepositoryCount != 0 && github:initialized && view == pr:github",
+					"group": "overflow@4"
+				},
 				{
 					"command": "pr.create",
 					"when": "gitHubOpenRepositoryCount != 0 && github:initialized && view == pr:github",
