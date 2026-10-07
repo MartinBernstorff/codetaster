@@ -70,6 +70,10 @@ def read_branch_change(
     working_tree = committed_changes.read_working_tree_state(checkout)
     if isinstance(working_tree, Err):
         return working_tree
+    # `checkout` may be a subdirectory; ratings_path is from the repository root.
+    root = committed_changes.read_repository_root(checkout)
+    if isinstance(root, Err):
+        return root
     return Ok(
         BranchChange(
             review=review,
@@ -77,6 +81,6 @@ def read_branch_change(
                 update={"files": change.value.files.without(review.ratings_path)}
             ),
             working_tree=working_tree.value,
-            ratings_location=ratings_file_location(checkout, review.ratings_path),
+            ratings_location=ratings_file_location(root.value, review.ratings_path),
         )
     )

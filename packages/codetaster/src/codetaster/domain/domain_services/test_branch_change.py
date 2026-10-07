@@ -85,6 +85,24 @@ def test_reports_the_working_tree_and_ratings_location() -> None:
     assert result.ratings_location == location
 
 
+def test_the_ratings_file_is_found_from_the_repository_root() -> None:
+    configuration = Configuration.fake()
+    assert configuration.review is not None
+    history = history_with_feature_branch(configuration.review.base_branch)
+    subdirectory = CheckoutPath(history.repository_root.root / "src")
+    location = ratings_file_location(
+        history.repository_root, configuration.review.ratings_path
+    )
+
+    result = read_branch_change(subdirectory, None, configuration, history)
+
+    match result:
+        case Ok(branch):
+            assert branch.ratings_location == location
+        case Err(error):
+            raise error
+
+
 def test_missing_review_settings_is_an_error() -> None:
     configuration = Configuration.fake().model_copy(update={"review": None})
 

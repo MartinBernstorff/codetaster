@@ -32,3 +32,9 @@ class CommittedChanges(Protocol):
     ) -> Result[WorkingTreeState, ToolError]:
         """Dirty if anything is uncommitted, including untracked files."""
         ...
+
+    def read_repository_root(
+        self, checkout: CheckoutPath
+    ) -> Result[CheckoutPath, ToolError]:
+        """The top directory of the checkout `checkout` is in, which may be itself."""
+        ...

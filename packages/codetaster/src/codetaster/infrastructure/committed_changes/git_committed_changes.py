@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import override
 
 from pydantic import ConfigDict, RootModel
@@ -87,6 +88,15 @@ class GitCommittedChanges(CommittedChanges):
         if status.value.root == "":
             return Ok(WorkingTreeState.CLEAN)
         return Ok(WorkingTreeState.DIRTY)
+
+    @override
+    def read_repository_root(
+        self, checkout: CheckoutPath
+    ) -> Result[CheckoutPath, ToolError]:
+        root = run_git(checkout, GitArguments(("rev-parse", "--show-toplevel")))
+        if isinstance(root, Err):
+            return root
+        return Ok(CheckoutPath(Path(root.value.root.strip())))
 
 
 def resolve_commit(
