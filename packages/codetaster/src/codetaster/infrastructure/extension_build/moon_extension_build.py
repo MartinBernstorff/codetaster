@@ -1,5 +1,7 @@
 import json
+import os
 import zipfile
+from pathlib import Path
 from typing import cast, override
 
 from pydantic import ConfigDict, RootModel
@@ -18,6 +20,7 @@ from codetaster.domain.secondary_ports.extension_build import ExtensionBuild
 from codetaster.infrastructure.external_tool.run_external_tool import (
     OutputMode,
     ToolArguments,
+    ToolEnvironment,
     ToolOutput,
     run_external_tool,
 )
@@ -47,26 +50,38 @@ class MoonExtensionBuild(ExtensionBuild):
     def build_extension_package(
         self, checkout: CheckoutPath
     ) -> Result[BuiltExtension, ToolError | ExtensionPackageError]:
+        # Variables set by a surrounding moon run, such as MOON_WORKSPACE_ROOT,
+        # would make moon use that workspace instead of `checkout`'s.
+        environment = ToolEnvironment(
+            {
+                name: value
+                for name, value in os.environ.items()
+                if not name.startswith("MOON_")
+            }
+        )
         built = run_external_tool(
             ToolArguments(("moon", "run", self.target.root)),
             checkout,
             OutputMode.SHOW,
             self.hint,
+            environment,
         )
         if isinstance(built, Err):
             return built
+        project, _, _ = self.target.root.partition(":")
         described = run_external_tool(
-            ToolArguments(("moon", "task", self.target.root, "--json")),
+            ToolArguments(("moon", "project", project, "--json")),
             checkout,
             OutputMode.CAPTURE,
             self.hint,
+            environment,
         )
         match described:
             case Err() as failed:
                 return failed
             case Ok(description):
                 pass
-        match package_in_task_description(description, checkout):
+        match package_in_project_description(description, self.target):
             case Err() as failed:
                 return failed
             case Ok(package):
@@ -78,29 +93,36 @@ class MoonExtensionBuild(ExtensionBuild):
         )
 
 
-def package_in_task_description(
-    description: ToolOutput, checkout: CheckoutPath
+def package_in_project_description(
+    description: ToolOutput, target: MoonTarget
 ) -> Result[ExtensionPackagePath, ExtensionPackageError]:
-    """The one `.vsix` among the outputs listed by `moon task --json`."""
+    """The one `.vsix` that `target` outputs, according to `moon project --json`.
+
+    Task outputs are relative to the project root, which moon reports as absolute.
+    """
+    _, _, task_name = target.root.partition(":")
     try:
-        task = cast("dict[str, dict[str, object]]", json.loads(description.root))
-        outputs = list(task["outputFiles"])
+        project = cast("dict[str, object]", json.loads(description.root))
+        root = Path(cast("str", project["root"]))
+        tasks = cast("dict[str, dict[str, list[dict[str, str]]]]", project["tasks"])
+        outputs = tasks[task_name]["outputs"]
+        files = [output["file"] for output in outputs if "file" in output]
     except (json.JSONDecodeError, KeyError, TypeError) as error:
         return Err(
             ExtensionPackageError(
-                ProblemDescription(f"unexpected output from `moon task`: {error!r}")
+                ProblemDescription(f"unexpected output from `moon project`: {error!r}")
             )
         )
-    packages = [path for path in outputs if path.endswith(".vsix")]
+    packages = [file for file in files if file.endswith(".vsix")]
     if len(packages) != 1:
         return Err(
             ExtensionPackageError(
                 ProblemDescription(
-                    f"expected the task to output one .vsix file, got {outputs}"
+                    f"expected {target.root} to output one .vsix file, got {files}"
                 )
             )
         )
-    return Ok(ExtensionPackagePath(checkout.root / packages[0]))
+    return Ok(ExtensionPackagePath(root / packages[0]))
 
 
 def read_extension_id(

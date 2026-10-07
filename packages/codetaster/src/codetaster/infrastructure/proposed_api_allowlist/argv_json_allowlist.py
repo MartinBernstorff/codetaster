@@ -83,7 +83,7 @@ class ArgvJsonAllowlist(ProposedApiAllowlist):
 
     def _read_text(self) -> Result[JsoncText, ArgvFileError]:
         try:
-            return Ok(JsoncText(self.location.root.read_text(encoding="utf-8")))
+            return Ok(JsoncText(self.location.root.read_text(encoding="utf-8-sig")))
         except FileNotFoundError:
             return Ok(JsoncText(""))
         except (OSError, UnicodeDecodeError) as error:

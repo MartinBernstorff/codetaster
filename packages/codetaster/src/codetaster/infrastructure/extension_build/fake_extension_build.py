@@ -16,10 +16,10 @@ class FakeExtensionBuild(ExtensionBuild):
 
     def __init__(
         self,
-        built: BuiltExtension | None = None,
+        built: BuiltExtension,
         failure: ToolError | ExtensionPackageError | None = None,
     ) -> None:
-        self.built = built if built is not None else BuiltExtension.fake()
+        self.built = built
         self.failure = failure
         self.built_in: set[CheckoutPath] = set()
 

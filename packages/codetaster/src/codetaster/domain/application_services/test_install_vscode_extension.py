@@ -52,6 +52,8 @@ def test_reinstalling_succeeds() -> None:
     )
 
     assert first == second == Ok(built)
+    assert allowlist.allowed == {built.extension_id}
+    assert vscode.installed == {built.extension_id}
 
 
 def test_a_failed_build_installs_nothing() -> None:
@@ -92,7 +94,7 @@ def test_a_failed_install_is_returned() -> None:
     result = install_vscode_extension(
         FakeExtensionBuild(built),
         InMemoryProposedApiAllowlist(),
-        FakeVsCodeExtensions({built.package: built.extension_id}, failure),
+        FakeVsCodeExtensions({built.package: built.extension_id}, failure=failure),
         CheckoutPath.fake(),
     )
 

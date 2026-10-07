@@ -176,26 +176,35 @@ def append_to_string_list(
     encoded = json.dumps(value.root)
     entry = f"{json.dumps(key.root)}: [{encoded}]"
     if not tokens.root:
-        return Ok(JsoncText(f"{{\n\t{entry}\n}}\n"))
+        separator = "" if text.root.endswith("\n") or not text.root else "\n"
+        return Ok(JsoncText(f"{text.root}{separator}{{\n\t{entry}\n}}\n"))
     opening = _value_start_of(tokens, key)
     if opening is None:
         object_start, first_inside = tokens.root[0], tokens.root[1]
         separator = "" if first_inside.text in _CLOSE else ","
-        return Ok(_insert(text, object_start.end, JsoncText(f"\n\t{entry}{separator}")))
+        return Ok(
+            _insert_at_offset(
+                text, object_start.end, JsoncText(f"\n\t{entry}{separator}")
+            )
+        )
     last = _last_token_inside(tokens, opening)
     if last is None:
-        return Ok(_insert(text, opening.end, JsoncText(encoded)))
-    return Ok(_insert(text, last.end, JsoncText(f", {encoded}")))
+        return Ok(_insert_at_offset(text, opening.end, JsoncText(encoded)))
+    return Ok(_insert_at_offset(text, last.end, JsoncText(f", {encoded}")))
 
 
-def _insert(text: JsoncText, at: Offset, addition: JsoncText) -> JsoncText:
+def _insert_at_offset(text: JsoncText, at: Offset, addition: JsoncText) -> JsoncText:
     return JsoncText(text.root[: at.root] + addition.root + text.root[at.root :])
 
 
 def _value_start_of(tokens: Tokens, key: JsonKey) -> Token | None:
-    """The first token of top-level `key`'s value, if the key exists."""
+    """The first token of top-level `key`'s value, if the key exists.
+
+    If the key is repeated, the last one counts, as in VS Code and `json.loads`.
+    """
     depth = 0
     items = tokens.root
+    found: Token | None = None
     for index, token in enumerate(items):
         if token.text in _OPEN:
             depth += 1
@@ -208,8 +217,8 @@ def _value_start_of(tokens: Tokens, key: JsonKey) -> Token | None:
             and items[index + 1].is_punctuation(JsoncText(":"))
             and json.loads(token.text.root) == key.root
         ):
-            return items[index + 2]
-    return None
+            found = items[index + 2]
+    return found
 
 
 def _last_token_inside(tokens: Tokens, opening: Token) -> Token | None:

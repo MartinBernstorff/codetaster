@@ -45,6 +45,16 @@ class ToolOutput(RootModel[str]):
         return ToolOutput("")
 
 
+class ToolEnvironment(RootModel[dict[str, str]]):
+    """The environment variables a tool runs with, in place of this process's."""
+
+    model_config = ConfigDict(frozen=True)
+
+    @staticmethod
+    def fake() -> ToolEnvironment:
+        return ToolEnvironment({})
+
+
 class OutputMode(Enum):
     SHOW = auto()
     CAPTURE = auto()
@@ -55,6 +65,7 @@ def run_external_tool(
     checkout: CheckoutPath,
     output_mode: OutputMode,
     hint: InstallationHint,
+    environment: ToolEnvironment | None = None,
 ) -> Result[ToolOutput, ToolError]:
     """Run a tool inside `checkout`. Adapters share this; it is not a port.
 
@@ -70,6 +81,7 @@ def run_external_tool(
             stderr=capture,
             text=True,
             check=False,
+            env=environment.root if environment is not None else None,
         )
     except FileNotFoundError as error:
         # Also raised for a missing cwd; only a missing program is expected.

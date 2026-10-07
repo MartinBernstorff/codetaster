@@ -79,6 +79,26 @@ def test_creates_a_document_from_empty_or_comment_only_text() -> None:
     assert appended_values(JsoncText("// nothing\n"), value) == JsonStrings((value,))
 
 
+def test_keeps_the_comments_of_a_comment_only_text() -> None:
+    comment = "// nothing yet"
+
+    appended = append_to_string_list(
+        JsoncText(comment), JsonKey.fake(), JsonString.fake()
+    )
+
+    assert isinstance(appended, Ok)
+    assert comment in appended.value.root
+
+
+def test_appends_to_the_last_of_a_repeated_key() -> None:
+    last = JsonString("last")
+    value = JsonString.fake()
+    key = JsonKey.fake().root
+    text = JsoncText(f'{{"{key}": ["first"], "{key}": ["{last.root}"]}}')
+
+    assert appended_values(text, value) == JsonStrings((last, value))
+
+
 def test_comment_markers_inside_strings_are_kept() -> None:
     url = "https://example.com/*not-a-comment*/"
     value = JsonString.fake()

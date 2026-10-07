@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import pytest
 from safe_result import Err
 
 from codetaster.domain.domain_model.checkout import CheckoutPath
@@ -13,7 +12,7 @@ from codetaster.domain.domain_model.vscode_extension import (
 from codetaster.infrastructure.extension_build.moon_extension_build import (
     MoonExtensionBuild,
     MoonTarget,
-    package_in_task_description,
+    package_in_project_description,
     read_extension_id,
 )
 from codetaster.infrastructure.extension_build.test_contract import (
@@ -25,12 +24,8 @@ from codetaster.infrastructure.vscode_extensions.test_packages import (
 )
 
 
-def test_a_failing_task_is_a_tool_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    workspace = write_moon_workspace(
-        CheckoutPath(tmp_path), ExtensionId.fake(), monkeypatch
-    )
+def test_a_failing_task_is_a_tool_failure(tmp_path: Path) -> None:
+    workspace = write_moon_workspace(CheckoutPath(tmp_path), ExtensionId.fake())
 
     result = MoonExtensionBuild(MoonTarget("ext:no-such-task")).build_extension_package(
         workspace
@@ -41,9 +36,12 @@ def test_a_failing_task_is_a_tool_failure(
 
 
 def test_a_task_without_one_vsix_output_is_a_package_error() -> None:
-    description = ToolOutput('{"outputFiles": {"ext/a.vsix": {}, "ext/b.vsix": {}}}')
+    description = ToolOutput(
+        '{"root": "/repo/ext", "tasks": {"package": {"outputs": '
+        '[{"file": "a.vsix"}, {"file": "b.vsix"}]}}}'
+    )
 
-    result = package_in_task_description(description, CheckoutPath.fake())
+    result = package_in_project_description(description, MoonTarget("ext:package"))
 
     assert isinstance(result, Err)
     assert isinstance(result.error, ExtensionPackageError)

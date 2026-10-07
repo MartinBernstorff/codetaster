@@ -57,3 +57,13 @@ def test_an_unexpected_value_is_an_error_and_the_file_is_left_alone(
 
     assert isinstance(result, Err)
     assert location.read_text() == content
+
+
+def test_reads_a_file_starting_with_a_byte_order_mark(tmp_path: Path) -> None:
+    location = tmp_path / "argv.json"
+    _ = location.write_text("{}", encoding="utf-8-sig")
+    extension = ExtensionId.fake()
+
+    result = ArgvJsonAllowlist(Location(location)).allow_proposed_api(extension)
+
+    assert result == Ok(AllowlistUpdate.ADDED)

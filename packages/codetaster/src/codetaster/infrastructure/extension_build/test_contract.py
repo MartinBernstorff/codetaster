@@ -4,7 +4,6 @@ The moon implementation runs against a throwaway moon workspace whose package ta
 copies a prebuilt `.vsix`, so the real extension is not built here.
 """
 
-import os
 import subprocess
 from pathlib import Path
 
@@ -39,16 +38,13 @@ tasks:
 
 
 def write_moon_workspace(
-    workspace: CheckoutPath, extension: ExtensionId, monkeypatch: pytest.MonkeyPatch
+    workspace: CheckoutPath, extension: ExtensionId
 ) -> CheckoutPath:
     """A moon workspace with one project, `ext`, whose `package` task makes a VSIX.
 
     Pins the moon version that runs the tests, since a temporary directory is
-    outside every `.prototools`. Unsets the `MOON_*` variables a surrounding
-    `moon run :test` sets, which would point moon at this repository instead.
+    outside every `.prototools`.
     """
-    for variable in [name for name in os.environ if name.startswith("MOON_")]:
-        monkeypatch.delenv(variable)
     moon_version = subprocess.run(
         ["moon", "--version"], capture_output=True, text=True, check=True
     ).stdout.split()[-1]
@@ -70,10 +66,8 @@ def extension() -> ExtensionId:
 
 
 @pytest.fixture
-def workspace(
-    tmp_path: Path, extension: ExtensionId, monkeypatch: pytest.MonkeyPatch
-) -> CheckoutPath:
-    return write_moon_workspace(CheckoutPath(tmp_path), extension, monkeypatch)
+def workspace(tmp_path: Path, extension: ExtensionId) -> CheckoutPath:
+    return write_moon_workspace(CheckoutPath(tmp_path), extension)
 
 
 @pytest.fixture
