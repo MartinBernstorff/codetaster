@@ -4,6 +4,7 @@ import { CodetasterChecks } from './codetasterCheck';
 import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
 import { headMismatchWarning } from './headMismatch';
 import { NodeCodetasterProcess } from './nodeCodetasterProcess';
+import { ratingsErrorWarning } from './ratingsError';
 import { groupFilesByVerdict, VerdictGroup } from './verdictGroups';
 import { findLocalRepoRemoteFromGitHubRef } from '../common/githubRef';
 import { disposeAll } from '../common/lifecycle';
@@ -174,8 +175,8 @@ function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: P
 /**
  * The children of a PR file list if the PR is checked out: one node per codetaster
  * verdict group, each holding its files in the configured layout, or an error and no
- * files if the check fails. A warning precedes the groups when the check ran on a
- * different commit than the PR head. Undefined if the PR is not checked out, so the
+ * files if the check fails. Warnings precede the groups when the check ran on a
+ * different commit than the PR head, or ignored an invalid ratings file. Undefined if the PR is not checked out, so the
  * caller shows upstream's file list.
  * `allFiles` is the PR's whole file list, which decides when the check re-runs;
  * `shownFiles` are the ones to show, e.g. without viewed files.
@@ -203,6 +204,9 @@ export async function codetasterFileNodes(
 	showFileRatings(outcome.report, shownFiles);
 	const groups = groupFilesByVerdict(outcome.report, shownFiles, file => file.fileName)
 		.map(group => new VerdictGroupNode(parent, group, layout));
-	const warning = headMismatchWarning(outcome.report.head.commit, pullRequestHead(allFiles));
-	return warning ? [new CodetasterWarningNode(parent, warning), ...groups] : groups;
+	const warnings = [
+		headMismatchWarning(outcome.report.head.commit, pullRequestHead(allFiles)),
+		ratingsErrorWarning(outcome.report.ratings_error),
+	].filter((warning): warning is string => warning !== undefined);
+	return [...warnings.map(warning => new CodetasterWarningNode(parent, warning)), ...groups];
 }

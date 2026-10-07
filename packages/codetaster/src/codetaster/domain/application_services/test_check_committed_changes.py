@@ -25,7 +25,6 @@ from codetaster.domain.domain_model.review.ratings import (
     FileRating,
     RatingsFile,
     RatingsFileContent,
-    RatingsFileError,
     ratings_file_location,
 )
 from codetaster.domain.domain_model.review.sampling import Verdict
@@ -248,7 +247,7 @@ def test_the_ratings_file_is_never_assessed() -> None:
     ]
 
 
-def test_an_invalid_ratings_file_is_an_error() -> None:
+def test_an_invalid_ratings_file_leaves_every_file_unrated_and_is_reported() -> None:
     configuration = Configuration.fake()
     assert configuration.review is not None
     history = history_with_feature_branch(
@@ -259,10 +258,22 @@ def test_an_invalid_ratings_file_is_an_error() -> None:
     )
     store = InMemoryRatingsFileStore({location: RatingsFileContent("not json")})
 
-    result = check_committed_changes(CheckRequest.fake(), configuration, history, store)
+    result = checked_result(configuration, history, ratings_files=store)
 
-    match result:
-        case Err(RatingsFileError() as error):
-            assert error.location == location
-        case _:
-            raise AssertionError(result)
+    assert {assessment.rating for assessment in result.assessments.root} == {None}
+    assert result.ratings_problem is not None
+    assert result.ratings_problem.location == location
+
+
+def test_a_valid_ratings_file_is_no_problem() -> None:
+    configuration = Configuration.fake()
+    assert configuration.review is not None
+    history = history_with_feature_branch(
+        configuration.review.base_branch, RepositoryPath.fake()
+    )
+
+    result = checked_result(
+        configuration, history, ratings_files=ratings_at(configuration)
+    )
+
+    assert result.ratings_problem is None

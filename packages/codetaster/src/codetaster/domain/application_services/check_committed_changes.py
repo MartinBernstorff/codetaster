@@ -5,9 +5,9 @@ from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.configuration.configuration import Configuration
 from codetaster.domain.domain_model.review.changes import RevisionName
 from codetaster.domain.domain_model.review.check_result import CheckResult
-from codetaster.domain.domain_model.review.ratings import (
-    RatingsFile,
-    RatingsFileError,
+from codetaster.domain.domain_model.review.ratings import RatingsFile
+from codetaster.domain.domain_model.review.ratings_validation import (
+    InvalidRatingsFile,
 )
 from codetaster.domain.domain_model.review.sampling import (
     FileAssessments,
@@ -32,19 +32,17 @@ class CheckRequest(BaseModel):
         return CheckRequest(checkout=CheckoutPath.fake(), base_override=None)
 
 
-type CheckError = BranchChangeError | RatingsFileError
-
-
 def check_committed_changes(
     request: CheckRequest,
     configuration: Configuration,
     committed_changes: CommittedChanges,
     ratings_files: RatingsFileStore,
-) -> Result[CheckResult, CheckError]:
+) -> Result[CheckResult, BranchChangeError]:
     """Decide which files changed since the merge base with the base need review.
 
     A file's AI rating applies if it matches the file's change. Without a ratings
-    file every file is unrated. The ratings file itself is never assessed.
+    file every file is unrated, and so with an invalid one, which is reported. The
+    ratings file itself is never assessed.
     """
     branch = read_branch_change(
         request.checkout, request.base_override, configuration, committed_changes
@@ -53,9 +51,14 @@ def check_committed_changes(
         return branch
     change = branch.value.change
     ratings = ratings_files.read_ratings(branch.value.ratings_location)
+    ratings_file = RatingsFile(ratings=())
+    ratings_problem = None
     if isinstance(ratings, Err):
-        return ratings
-    ratings_file = ratings.value or RatingsFile(ratings=())
+        ratings_problem = InvalidRatingsFile(
+            location=ratings.error.location, reason=ratings.error.reason
+        )
+    elif ratings.value is not None:
+        ratings_file = ratings.value
     base_probability = branch.value.review.base_probability
     return Ok(
         CheckResult(
@@ -71,5 +74,6 @@ def check_committed_changes(
                 )
             ),
             working_tree=branch.value.working_tree,
+            ratings_problem=ratings_problem,
         )
     )

@@ -6,6 +6,9 @@ from codetaster.domain.domain_model.review.changes import (
 )
 from codetaster.domain.domain_model.review.check_result import CheckResult
 from codetaster.domain.domain_model.review.ratings import FileRating
+from codetaster.domain.domain_model.review.ratings_validation import (
+    InvalidRatingsFile,
+)
 from codetaster.domain.domain_model.review.sampling import (
     FileAssessment,
     FileAssessments,
@@ -62,6 +65,24 @@ def test_only_no_review_files_means_the_change_needs_no_review() -> None:
     report = check_report_from_result(result).model_dump(mode="json", by_alias=True)
 
     assert report["needs_review"] is False
+
+
+def test_reports_an_invalid_ratings_file() -> None:
+    problem = InvalidRatingsFile.fake()
+    result = CheckResult.fake().model_copy(update={"ratings_problem": problem})
+
+    report = check_report_from_result(result).model_dump(mode="json", by_alias=True)
+
+    assert str(problem.location.root) in report["ratings_error"]
+    assert problem.reason.root in report["ratings_error"]
+
+
+def test_a_valid_ratings_file_is_no_ratings_error() -> None:
+    result = CheckResult.fake().model_copy(update={"ratings_problem": None})
+
+    report = check_report_from_result(result).model_dump(mode="json", by_alias=True)
+
+    assert report["ratings_error"] is None
 
 
 def test_schema_version_is_two() -> None:

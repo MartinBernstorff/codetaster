@@ -5,6 +5,9 @@ from codetaster.domain.domain_model.review.changes import (
     RevisionName,
     WorkingTreeState,
 )
+from codetaster.domain.domain_model.review.ratings_validation import (
+    InvalidRatingsFile,
+)
 from codetaster.domain.domain_model.review.sampling import FileAssessments, Verdict
 
 
@@ -18,6 +21,8 @@ class CheckResult(BaseModel):
     head: CommitSha
     assessments: FileAssessments
     working_tree: WorkingTreeState
+    ratings_problem: InvalidRatingsFile | None
+    """Why the ratings file was ignored, leaving every file unrated."""
 
     @staticmethod
     def fake() -> CheckResult:
@@ -27,6 +32,7 @@ class CheckResult(BaseModel):
             head=CommitSha.fake(),
             assessments=FileAssessments.fake(),
             working_tree=WorkingTreeState.CLEAN,
+            ratings_problem=None,
         )
 
     def verdict(self) -> Verdict:

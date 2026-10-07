@@ -26,6 +26,8 @@ export interface CheckReport {
 	readonly needs_review: boolean;
 	readonly base: { readonly ref: string, readonly merge_base: string };
 	readonly head: { readonly commit: string };
+	/** Why an invalid ratings file was ignored, leaving every file unrated. Absent from older codetaster versions. */
+	readonly ratings_error?: string | null;
 	readonly 'needs-review': readonly FileReport[];
 	readonly sampled: readonly FileReport[];
 	readonly 'no-review': readonly FileReport[];

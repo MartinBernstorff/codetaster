@@ -1,5 +1,7 @@
 """The `--format json` output of `codetaster check`."""
 
+from typing import override
+
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from codetaster.domain.domain_model.review.changes import (
@@ -11,6 +13,9 @@ from codetaster.domain.domain_model.review.changes import (
 from codetaster.domain.domain_model.review.check_result import CheckResult
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import FileRating, RatingReason
+from codetaster.domain.domain_model.review.ratings_validation import (
+    InvalidRatingsFile,
+)
 from codetaster.domain.domain_model.review.sampling import (
     Draw,
     FileAssessment,
@@ -34,6 +39,18 @@ class ReportFlag(RootModel[bool]):
     @staticmethod
     def fake() -> ReportFlag:
         return ReportFlag(root=False)
+
+
+class RatingsErrorMessage(RootModel[str]):
+    model_config = ConfigDict(frozen=True)
+
+    @override
+    def __str__(self) -> str:
+        return self.root
+
+    @staticmethod
+    def fake() -> RatingsErrorMessage:
+        return ratings_error_message(InvalidRatingsFile.fake())
 
 
 class BaseReport(BaseModel):
@@ -136,6 +153,10 @@ class CheckReport(BaseModel):
     )
     base: BaseReport
     head: HeadReport
+    ratings_error: RatingsErrorMessage | None = Field(
+        description="Why the ratings file at [review] ratings_path was ignored, "
+        "leaving every file unrated. null if it is valid or missing."
+    )
     needs_review_files: tuple[FileReport, ...] = Field(
         serialization_alias="needs-review",
         description="The files whose draw is below their rating's probability. "
@@ -170,9 +191,18 @@ def check_report_from_result(result: CheckResult) -> CheckReport:
         override_label_applied=ReportFlag(root=False),
         base=BaseReport(ref=result.base, merge_base=result.merge_base),
         head=HeadReport(commit=result.head),
+        ratings_error=None
+        if result.ratings_problem is None
+        else ratings_error_message(result.ratings_problem),
         needs_review_files=files_with(Verdict.NEEDS_REVIEW),
         sampled_files=files_with(Verdict.SAMPLED),
         no_review_files=files_with(Verdict.NO_REVIEW),
+    )
+
+
+def ratings_error_message(problem: InvalidRatingsFile) -> RatingsErrorMessage:
+    return RatingsErrorMessage(
+        f"invalid ratings file {problem.location.root}: {problem.reason.root}"
     )
 
 

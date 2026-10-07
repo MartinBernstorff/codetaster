@@ -47,7 +47,8 @@ def check_changes(
 ) -> None:
     """Decide which files changed since the merge base with the base need review.
 
-    Files are rated from \\[review] ratings_path, if it exists. Only committed
+    Files are rated from \\[review] ratings_path, if it exists and is valid; an
+    invalid one is reported and leaves every file unrated. Only committed
     changes count. Exits 0 whatever the verdict, unless
     --fail-on-needs-review is given.
     """
@@ -64,12 +65,11 @@ def check_changes(
             typer.echo(f"Error: {error}", err=True)
             raise typer.Exit(code=1)
     warn_about_uncommitted_changes(result.working_tree)
+    report = check_report_from_result(result)
+    if report.ratings_error is not None:
+        typer.echo(f"Warning: {report.ratings_error}\nEvery file is unrated.", err=True)
     match output_format:
         case OutputFormat.JSON:
-            typer.echo(
-                check_report_from_result(result).model_dump_json(
-                    by_alias=True, indent=2
-                )
-            )
+            typer.echo(report.model_dump_json(by_alias=True, indent=2))
     if fail_on_needs_review and result.verdict() is not Verdict.NO_REVIEW:
         raise typer.Exit(code=1)
