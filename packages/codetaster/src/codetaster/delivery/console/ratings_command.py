@@ -78,21 +78,12 @@ def echo_rating_instructions(
     typer.echo(f"""\
 Rate how likely each file changed on this branch is to need human review.
 
-codetaster decides which changed files a human reviews. The files with the
-highest ratings, {top_rated}% of the changed files rounded up, need review. Every
-other file is sampled for review with the base probability, {base_probability}.
-So what matters is how your ratings rank the files: a low rating does not lower
-a file's chance of being sampled.
+The files with the highest ratings, {top_rated}%, need review. Every other file is sampled for review with the base probability, {base_probability}.
 
 Fill in every entry of the JSON template below:
 - "probability": from 0 to 1, how likely the change to this file is to need
-  human review. Rate risky, subtle or hard-to-undo changes high, and mechanical
-  or well-tested ones low. Avoid ties: of equally rated files, codetaster picks
-  at random.
-- "reason": one sentence on why.
-- Leave "path" and "blob" as they are. A rating applies only to the file
-  content with that blob SHA, so editing the file afterwards makes the rating
-  stale. A deleted file has "blob": null.
+  human review. Rate risky, subtle or hard-to-undo changes high, and mechanical (renames/refactors) low.
+- Leave "path" and "blob" as they are.
 
 Write the filled-in JSON to {location.root}
 Then run this, and fix any problems it reports:

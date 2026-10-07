@@ -31,7 +31,6 @@ function configuredExecutablePath(): string {
 	return vscode.workspace.getConfiguration(CODETASTER_SETTINGS_NAMESPACE).get<string>(EXECUTABLE_PATH_SETTING) || 'codetaster';
 }
 
-/** The `--top-rated-percentage` override, or undefined to use the project config's. */
 function configuredTopRatedPercentage(): number | undefined {
 	return vscode.workspace.getConfiguration(CODETASTER_SETTINGS_NAMESPACE).get<number | null>(TOP_RATED_PERCENTAGE_SETTING) ?? undefined;
 }

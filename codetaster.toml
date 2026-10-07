@@ -10,7 +10,7 @@ base_branch = "main"
 base_probability = 0.1
 
 # The percentage, from 0 to 100, of changed files that need review: those with the highest AI ratings. `--top-rated-percentage` overrides it.
-# top_rated_percentage = 20
+top_rated_percentage = 20
 
 # The AI ratings file, relative to the repository root. Usually gitignored. `check` never lists it.
 # ratings_path = ".codetaster/ratings.json"

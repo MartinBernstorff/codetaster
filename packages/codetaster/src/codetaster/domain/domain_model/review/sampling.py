@@ -93,13 +93,6 @@ def assess_file_changes(
     ratings: RatingsFile,
     top_rated: TopRatedPercentage,
 ) -> FileAssessments:
-    """needs-review if the file is among the `top_rated` percent of `changes` with
-    the highest ratings, else sampled if its draw is below the base probability.
-
-    The number of files is rounded up, so any percentage above 0 picks at least
-    one file. Only rated files can need review, so fewer are picked if too few
-    are rated. Of equally rated files, the lower draw is picked first.
-    """
     draws = tuple(draw_for_file_change(change) for change in changes.root)
     file_ratings = tuple(ratings.rating_for(change) for change in changes.root)
     ranked = sorted(
