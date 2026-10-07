@@ -135,17 +135,17 @@ def validate_ratings(
     raise typer.Exit(code=1)
 
 
-class ProblemDescription(RootModel[str]):
+class RatingProblemDescription(RootModel[str]):
     """What is wrong with a ratings file, and how to fix it."""
 
     @staticmethod
-    def fake() -> ProblemDescription:
-        return ProblemDescription("src/module.py has no rating.")
+    def fake() -> RatingProblemDescription:
+        return RatingProblemDescription("src/module.py has no rating.")
 
 
 def describe_rating_problem(
     problem: RatingProblem, checkout: CheckoutPath, base: RevisionName | None
-) -> ProblemDescription:
+) -> RatingProblemDescription:
     """What is wrong, and how a coding agent can fix it.
 
     File versions are shown as they are written in the ratings file.
@@ -153,32 +153,32 @@ def describe_rating_problem(
     match problem:
         case MissingRatingsFile(location=location):
             template = ratings_command_line(RatingsSubcommand.TEMPLATE, checkout, base)
-            return ProblemDescription(
+            return RatingProblemDescription(
                 f"There is no ratings file at {location.root}. Run `{template.root}`, "
                 "fill in the template and write it there."
             )
         case InvalidRatingsFile(reason=reason):
             details = reason.root.replace("\n", "\n  ")
-            return ProblemDescription(
+            return RatingProblemDescription(
                 f"It does not match the ratings format:\n  {details}"
             )
         case UnratedFile(target=target):
-            return ProblemDescription(
+            return RatingProblemDescription(
                 f"{target.path} has no rating. "
                 f"Add a rating for {target.model_dump_json()}."
             )
         case StaleRating(rating=rating, current=current):
-            return ProblemDescription(
+            return RatingProblemDescription(
                 f"The rating for {rating.model_dump_json()} is for another version "
                 f"of {rating.path}. Re-rate the file as it is now, "
                 f"{current.model_dump_json()}."
             )
         case UnknownRating(rating=rating):
-            return ProblemDescription(
+            return RatingProblemDescription(
                 f"{rating.path} is not changed on this branch. Remove its rating."
             )
         case DuplicateRating(target=target):
-            return ProblemDescription(
+            return RatingProblemDescription(
                 f"{target.model_dump_json()} has more than one rating. Keep one."
             )
 
