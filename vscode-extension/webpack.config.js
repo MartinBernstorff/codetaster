@@ -375,7 +375,9 @@ async function getExtensionConfig(target, mode, env) {
 						"constants": require.resolve("constants-browserify"),
 						buffer: require.resolve('buffer'),
 						timers: require.resolve('timers-browserify'),
-						http: require.resolve("stream-http")
+						http: require.resolve("stream-http"),
+						// codetaster: running the codetaster CLI needs a local process.
+						'child_process': false,
 					}
 					: {
 						http: require.resolve("stream-http")
