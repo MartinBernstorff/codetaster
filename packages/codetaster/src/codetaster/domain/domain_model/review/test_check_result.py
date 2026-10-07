@@ -5,16 +5,17 @@ from hypothesis import strategies as st
 
 from codetaster.domain.domain_model.review.changes import FileChange
 from codetaster.domain.domain_model.review.check_result import CheckResult
+from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.sampling import (
     FileAssessment,
     FileAssessments,
-    Probability,
     Verdict,
     assess_file_change,
 )
 from codetaster.domain.domain_model.review.test_strategies import (
     file_changes,
     probabilities,
+    ratings_of,
 )
 
 
@@ -61,15 +62,24 @@ def test_no_changed_files_need_no_review() -> None:
     assert result.verdict() is Verdict.NO_REVIEW
 
 
-@given(changes=st.lists(file_changes(), max_size=20), base_probability=probabilities())
+@given(
+    changes=st.lists(file_changes(), max_size=20),
+    base_probability=probabilities(),
+    data=st.data(),
+)
 def test_the_groups_partition_the_changed_files(
-    changes: list[FileChange], base_probability: Probability
+    changes: list[FileChange], base_probability: Probability, data: st.DataObject
 ) -> None:
     result = CheckResult.fake().model_copy(
         update={
             "assessments": FileAssessments(
                 tuple(
-                    assess_file_change(change, base_probability) for change in changes
+                    assess_file_change(
+                        change,
+                        base_probability,
+                        data.draw(st.one_of(st.none(), ratings_of(change))),
+                    )
+                    for change in changes
                 )
             )
         }

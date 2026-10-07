@@ -123,6 +123,19 @@ class FileChanges(RootModel[tuple[FileChange, ...]]):
     def fake() -> FileChanges:
         return FileChanges((FileChange.fake(),))
 
+    def without(self, path: RepositoryPath) -> FileChanges:
+        """Drop the change to the file at `path`, before or after the change."""
+        return FileChanges(
+            tuple(
+                change
+                for change in self.root
+                if path
+                not in {
+                    version.path for version in (change.before, change.after) if version
+                }
+            )
+        )
+
 
 class CommittedChange(BaseModel):
     """The files changed from the merge base of `base` and HEAD, to HEAD."""
