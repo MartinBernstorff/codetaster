@@ -8,7 +8,7 @@ interface FakeFile {
 }
 
 function fakeFileReport(path: string): FileReport {
-	return { path, previous_path: null, change_type: 'modified', base_probability: 0.1, probability: 0.1, draw: 0.5 };
+	return { path, previous_path: null, change_type: 'modified', base_probability: 0.1, rating: null, unrated: true, probability: 0.1, draw: 0.5 };
 }
 
 function fakeCheckReport(groups: { needsReview?: string[], sampled?: string[], noReview?: string[] }): CheckReport {

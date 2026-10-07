@@ -9,7 +9,7 @@ const validReport = {
 	base: { ref: 'main', merge_base: 'a'.repeat(40) },
 	head: { commit: 'b'.repeat(40) },
 	'needs-review': [],
-	sampled: [{ path: 'a.py', previous_path: null, change_type: 'added', base_probability: 0.1, probability: 0.1, draw: 0.05, rating: 'from a later schema' }],
+	sampled: [{ path: 'a.py', previous_path: null, change_type: 'added', base_probability: 0.1, rating: null, unrated: true, probability: 0.1, draw: 0.05, from_a_later_schema: true }],
 	'no-review': [],
 };
 
