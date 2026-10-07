@@ -64,7 +64,10 @@ def check_changes(
     ] = OutputFormat.JSON,
     fail_on_needs_review: Annotated[
         bool,
-        typer.Option("--fail-on-needs-review", help="Exit 1 if any file needs review."),
+        typer.Option(
+            "--fail-on-needs-review",
+            help="Exit 1 if any file is in needs-review or sampled.",
+        ),
     ] = False,
 ) -> None:
     """Sample which files changed since the merge base with the base need review.
@@ -111,5 +114,5 @@ def check_changes(
                     by_alias=True, indent=2
                 )
             )
-    if fail_on_needs_review and result.verdict() is Verdict.NEEDS_REVIEW:
+    if fail_on_needs_review and result.verdict() is not Verdict.NO_REVIEW:
         raise typer.Exit(code=1)

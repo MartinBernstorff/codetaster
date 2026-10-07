@@ -1,4 +1,5 @@
 import pytest
+from hypothesis import given
 from pydantic import ValidationError
 
 from codetaster.domain.domain_model.review.changes import (
@@ -13,6 +14,10 @@ from codetaster.domain.domain_model.review.sampling import (
     Verdict,
     assess_file_change,
     draw_for_file_change,
+)
+from codetaster.domain.domain_model.review.test_strategies import (
+    file_changes,
+    probabilities,
 )
 
 
@@ -79,16 +84,16 @@ def test_draws_fall_in_zero_to_one() -> None:
     assert max(draws) > 0.99
 
 
-def test_probability_one_always_needs_review() -> None:
+def test_base_probability_one_always_samples() -> None:
     verdicts = {
         assess_file_change(change, Probability(1)).verdict
         for change in changes_with_distinct_blobs()
     }
 
-    assert verdicts == {Verdict.NEEDS_REVIEW}
+    assert verdicts == {Verdict.SAMPLED}
 
 
-def test_probability_zero_never_needs_review() -> None:
+def test_base_probability_zero_never_samples() -> None:
     verdicts = {
         assess_file_change(change, Probability(0)).verdict
         for change in changes_with_distinct_blobs()
@@ -97,13 +102,13 @@ def test_probability_zero_never_needs_review() -> None:
     assert verdicts == {Verdict.NO_REVIEW}
 
 
-def test_a_draw_below_the_probability_needs_review() -> None:
+def test_a_draw_below_the_base_probability_is_sampled() -> None:
     change = FileChange.fake()
     draw = draw_for_file_change(change)
     above_draw = Probability(min(1, draw.root + 0.001))
     at_draw = Probability(draw.root)
 
-    assert assess_file_change(change, above_draw).verdict is Verdict.NEEDS_REVIEW
+    assert assess_file_change(change, above_draw).verdict is Verdict.SAMPLED
     assert assess_file_change(change, at_draw).verdict is Verdict.NO_REVIEW
 
 
@@ -121,3 +126,12 @@ def test_assessment_reports_its_inputs() -> None:
 def test_draw_rejects_one() -> None:
     with pytest.raises(ValidationError):
         _ = Draw(1)
+
+
+@given(change=file_changes(), base_probability=probabilities())
+def test_an_unrated_file_never_needs_review(
+    change: FileChange, base_probability: Probability
+) -> None:
+    assessment = assess_file_change(change, base_probability)
+
+    assert assessment.verdict is not Verdict.NEEDS_REVIEW

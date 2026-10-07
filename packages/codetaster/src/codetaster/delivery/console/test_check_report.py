@@ -21,32 +21,61 @@ def assessment_of(path: RepositoryPath, verdict: Verdict) -> FileAssessment:
     )
 
 
+def result_with(*assessments: FileAssessment) -> CheckResult:
+    return CheckResult.fake().model_copy(
+        update={"assessments": FileAssessments(assessments)}
+    )
+
+
 def test_files_are_listed_by_verdict() -> None:
     needs_review = RepositoryPath("needs.py")
+    sampled = RepositoryPath("sampled.py")
     no_review = RepositoryPath("skip.py")
-    result = CheckResult.fake().model_copy(
-        update={
-            "assessments": FileAssessments(
-                (
-                    assessment_of(needs_review, Verdict.NEEDS_REVIEW),
-                    assessment_of(no_review, Verdict.NO_REVIEW),
-                )
-            )
-        }
+    result = result_with(
+        assessment_of(needs_review, Verdict.NEEDS_REVIEW),
+        assessment_of(sampled, Verdict.SAMPLED),
+        assessment_of(no_review, Verdict.NO_REVIEW),
     )
 
     report = check_report_from_result(result).model_dump(mode="json", by_alias=True)
 
     assert [file["path"] for file in report["needs-review"]] == [needs_review.root]
+    assert [file["path"] for file in report["sampled"]] == [sampled.root]
     assert [file["path"] for file in report["no-review"]] == [no_review.root]
+
+
+def test_a_sampled_file_means_the_change_needs_review() -> None:
+    result = result_with(
+        assessment_of(RepositoryPath("sampled.py"), Verdict.SAMPLED),
+        assessment_of(RepositoryPath("skip.py"), Verdict.NO_REVIEW),
+    )
+
+    report = check_report_from_result(result).model_dump(mode="json", by_alias=True)
+
     assert report["needs_review"] is True
+
+
+def test_only_no_review_files_means_the_change_needs_no_review() -> None:
+    result = result_with(assessment_of(RepositoryPath.fake(), Verdict.NO_REVIEW))
+
+    report = check_report_from_result(result).model_dump(mode="json", by_alias=True)
+
+    assert report["needs_review"] is False
+
+
+def test_schema_version_is_two() -> None:
+    expected = 2
+
+    report = check_report_from_result(CheckResult.fake()).model_dump(
+        mode="json", by_alias=True
+    )
+
+    assert report["schema_version"] == expected
 
 
 def test_reports_each_files_decision_inputs() -> None:
     assessment = FileAssessment.fake()
-    result = CheckResult.fake().model_copy(
-        update={"assessments": FileAssessments((assessment,))}
-    )
+    result = result_with(assessment)
     expected = {
         "path": assessment.change.path().root,
         "previous_path": None,
