@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
+import { CheckReport } from './checkReport';
 import { CodetasterChecks } from './codetasterCheck';
+import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
 import { NodeCodetasterProcess } from './nodeCodetasterProcess';
 import { groupFilesByVerdict, VerdictGroup } from './verdictGroups';
 import { disposeAll } from '../common/lifecycle';
@@ -93,6 +95,49 @@ export class CodetasterErrorNode extends TreeNode implements vscode.TreeItem {
 	}
 }
 
+interface UpstreamFileNodeItem {
+	readonly tooltip: string;
+	readonly description: string | boolean | undefined;
+}
+
+/** Each file node's tooltip and description as upstream set them, before codetaster's. */
+const upstreamFileNodeItems = new WeakMap<PullRequestFileNode, UpstreamFileNodeItem>();
+
+function upstreamFileNodeItem(file: PullRequestFileNode): UpstreamFileNodeItem {
+	let item = upstreamFileNodeItems.get(file);
+	if (!item) {
+		item = { tooltip: file.tooltip, description: file.description };
+		upstreamFileNodeItems.set(file, item);
+	}
+	return item;
+}
+
+function directoryOf(fileName: string): string {
+	const separator = fileName.lastIndexOf('/');
+	return separator === -1 ? '' : fileName.slice(0, separator);
+}
+
+/**
+ * Shows each file's codetaster probability and AI reason on hover, and marks unrated
+ * files in their description. Nodes can be reused across check runs, so this starts
+ * from upstream's values each time.
+ */
+function showFileRatings(report: CheckReport, files: readonly PullRequestFileNode[]): void {
+	const reports = fileReportsByPath(report);
+	for (const file of files) {
+		const upstream = upstreamFileNodeItem(file);
+		const fileReport = reports.get(file.fileName);
+		// Upstream's `tooltip` is a getter; an own property shadows it without editing upstream.
+		Object.defineProperty(file, 'tooltip', {
+			value: fileHover(upstream.tooltip, fileReport),
+			configurable: true,
+			enumerable: true,
+			writable: true,
+		});
+		file.description = fileDescription(upstream.description, directoryOf(file.fileName), fileReport);
+	}
+}
+
 function fileListKey(files: readonly PullRequestFileNode[]): string {
 	const headCommit = files[0]?.pullRequest.head?.sha ?? '';
 	return JSON.stringify([headCommit, files.map(file => file.fileName).sort()]);
@@ -115,6 +160,7 @@ export async function codetasterFileNodes(
 	if (outcome.kind === 'error') {
 		return [new CodetasterErrorNode(parent, outcome.message)];
 	}
+	showFileRatings(outcome.report, shownFiles);
 	return groupFilesByVerdict(outcome.report, shownFiles, file => file.fileName)
 		.map(group => new VerdictGroupNode(parent, group, layout));
 }

@@ -4,11 +4,19 @@
  * New fields can appear without a version bump; they are kept on the parsed objects.
  */
 
+export interface RatingReport {
+	readonly probability: number;
+	readonly reason: string;
+}
+
 export interface FileReport {
 	readonly path: string;
 	readonly previous_path: string | null;
 	readonly change_type: string;
 	readonly base_probability: number;
+	/** null when no AI rating matches this version of the file. */
+	readonly rating: RatingReport | null;
+	readonly unrated: boolean;
 	readonly probability: number;
 	readonly draw: number;
 }
