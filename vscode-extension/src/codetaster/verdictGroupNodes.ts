@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { CheckReport } from './checkReport';
 import { CodetasterChecks } from './codetasterCheck';
 import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
+import { headMismatchWarning } from './headMismatch';
 import { NodeCodetasterProcess } from './nodeCodetasterProcess';
 import { groupFilesByVerdict, VerdictGroup } from './verdictGroups';
 import { disposeAll } from '../common/lifecycle';
@@ -138,14 +139,33 @@ function showFileRatings(report: CheckReport, files: readonly PullRequestFileNod
 	}
 }
 
+export class CodetasterWarningNode extends TreeNode implements vscode.TreeItem {
+	public readonly iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('problemsWarningIcon.foreground'));
+	public readonly tooltip: string;
+
+	constructor(parent: TreeNodeParent, message: string) {
+		super(parent);
+		this.label = message;
+		this.tooltip = message;
+	}
+
+	getTreeItem(): vscode.TreeItem {
+		return this;
+	}
+}
+
+function pullRequestHead(files: readonly PullRequestFileNode[]): string | undefined {
+	return files[0]?.pullRequest.head?.sha;
+}
+
 function fileListKey(files: readonly PullRequestFileNode[]): string {
-	const headCommit = files[0]?.pullRequest.head?.sha ?? '';
-	return JSON.stringify([headCommit, files.map(file => file.fileName).sort()]);
+	return JSON.stringify([pullRequestHead(files) ?? '', files.map(file => file.fileName).sort()]);
 }
 
 /**
  * The children of a PR file list: one node per codetaster verdict group, each holding
  * its files in the configured layout, or an error and no files if the check fails.
+ * A warning precedes the groups when the check ran on a different commit than the PR head.
  * `allFiles` is the PR's whole file list, which decides when the check re-runs;
  * `shownFiles` are the ones to show, e.g. without viewed files.
  */
@@ -161,6 +181,8 @@ export async function codetasterFileNodes(
 		return [new CodetasterErrorNode(parent, outcome.message)];
 	}
 	showFileRatings(outcome.report, shownFiles);
-	return groupFilesByVerdict(outcome.report, shownFiles, file => file.fileName)
+	const groups = groupFilesByVerdict(outcome.report, shownFiles, file => file.fileName)
 		.map(group => new VerdictGroupNode(parent, group, layout));
+	const warning = headMismatchWarning(outcome.report.head.commit, pullRequestHead(allFiles));
+	return warning ? [new CodetasterWarningNode(parent, warning), ...groups] : groups;
 }
