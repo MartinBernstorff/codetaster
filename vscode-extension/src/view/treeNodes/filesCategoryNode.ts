@@ -7,21 +7,20 @@ import * as vscode from 'vscode';
 import { ViewedState } from '../../common/comment';
 import Logger, { PR_TREE } from '../../common/logger';
 import { FILE_LIST_LAYOUT, HIDE_VIEWED_FILES, PR_SETTINGS_NAMESPACE } from '../../common/settingKeys';
-import { compareIgnoreCase } from '../../common/utils';
 import { PullRequestModel } from '../../github/pullRequestModel';
 import { ReviewModel } from '../reviewModel';
-import { DirectoryTreeNode } from './directoryTreeNode';
 import { LabelOnlyNode, TreeNode, TreeNodeParent } from './treeNode';
+import { codetasterChecks, codetasterFileNodes } from '../../codetaster/verdictGroupNodes';
 
 export class FilesCategoryNode extends TreeNode implements vscode.TreeItem {
 	public override readonly label: string = vscode.l10n.t('Files');
 	public collapsibleState: vscode.TreeItemCollapsibleState;
-	private directories: TreeNode[] = [];
 
 	constructor(
 		parent: TreeNodeParent,
 		private _reviewModel: ReviewModel,
-		_pullRequestModel: PullRequestModel
+		_pullRequestModel: PullRequestModel,
+		private _checkout: vscode.Uri,
 	) {
 		super(parent);
 		this.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
@@ -50,6 +49,7 @@ export class FilesCategoryNode extends TreeNode implements vscode.TreeItem {
 				this.refresh(this);
 			}
 		}));
+		this.childrenDisposables.push(codetasterChecks.onDidRefresh(() => this.refresh(this)));
 	}
 
 	getTreeItem(): vscode.TreeItem {
@@ -87,30 +87,8 @@ export class FilesCategoryNode extends TreeNode implements vscode.TreeItem {
 			return [new LabelOnlyNode(this, vscode.l10n.t('All files viewed'))];
 		}
 
-		const dirNode = new DirectoryTreeNode(this, '');
-		filesToShow.forEach(f => dirNode.addFile(f));
-		dirNode.finalize();
-		if (dirNode.label === '') {
-			// nothing on the root changed, pull children to parent
-			this.directories = dirNode._children;
-			this.directories.forEach(child => { child.parent = this; });
-		} else {
-			this.directories = [dirNode];
-		}
-
-		if (layout === 'tree') {
-			nodes = this.directories;
-		} else {
-			const fileNodes = [...filesToShow];
-			fileNodes.sort((a, b) => compareIgnoreCase(a.fileChangeResourceUri.toString(), b.fileChangeResourceUri.toString()));
-			// In flat layout, files are rendered as direct children of this node.
-			// Keep parent pointers aligned with the rendered hierarchy so reveal/getParent
-			// don't try to walk through hidden DirectoryTreeNode instances.
-			fileNodes.forEach(fileNode => {
-				fileNode.parent = this;
-			});
-			nodes = fileNodes;
-		}
+		// codetaster: group the files by the codetaster check's verdict.
+		nodes = await codetasterFileNodes(this, this._checkout, this._reviewModel.localFileChanges, filesToShow, layout);
 		Logger.appendLine(`Got all children for Files node`, PR_TREE);
 		this._children = nodes;
 		return nodes;

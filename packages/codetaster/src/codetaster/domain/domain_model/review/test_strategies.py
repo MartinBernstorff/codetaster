@@ -8,7 +8,16 @@ from codetaster.domain.domain_model.review.changes import (
     FileVersion,
     RepositoryPath,
 )
-from codetaster.domain.domain_model.review.sampling import Probability
+from codetaster.domain.domain_model.review.probability import Probability
+from codetaster.domain.domain_model.review.ratings import (
+    FileRating,
+    RatingReason,
+    RatingTarget,
+)
+
+
+def blob_shas() -> st.SearchStrategy[BlobSha]:
+    return st.builds(BlobSha, st.from_regex(r"[0-9a-f]{40}", fullmatch=True))
 
 
 def file_versions() -> st.SearchStrategy[FileVersion]:
@@ -18,7 +27,7 @@ def file_versions() -> st.SearchStrategy[FileVersion]:
             RepositoryPath,
             st.from_regex(r"[a-z]{1,8}(/[a-z]{1,8})*\.py", fullmatch=True),
         ),
-        blob=st.builds(BlobSha, st.from_regex(r"[0-9a-f]{40}", fullmatch=True)),
+        blob=blob_shas(),
     )
 
 
@@ -32,3 +41,15 @@ def file_changes() -> st.SearchStrategy[FileChange]:
 
 def probabilities() -> st.SearchStrategy[Probability]:
     return st.builds(Probability, st.floats(min_value=0, max_value=1))
+
+
+def ratings_of(change: FileChange) -> st.SearchStrategy[FileRating]:
+    """Ratings whose path and blob match `change`."""
+    target = RatingTarget.of_change(change)
+    return st.builds(
+        FileRating,
+        path=st.just(target.path),
+        blob=st.just(target.blob),
+        probability=probabilities(),
+        reason=st.builds(RatingReason, st.text(min_size=1)),
+    )

@@ -19,11 +19,11 @@ import { IResolvedPullRequestModel, PullRequestModel } from '../../github/pullRe
 import { InMemFileChangeModel, RemoteFileChangeModel } from '../fileChangeModel';
 import { getInMemPRFileSystemProvider, provideDocumentContentForChangeModel } from '../inMemPRContentProvider';
 import { getIconForeground, getListErrorForeground, getListWarningForeground, getNotebookStatusSuccessIconForeground } from '../theme';
-import { DirectoryTreeNode } from './directoryTreeNode';
 import { InMemFileChangeNode, RemoteFileChangeNode } from './fileChangeNode';
 import { TreeNode, TreeNodeParent } from './treeNode';
 import { NotificationsManager } from '../../notifications/notificationsManager';
 import { PrsTreeModel } from '../prsTreeModel';
+import { codetasterChecks, codetasterFileNodes } from '../../codetaster/verdictGroupNodes';
 
 export class PRNode extends TreeNode implements vscode.CommentingRangeProvider2 {
 	static ID = 'PRNode';
@@ -67,6 +67,7 @@ export class PRNode extends TreeNode implements vscode.CommentingRangeProvider2 
 			this.refresh(this);
 		}));
 		this.resolvePRCommentController();
+		this._register(codetasterChecks.onDidRefresh(() => this.refresh(this)));
 	}
 
 	// #region Tree
@@ -96,24 +97,9 @@ export class PRNode extends TreeNode implements vscode.CommentingRangeProvider2 
 				}
 			}
 
-			const result: TreeNode[] = [];
 			const layout = vscode.workspace.getConfiguration(PR_SETTINGS_NAMESPACE).get<string>(FILE_LIST_LAYOUT);
-			if (layout === 'tree') {
-				// tree view
-				const dirNode = new DirectoryTreeNode(this, '');
-				this._fileChanges.forEach(f => dirNode.addFile(f));
-				dirNode.finalize();
-				if (dirNode.label === '') {
-					// nothing on the root changed, pull children to parent
-					dirNode._children.forEach(child => { child.parent = this; });
-					result.push(...dirNode._children);
-				} else {
-					result.push(dirNode);
-				}
-			} else {
-				// flat view
-				result.push(...this._fileChanges);
-			}
+			// codetaster: group the files by the codetaster check's verdict.
+			const result = await codetasterFileNodes(this, this._folderReposManager.repository.rootUri, this._fileChanges, this._fileChanges, layout);
 
 			if (this.pullRequestModel.showChangesSinceReview !== undefined) {
 				this.reopenNewPrDiffs(this.pullRequestModel);
