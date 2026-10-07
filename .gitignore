@@ -230,3 +230,6 @@ __marimo__/
 
 # Local notes.
 /docs
+
+# codetaster AI ratings, written per branch by a coding agent.
+/.codetaster/
