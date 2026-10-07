@@ -40,7 +40,8 @@ def check_committed_changes(
 ) -> Result[CheckResult, BranchChangeError]:
     """Decide which files changed since the merge base with the base need review.
 
-    A file's AI rating applies if it matches the file's change. Without a ratings
+    A path rule matching a file's path replaces the base probability for it. A
+    file's AI rating applies if it matches the file's change. Without a ratings
     file every file is unrated, and so with an invalid one, which is reported. The
     ratings file itself is never assessed.
     """
@@ -59,7 +60,7 @@ def check_committed_changes(
         )
     elif ratings.value is not None:
         ratings_file = ratings.value
-    base_probability = branch.value.review.base_probability
+    review = branch.value.review
     return Ok(
         CheckResult(
             base=change.base,
@@ -68,7 +69,10 @@ def check_committed_changes(
             assessments=FileAssessments(
                 tuple(
                     assess_file_change(
-                        file, base_probability, ratings_file.rating_for(file)
+                        file,
+                        review.base_probability,
+                        review.path_rules.rule_for(file.path()),
+                        ratings_file.rating_for(file),
                     )
                     for file in change.files.root
                 )

@@ -70,6 +70,23 @@ def test_base_option_overrides_the_configured_base(tmp_path: Path) -> None:
     assert json.loads(result.stdout)["base"]["ref"] == base
 
 
+def test_a_path_rule_samples_a_matching_file(tmp_path: Path) -> None:
+    pattern = "*.py"
+    repository = Repository(
+        tmp_path,
+        TomlText(
+            '[review]\nbase_branch = "main"\nbase_probability = 0\n'
+            f'[[review.path_rules]]\npattern = "{pattern}"\nprobability = 1\n'
+        ),
+    )
+
+    result = run_check(repository, CliOptions.fake())
+
+    assert result.exit_code == 0
+    [file] = json.loads(result.stdout)["sampled"]
+    assert file["path_rule"]["pattern"] == pattern
+
+
 def test_a_rated_file_needs_review(tmp_path: Path) -> None:
     repository = Repository(
         tmp_path,

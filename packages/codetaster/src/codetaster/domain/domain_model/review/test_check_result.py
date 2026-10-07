@@ -77,6 +77,7 @@ def test_the_groups_partition_the_changed_files(
                     assess_file_change(
                         change,
                         base_probability,
+                        None,
                         data.draw(st.one_of(st.none(), ratings_of(change))),
                     )
                     for change in changes

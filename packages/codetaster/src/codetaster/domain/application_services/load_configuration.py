@@ -4,6 +4,8 @@ from pydantic import BaseModel, ConfigDict, SecretStr, ValidationError
 from safe_result import Err, Ok, Result
 
 from codetaster.domain.application_services.config_locations import (
+    developer_project_config_location,
+    find_repository_root,
     resolve_config_root,
 )
 from codetaster.domain.domain_model.configuration.configuration import Configuration
@@ -24,10 +26,12 @@ from codetaster.domain.domain_model.configuration.secret_values import (
 )
 from codetaster.domain.domain_model.configuration.settings import Settings
 from codetaster.domain.domain_model.filesystem import Location, Locations
+from codetaster.domain.domain_model.tool_errors import ToolError
 from codetaster.domain.secondary_ports.config_file_store import ConfigFileStore
 from codetaster.domain.secondary_ports.environment_variables import (
     EnvironmentVariables,
 )
+from codetaster.domain.secondary_ports.repository_names import RepositoryNames
 
 
 class ConfigurationRequest(BaseModel):
@@ -46,14 +50,20 @@ class ConfigurationRequest(BaseModel):
         )
 
 
+type ConfigurationError = ConfigFileError | ToolError
+
+
 def load_configuration(
     request: ConfigurationRequest,
     files: ConfigFileStore,
     environment: EnvironmentVariables,
-) -> Result[Configuration, ConfigFileError]:
-    """Defaults, overridden by developer config, overridden by project config.
+    repository_names: RepositoryNames,
+) -> Result[Configuration, ConfigurationError]:
+    """Defaults, overridden by the developer config, the project config, then the
+    developer's config for this repository.
 
-    Secrets come from environment variables, falling back to the secrets file.
+    A `[review]` section replaces any earlier one as a whole. Secrets come from
+    environment variables, falling back to the secrets file.
     """
     conventions = request.conventions
     config_root = resolve_config_root(request.home, conventions, environment)
@@ -69,17 +79,31 @@ def load_configuration(
         loaded.append(developer_location)
 
     review = None
+    project_locations: list[Location] = []
     project_location = find_project_config(
         request.working_directory, conventions, files
     )
     if project_location is not None:
-        project = read_model(ProjectSettings, project_location, files)
+        project_locations.append(project_location)
+    # Outside a repository there is no repository name, so no file to look for.
+    repository_root = find_repository_root(
+        request.working_directory, conventions, files
+    )
+    if repository_root is not None:
+        developer_project_location = developer_project_config_location(
+            config_root, repository_root, conventions, repository_names
+        )
+        if isinstance(developer_project_location, Err):
+            return developer_project_location
+        project_locations.append(developer_project_location.value)
+    for location in project_locations:
+        project = read_model(ProjectSettings, location, files)
         if isinstance(project, Err):
             return project
         if project.value is not None:
             settings = settings.overridden_by(project.value)
-            review = project.value.review
-            loaded.append(project_location)
+            review = project.value.review or review
+            loaded.append(location)
 
     secrets_location = config_root.joinpath(conventions.secrets_file)
     file_secrets = read_model(Secrets, secrets_location, files)

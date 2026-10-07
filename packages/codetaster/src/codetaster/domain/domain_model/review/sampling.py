@@ -6,6 +6,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from codetaster.domain.domain_model.review.changes import FileChange
+from codetaster.domain.domain_model.review.path_rules import PathRule
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import FileRating
 
@@ -56,13 +57,16 @@ def draw_for_file_change(change: FileChange) -> Draw:
 class FileAssessment(BaseModel):
     """Which group a changed file is in, and what decided it.
 
-    `rating` is `None` if the file is unrated.
+    `base_probability` is the matching path rule's probability, or the configured
+    base probability if `path_rule` is `None`. `rating` is `None` if the file is
+    unrated.
     """
 
     model_config = ConfigDict(frozen=True)
 
     change: FileChange
     base_probability: Probability
+    path_rule: PathRule | None
     rating: FileRating | None
     probability: Probability
     draw: Draw
@@ -73,6 +77,7 @@ class FileAssessment(BaseModel):
         return FileAssessment(
             change=FileChange.fake(),
             base_probability=Probability.fake(),
+            path_rule=None,
             rating=None,
             probability=Probability.fake(),
             draw=Draw.fake(),
@@ -89,13 +94,21 @@ class FileAssessments(RootModel[tuple[FileAssessment, ...]]):
 
 
 def assess_file_change(
-    change: FileChange, base_probability: Probability, rating: FileRating | None
+    change: FileChange,
+    configured_base_probability: Probability,
+    path_rule: PathRule | None,
+    rating: FileRating | None,
 ) -> FileAssessment:
     """needs-review if the draw is below the rating, else sampled if it is below
     the base probability. Without a rating a file can never need review.
 
-    The caller matches `rating` to `change`; see `RatingsFile.rating_for`.
+    A matching path rule's probability replaces the configured base probability.
+    The caller matches `path_rule` and `rating` to `change`; see
+    `PathRules.rule_for` and `RatingsFile.rating_for`.
     """
+    base_probability = (
+        configured_base_probability if path_rule is None else path_rule.probability
+    )
     draw = draw_for_file_change(change)
     if rating is not None and draw.root < rating.probability.root:
         verdict = Verdict.NEEDS_REVIEW
@@ -106,6 +119,7 @@ def assess_file_change(
     return FileAssessment(
         change=change,
         base_probability=base_probability,
+        path_rule=path_rule,
         rating=rating,
         probability=base_probability
         if rating is None

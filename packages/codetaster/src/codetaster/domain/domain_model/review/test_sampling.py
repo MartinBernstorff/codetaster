@@ -9,6 +9,7 @@ from codetaster.domain.domain_model.review.changes import (
     FileVersion,
     RepositoryPath,
 )
+from codetaster.domain.domain_model.review.path_rules import PathPattern, PathRule
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import FileRating, RatingsFile
 from codetaster.domain.domain_model.review.sampling import (
@@ -90,7 +91,7 @@ def test_draws_fall_in_zero_to_one() -> None:
 
 def test_base_probability_one_always_samples() -> None:
     verdicts = {
-        assess_file_change(change, Probability(1), None).verdict
+        assess_file_change(change, Probability(1), None, None).verdict
         for change in changes_with_distinct_blobs()
     }
 
@@ -99,7 +100,7 @@ def test_base_probability_one_always_samples() -> None:
 
 def test_base_probability_zero_never_samples() -> None:
     verdicts = {
-        assess_file_change(change, Probability(0), None).verdict
+        assess_file_change(change, Probability(0), None, None).verdict
         for change in changes_with_distinct_blobs()
     }
 
@@ -112,15 +113,15 @@ def test_a_draw_below_the_base_probability_is_sampled() -> None:
     above_draw = Probability(min(1, draw.root + 0.001))
     at_draw = Probability(draw.root)
 
-    assert assess_file_change(change, above_draw, None).verdict is Verdict.SAMPLED
-    assert assess_file_change(change, at_draw, None).verdict is Verdict.NO_REVIEW
+    assert assess_file_change(change, above_draw, None, None).verdict is Verdict.SAMPLED
+    assert assess_file_change(change, at_draw, None, None).verdict is Verdict.NO_REVIEW
 
 
 def test_assessment_reports_its_inputs() -> None:
     change = FileChange.fake()
     base_probability = Probability(0.25)
 
-    assessment = assess_file_change(change, base_probability, None)
+    assessment = assess_file_change(change, base_probability, None, None)
 
     assert assessment.change == change
     assert assessment.base_probability == base_probability
@@ -136,7 +137,7 @@ def test_draw_rejects_one() -> None:
 def test_an_unrated_file_never_needs_review(
     change: FileChange, base_probability: Probability
 ) -> None:
-    assessment = assess_file_change(change, base_probability, None)
+    assessment = assess_file_change(change, base_probability, None, None)
 
     assert assessment.verdict is not Verdict.NEEDS_REVIEW
 
@@ -148,7 +149,7 @@ def test_a_draw_below_the_rating_needs_review() -> None:
         update={"probability": Probability(min(1, draw.root + 0.001))}
     )
 
-    assessment = assess_file_change(change, Probability(0), rating)
+    assessment = assess_file_change(change, Probability(0), None, rating)
 
     assert assessment.verdict is Verdict.NEEDS_REVIEW
     assert assessment.rating == rating
@@ -161,7 +162,7 @@ def test_a_draw_at_the_rating_falls_back_to_sampling() -> None:
         update={"probability": Probability(draw.root)}
     )
 
-    assessment = assess_file_change(change, Probability(1), rating)
+    assessment = assess_file_change(change, Probability(1), None, rating)
 
     assert assessment.verdict is Verdict.SAMPLED
 
@@ -172,7 +173,7 @@ def test_final_probability_is_at_least_base_and_rating(
 ) -> None:
     rating = data.draw(ratings_of(change))
 
-    assessment = assess_file_change(change, base_probability, rating)
+    assessment = assess_file_change(change, base_probability, None, rating)
 
     assert assessment.probability.root >= base_probability.root
     assert assessment.probability.root >= rating.probability.root
@@ -195,8 +196,8 @@ def test_raising_a_rating_never_lowers_the_group(
         update={"probability": Probability(max(rating.probability.root, raised.root))}
     )
 
-    before = assess_file_change(change, base_probability, rating).verdict
-    after = assess_file_change(change, base_probability, higher).verdict
+    before = assess_file_change(change, base_probability, None, rating).verdict
+    after = assess_file_change(change, base_probability, None, higher).verdict
 
     # Verdict lists the most urgent group first.
     assert list(Verdict).index(after) <= list(Verdict).index(before)
@@ -210,7 +211,30 @@ def test_a_rating_for_another_blob_is_the_same_as_no_rating(
     other_blob = data.draw(blob_shas().filter(lambda blob: blob != rating.blob))
     ratings = RatingsFile(ratings=(rating.model_copy(update={"blob": other_blob}),))
 
-    rated = assess_file_change(change, base_probability, ratings.rating_for(change))
-    unrated = assess_file_change(change, base_probability, None)
+    rated = assess_file_change(
+        change, base_probability, None, ratings.rating_for(change)
+    )
+    unrated = assess_file_change(change, base_probability, None, None)
 
     assert rated == unrated
+
+
+def test_a_path_rule_replaces_the_base_probability() -> None:
+    change = FileChange.fake()
+    rule = PathRule(pattern=PathPattern("*"), probability=Probability(1))
+
+    assessment = assess_file_change(change, Probability(0), rule, None)
+
+    assert assessment.verdict is Verdict.SAMPLED
+    assert assessment.base_probability == rule.probability
+    assert assessment.path_rule == rule
+
+
+def test_a_path_rule_of_zero_still_lets_a_rating_flag_the_file() -> None:
+    change = FileChange.fake()
+    rule = PathRule(pattern=PathPattern("*"), probability=Probability(0))
+    rating = FileRating.fake().model_copy(update={"probability": Probability(1)})
+
+    assessment = assess_file_change(change, Probability(1), rule, rating)
+
+    assert assessment.verdict is Verdict.NEEDS_REVIEW

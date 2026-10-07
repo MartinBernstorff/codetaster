@@ -8,6 +8,7 @@ from codetaster.domain.application_services.initialise_configuration import (
     InitialisationRequest,
     initialise_configuration,
 )
+from codetaster.domain.domain_model.checkout import CheckoutPath, RepositoryName
 from codetaster.domain.domain_model.configuration.errors import (
     ConfigFileError,
     ConfigFileExistsError,
@@ -24,6 +25,9 @@ from codetaster.infrastructure.config_file_store.in_memory import (
 from codetaster.infrastructure.config_file_store.toml_parsing import FileContent
 from codetaster.infrastructure.environment_variables.in_memory import (
     InMemoryEnvironmentVariables,
+)
+from codetaster.infrastructure.repository_names.fake_repository_names import (
+    FakeRepositoryNames,
 )
 
 
@@ -54,7 +58,9 @@ def test_project_file_is_written_at_the_nearest_repository_root() -> None:
     expected = repository.joinpath(request.conventions.project_file)
     store = repository_store(repository)
 
-    result = initialise_configuration(request, store, InMemoryEnvironmentVariables({}))
+    result = initialise_configuration(
+        request, store, InMemoryEnvironmentVariables({}), FakeRepositoryNames({})
+    )
 
     assert result == Ok(expected)
     assert set(store.files) == {expected}
@@ -65,7 +71,10 @@ def test_written_file_loads_as_the_default_settings() -> None:
     store = repository_store(repository)
 
     match initialise_configuration(
-        request_from(repository), store, InMemoryEnvironmentVariables({})
+        request_from(repository),
+        store,
+        InMemoryEnvironmentVariables({}),
+        FakeRepositoryNames({}),
     ):
         case Ok(location):
             document = store.read_document(location)
@@ -81,7 +90,10 @@ def test_outside_a_repository_is_an_error() -> None:
     store = InMemoryConfigFileStore({})
 
     result = initialise_configuration(
-        request_from(working_directory), store, InMemoryEnvironmentVariables({})
+        request_from(working_directory),
+        store,
+        InMemoryEnvironmentVariables({}),
+        FakeRepositoryNames({}),
     )
 
     match result:
@@ -99,7 +111,9 @@ def test_refuses_to_replace_an_existing_file() -> None:
     original = {existing: FileContent.fake()}
     store = repository_store(repository, original)
 
-    result = initialise_configuration(request, store, InMemoryEnvironmentVariables({}))
+    result = initialise_configuration(
+        request, store, InMemoryEnvironmentVariables({}), FakeRepositoryNames({})
+    )
 
     match result:
         case Err(ConfigFileExistsError() as error):
@@ -116,7 +130,9 @@ def test_overwrite_replaces_an_existing_file() -> None:
     original = FileContent.fake()
     store = repository_store(repository, {existing: original})
 
-    result = initialise_configuration(request, store, InMemoryEnvironmentVariables({}))
+    result = initialise_configuration(
+        request, store, InMemoryEnvironmentVariables({}), FakeRepositoryNames({})
+    )
 
     assert result == Ok(existing)
     assert store.files[existing] != original
@@ -134,7 +150,9 @@ def test_developer_file_is_written_under_xdg_config_home() -> None:
     )
     store = InMemoryConfigFileStore({})
 
-    result = initialise_configuration(request, store, environment)
+    result = initialise_configuration(
+        request, store, environment, FakeRepositoryNames({})
+    )
 
     assert result == Ok(expected)
     assert set(store.files) == {expected}
@@ -150,7 +168,9 @@ def test_developer_file_falls_back_to_dot_config_in_home() -> None:
     )
     store = InMemoryConfigFileStore({})
 
-    result = initialise_configuration(request, store, InMemoryEnvironmentVariables({}))
+    result = initialise_configuration(
+        request, store, InMemoryEnvironmentVariables({}), FakeRepositoryNames({})
+    )
 
     assert result == Ok(expected)
     assert set(store.files) == {expected}
@@ -173,6 +193,7 @@ def test_write_failure_is_returned() -> None:
         request,
         InMemoryConfigFileStore({}, [target]),
         InMemoryEnvironmentVariables({}),
+        FakeRepositoryNames({}),
     )
 
     match result:
@@ -188,7 +209,9 @@ def test_project_file_lists_the_review_section() -> None:
     section = "[review]"
     store = repository_store(repository)
 
-    _ = initialise_configuration(request, store, InMemoryEnvironmentVariables({}))
+    _ = initialise_configuration(
+        request, store, InMemoryEnvironmentVariables({}), FakeRepositoryNames({})
+    )
 
     written = store.files[repository.joinpath(request.conventions.project_file)]
     assert section in written.root
@@ -199,7 +222,67 @@ def test_developer_file_omits_the_review_section() -> None:
     section = "[review]"
     store = InMemoryConfigFileStore({})
 
-    _ = initialise_configuration(request, store, InMemoryEnvironmentVariables({}))
+    _ = initialise_configuration(
+        request, store, InMemoryEnvironmentVariables({}), FakeRepositoryNames({})
+    )
 
     [written] = store.files.values()
     assert section not in written.root
+
+
+def test_developer_project_file_is_named_after_the_repository() -> None:
+    repository = Location.fake()
+    name = RepositoryName("widget")
+    request = request_from(repository, scope=ConfigScope.DEVELOPER_PROJECT)
+    conventions = request.conventions
+    expected = (
+        request.home.joinpath(conventions.fallback_config_home)
+        .joinpath(conventions.app_directory)
+        .joinpath(conventions.developer_project_file(name))
+    )
+    store = repository_store(repository)
+
+    result = initialise_configuration(
+        request,
+        store,
+        InMemoryEnvironmentVariables({}),
+        FakeRepositoryNames({CheckoutPath(repository.root): name}),
+    )
+
+    assert result == Ok(expected)
+    assert set(store.files) == {expected}
+
+
+def test_developer_project_file_lists_the_review_section() -> None:
+    repository = Location.fake()
+    request = request_from(repository, scope=ConfigScope.DEVELOPER_PROJECT)
+    section = "[review]"
+    store = repository_store(repository)
+
+    _ = initialise_configuration(
+        request,
+        store,
+        InMemoryEnvironmentVariables({}),
+        FakeRepositoryNames({CheckoutPath(repository.root): RepositoryName.fake()}),
+    )
+
+    [written] = store.files.values()
+    assert section in written.root
+
+
+def test_developer_project_file_outside_a_repository_is_an_error() -> None:
+    working_directory = Location.fake()
+    request = request_from(working_directory, scope=ConfigScope.DEVELOPER_PROJECT)
+
+    result = initialise_configuration(
+        request,
+        InMemoryConfigFileStore({}),
+        InMemoryEnvironmentVariables({}),
+        FakeRepositoryNames({}),
+    )
+
+    match result:
+        case Err(NoProjectRootError() as error):
+            assert error.start == working_directory
+        case _:
+            raise AssertionError(result)

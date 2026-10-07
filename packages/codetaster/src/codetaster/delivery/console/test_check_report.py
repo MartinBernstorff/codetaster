@@ -5,6 +5,7 @@ from codetaster.domain.domain_model.review.changes import (
     RepositoryPath,
 )
 from codetaster.domain.domain_model.review.check_result import CheckResult
+from codetaster.domain.domain_model.review.path_rules import PathRule
 from codetaster.domain.domain_model.review.ratings import FileRating
 from codetaster.domain.domain_model.review.ratings_validation import (
     InvalidRatingsFile,
@@ -103,6 +104,7 @@ def test_reports_each_files_decision_inputs() -> None:
         "previous_path": None,
         "change_type": assessment.change.change_type().value,
         "base_probability": assessment.base_probability.root,
+        "path_rule": None,
         "rating": None,
         "unrated": True,
         "probability": assessment.probability.root,
@@ -127,3 +129,16 @@ def test_reports_a_rated_files_rating_and_reason() -> None:
     [file] = report["no-review"]
     assert file["rating"] == expected
     assert file["unrated"] is False
+
+
+def test_reports_the_matching_path_rule() -> None:
+    rule = PathRule.fake()
+    assessment = FileAssessment.fake().model_copy(update={"path_rule": rule})
+    expected = {"pattern": rule.pattern.root, "probability": rule.probability.root}
+
+    report = check_report_from_result(result_with(assessment)).model_dump(
+        mode="json", by_alias=True
+    )
+
+    [file] = report["no-review"]
+    assert file["path_rule"] == expected
