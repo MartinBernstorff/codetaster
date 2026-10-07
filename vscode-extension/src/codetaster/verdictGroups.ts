@@ -22,8 +22,8 @@ function verdictGroup<File>(verdict: GroupVerdict, files: readonly File[]): Verd
 /**
  * Splits the PR's files into the check's three groups, most urgent first. The three
  * groups are always present. PR files the check did not list (e.g. when the local
- * checkout is not at the PR's head) go in a fourth group, present only when non-empty,
- * so no file is hidden. Files the check lists but the PR does not are ignored.
+ * checkout is not at the PR's head) go in a group before the others, present only when
+ * non-empty, so no file is hidden. Files the check lists but the PR does not are ignored.
  */
 export function groupFilesByVerdict<File>(
 	report: CheckReport,
@@ -43,5 +43,5 @@ export function groupFilesByVerdict<File>(
 	}
 	const groups = FILE_LIST_KEYS.map(key => verdictGroup(key, filesByVerdict.get(key) ?? []));
 	const notChecked = filesByVerdict.get('not-checked');
-	return notChecked ? [...groups, verdictGroup('not-checked', notChecked)] : groups;
+	return notChecked ? [verdictGroup('not-checked', notChecked), ...groups] : groups;
 }

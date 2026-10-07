@@ -58,16 +58,15 @@ describe('groupFilesByVerdict', () => {
 		assert.deepStrictEqual(groups.map(group => group.files.length), [0, 0, 1]);
 	});
 
-	it('shows PR files the check did not list in a fourth group, so none are hidden', () => {
+	it('shows PR files the check did not list in a group before the others, so none are hidden', () => {
 		const report = fakeCheckReport({ noReview: ['c.py'] });
 		const [c, missing] = filesNamed('c.py', 'missing.py');
 
 		const groups = groupFakeFiles(report, [c, missing]);
 
-		assert.strictEqual(groups.length, 4);
-		assert.strictEqual(groups[3].verdict, 'not-checked');
-		assert.strictEqual(groups[3].label, 'Not in codetaster check (1)');
-		assert.deepStrictEqual(groups[3].files, [missing]);
+		assert.deepStrictEqual(groups.map(group => group.verdict), ['not-checked', 'needs-review', 'sampled', 'no-review']);
+		assert.strictEqual(groups[0].label, 'Not in codetaster check (1)');
+		assert.deepStrictEqual(groups[0].files, [missing]);
 	});
 
 	it('partitions the PR files: every file is in exactly one group', () => {

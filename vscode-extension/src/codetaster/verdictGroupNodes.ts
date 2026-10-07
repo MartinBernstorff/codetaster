@@ -5,8 +5,11 @@ import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
 import { headMismatchWarning } from './headMismatch';
 import { NodeCodetasterProcess } from './nodeCodetasterProcess';
 import { groupFilesByVerdict, VerdictGroup } from './verdictGroups';
+import { findLocalRepoRemoteFromGitHubRef } from '../common/githubRef';
 import { disposeAll } from '../common/lifecycle';
 import { compareIgnoreCase } from '../common/utils';
+import { FolderRepositoryManager } from '../github/folderRepositoryManager';
+import { PullRequestModel } from '../github/pullRequestModel';
 import { DirectoryTreeNode } from '../view/treeNodes/directoryTreeNode';
 import { GitFileChangeNode, InMemFileChangeNode, RemoteFileChangeNode } from '../view/treeNodes/fileChangeNode';
 import { TreeNode, TreeNodeParent } from '../view/treeNodes/treeNode';
@@ -162,21 +165,38 @@ function fileListKey(files: readonly PullRequestFileNode[]): string {
 	return JSON.stringify([pullRequestHead(files) ?? '', files.map(file => file.fileName).sort()]);
 }
 
+/** The PR's base branch as the checkout knows it: the remote-tracking branch, if a remote points at the base repository. */
+function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: PullRequestModel): string {
+	const remote = findLocalRepoRemoteFromGitHubRef(folderRepoManager.repository, pullRequest.base);
+	return remote ? `${remote.name}/${pullRequest.base.ref}` : pullRequest.base.ref;
+}
+
 /**
- * The children of a PR file list: one node per codetaster verdict group, each holding
- * its files in the configured layout, or an error and no files if the check fails.
- * A warning precedes the groups when the check ran on a different commit than the PR head.
+ * The children of a PR file list if the PR is checked out: one node per codetaster
+ * verdict group, each holding its files in the configured layout, or an error and no
+ * files if the check fails. A warning precedes the groups when the check ran on a
+ * different commit than the PR head. Undefined if the PR is not checked out, so the
+ * caller shows upstream's file list.
  * `allFiles` is the PR's whole file list, which decides when the check re-runs;
  * `shownFiles` are the ones to show, e.g. without viewed files.
  */
 export async function codetasterFileNodes(
 	parent: TreeNode,
-	checkout: vscode.Uri,
+	folderRepoManager: FolderRepositoryManager,
+	pullRequest: PullRequestModel,
 	allFiles: readonly PullRequestFileNode[],
 	shownFiles: readonly PullRequestFileNode[],
 	layout: string | undefined,
-): Promise<TreeNode[]> {
-	const outcome = await codetasterChecks.checkFor(checkout.fsPath, fileListKey(allFiles));
+): Promise<TreeNode[] | undefined> {
+	const isCheckedOut = pullRequest.equals(folderRepoManager.activePullRequest);
+	const outcome = await codetasterChecks.checkFor({
+		checkout: isCheckedOut ? folderRepoManager.repository.rootUri.fsPath : undefined,
+		base: baseRevision(folderRepoManager, pullRequest),
+		fileListKey: fileListKey(allFiles),
+	});
+	if (!outcome) {
+		return undefined;
+	}
 	if (outcome.kind === 'error') {
 		return [new CodetasterErrorNode(parent, outcome.message)];
 	}

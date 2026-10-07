@@ -17,9 +17,9 @@ function checkError(message: string): CheckOutcome {
 	return { kind: 'error', message };
 }
 
-/** Runs `codetaster check <checkout> --format json` and parses its report. */
-export async function runCodetasterCheck(process: CodetasterProcess, executable: string, checkout: string): Promise<CheckOutcome> {
-	const outcome = await process.runCodetaster(executable, ['check', checkout, '--format', 'json'], checkout);
+/** Runs `codetaster check <checkout> --base <base> --format json` and parses its report. */
+export async function runCodetasterCheck(process: CodetasterProcess, executable: string, checkout: string, base: string): Promise<CheckOutcome> {
+	const outcome = await process.runCodetaster(executable, ['check', checkout, '--base', base, '--format', 'json'], checkout);
 	if (outcome.kind === 'failedToStart') {
 		return checkError(`Could not run "${executable}" (${outcome.message}). Install codetaster on your PATH or set codetaster.executablePath.`);
 	}
@@ -38,10 +38,20 @@ export interface Listener {
 	dispose(): void;
 }
 
+/** A PR whose files a view shows. */
+export interface CheckTarget {
+	/** The local checkout the PR is checked out in, or undefined if it is not checked out. */
+	readonly checkout: string | undefined;
+	/** The PR's base branch, as a revision in the checkout. */
+	readonly base: string;
+	/** Identifies the PR's head and file list; the check re-runs when it changes. */
+	readonly fileListKey: string;
+}
+
 /**
- * The check results the PR file views group by. A check re-runs only when the checkout
- * or the PR's file list changes, or on refresh, so tree refreshes (viewed state,
- * comments) don't each start a process.
+ * The check results the PR file views group by. Only a checked-out PR is checked.
+ * A check re-runs only when the checkout, base or PR's file list changes, or on refresh,
+ * so tree refreshes (viewed state, comments) don't each start a process.
  */
 export class CodetasterChecks {
 	private readonly checks = new Map<string, Promise<CheckOutcome>>();
@@ -52,11 +62,16 @@ export class CodetasterChecks {
 		private readonly executable: () => string,
 	) { }
 
-	checkFor(checkout: string, fileListKey: string): Promise<CheckOutcome> {
-		const cacheKey = JSON.stringify([checkout, fileListKey]);
+	/** The PR's check, or undefined if the PR is not checked out. */
+	checkFor(target: CheckTarget): Promise<CheckOutcome> | undefined {
+		const { checkout, base, fileListKey } = target;
+		if (checkout === undefined) {
+			return undefined;
+		}
+		const cacheKey = JSON.stringify([checkout, base, fileListKey]);
 		let check = this.checks.get(cacheKey);
 		if (!check) {
-			check = runCodetasterCheck(this.process, this.executable(), checkout);
+			check = runCodetasterCheck(this.process, this.executable(), checkout, base);
 			this.checks.set(cacheKey, check);
 		}
 		return check;
