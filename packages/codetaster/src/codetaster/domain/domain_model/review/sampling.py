@@ -6,14 +6,8 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from codetaster.domain.domain_model.review.changes import FileChange
-
-
-class Probability(RootModel[Annotated[float, Field(ge=0, le=1)]]):
-    model_config = ConfigDict(frozen=True)
-
-    @staticmethod
-    def fake() -> Probability:
-        return Probability(0.5)
+from codetaster.domain.domain_model.review.probability import Probability
+from codetaster.domain.domain_model.review.ratings import FileRating
 
 
 class Draw(RootModel[Annotated[float, Field(ge=0, lt=1)]]):
@@ -60,12 +54,16 @@ def draw_for_file_change(change: FileChange) -> Draw:
 
 
 class FileAssessment(BaseModel):
-    """Which group a changed file is in, and what decided it."""
+    """Which group a changed file is in, and what decided it.
+
+    `rating` is `None` if the file is unrated.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     change: FileChange
     base_probability: Probability
+    rating: FileRating | None
     probability: Probability
     draw: Draw
     verdict: Verdict
@@ -75,6 +73,7 @@ class FileAssessment(BaseModel):
         return FileAssessment(
             change=FileChange.fake(),
             base_probability=Probability.fake(),
+            rating=None,
             probability=Probability.fake(),
             draw=Draw.fake(),
             verdict=Verdict.NO_REVIEW,
@@ -90,16 +89,27 @@ class FileAssessments(RootModel[tuple[FileAssessment, ...]]):
 
 
 def assess_file_change(
-    change: FileChange, base_probability: Probability
+    change: FileChange, base_probability: Probability, rating: FileRating | None
 ) -> FileAssessment:
-    """Without a rating a file can only be sampled, never needs-review."""
+    """needs-review if the draw is below the rating, else sampled if it is below
+    the base probability. Without a rating a file can never need review.
+
+    The caller matches `rating` to `change`; see `RatingsFile.rating_for`.
+    """
     draw = draw_for_file_change(change)
+    if rating is not None and draw.root < rating.probability.root:
+        verdict = Verdict.NEEDS_REVIEW
+    elif draw.root < base_probability.root:
+        verdict = Verdict.SAMPLED
+    else:
+        verdict = Verdict.NO_REVIEW
     return FileAssessment(
         change=change,
         base_probability=base_probability,
-        probability=base_probability,
+        rating=rating,
+        probability=base_probability
+        if rating is None
+        else Probability(max(base_probability.root, rating.probability.root)),
         draw=draw,
-        verdict=Verdict.SAMPLED
-        if draw.root < base_probability.root
-        else Verdict.NO_REVIEW,
+        verdict=verdict,
     )

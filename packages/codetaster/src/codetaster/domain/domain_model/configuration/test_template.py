@@ -48,6 +48,14 @@ def test_a_nested_model_is_a_section_of_its_own_settings() -> None:
 
 
 def test_a_required_setting_has_no_default() -> None:
+    required = {
+        SettingName(name)
+        for name, field in ReviewSettings.model_fields.items()
+        if field.is_required()
+    }
+
     template = SettingsTemplate.from_settings_schema(ReviewSettings)
 
-    assert {entry.default for entry in template.root} == {None}
+    assert {entry.default for entry in template.root if entry.name in required} == {
+        None
+    }

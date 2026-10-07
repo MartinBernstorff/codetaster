@@ -3,8 +3,8 @@ from typing import override
 from pydantic import BaseModel, ConfigDict, Field
 
 from codetaster.domain.domain_model.configuration.settings import Settings
-from codetaster.domain.domain_model.review.changes import RevisionName
-from codetaster.domain.domain_model.review.sampling import Probability
+from codetaster.domain.domain_model.review.changes import RepositoryPath, RevisionName
+from codetaster.domain.domain_model.review.probability import Probability
 
 
 class ReviewSettings(BaseModel):
@@ -18,11 +18,18 @@ class ReviewSettings(BaseModel):
     base_probability: Probability = Field(
         description="The probability, from 0 to 1, that a changed file needs review."
     )
+    ratings_path: RepositoryPath = Field(
+        default=RepositoryPath(".codetaster/ratings.json"),
+        description="The AI ratings file, relative to the repository root. "
+        "Usually gitignored. `check` never lists it.",
+    )
 
     @staticmethod
     def fake() -> ReviewSettings:
         return ReviewSettings(
-            base_branch=RevisionName.fake(), base_probability=Probability.fake()
+            base_branch=RevisionName.fake(),
+            base_probability=Probability.fake(),
+            ratings_path=RepositoryPath(".codetaster/ratings.json"),
         )
 
 
