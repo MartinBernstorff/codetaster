@@ -227,3 +227,9 @@ __marimo__/
 # the Python patterns above would otherwise hide.
 !/vscode-extension/build/
 !/vscode-extension/src/env/
+
+# Local notes.
+/docs
+
+# codetaster AI ratings, written per branch by a coding agent.
+/.codetaster/

@@ -11,17 +11,17 @@ function formatPercentage(probability: number): string {
 }
 
 /**
- * A file node's plain-text hover: upstream's tooltip, then the file's final probability
- * and either the AI's reason or a note that the file is unrated.
+ * A file node's plain-text hover: upstream's tooltip, then the file's AI rating and
+ * reason, or a note that the file is unrated.
  */
 export function fileHover(upstreamTooltip: string, fileReport: FileReport | undefined): string {
 	if (!fileReport) {
 		return `${upstreamTooltip}\n\nNot in the codetaster check.`;
 	}
-	const ratingLine = fileReport.rating
-		? `AI reason: ${fileReport.rating.reason}`
+	const ratingLines = fileReport.rating
+		? `AI rating: ${formatPercentage(fileReport.rating.probability)}\nAI reason: ${fileReport.rating.reason}`
 		: 'Unrated: no AI rating matches this version of the file.';
-	return `${upstreamTooltip}\n\nReview probability: ${formatPercentage(fileReport.probability)}\n${ratingLine}`;
+	return `${upstreamTooltip}\n\n${ratingLines}`;
 }
 
 /**

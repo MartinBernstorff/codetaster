@@ -5,20 +5,25 @@ import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
 import { headMismatchWarning } from './headMismatch';
 import { NodeCodetasterProcess } from './nodeCodetasterProcess';
 import { ratingsErrorWarning } from './ratingsError';
+import { nextFileToReview, OrderedFile, reviewOrder } from './reviewOrder';
 import { groupFilesByVerdict, VerdictGroup } from './verdictGroups';
 import type { Repository } from '../api/api';
+import { ViewedState } from '../common/comment';
 import { findLocalRepoRemoteFromGitHubRef } from '../common/githubRef';
 import { disposeAll } from '../common/lifecycle';
 import { compareIgnoreCase } from '../common/utils';
 import { FolderRepositoryManager } from '../github/folderRepositoryManager';
 import { PullRequestModel } from '../github/pullRequestModel';
 import { DirectoryTreeNode } from '../view/treeNodes/directoryTreeNode';
-import { GitFileChangeNode, InMemFileChangeNode, RemoteFileChangeNode } from '../view/treeNodes/fileChangeNode';
+import { FileChangeNode, GitFileChangeNode, InMemFileChangeNode, RemoteFileChangeNode } from '../view/treeNodes/fileChangeNode';
 import { TreeNode, TreeNodeParent } from '../view/treeNodes/treeNode';
 
 export const CODETASTER_SETTINGS_NAMESPACE = 'codetaster';
 export const EXECUTABLE_PATH_SETTING = 'executablePath';
+export const TOP_RATED_PERCENTAGE_SETTING = 'topRatedPercentage';
 export const REFRESH_CHECK_COMMAND = 'codetaster.refreshCheck';
+export const SET_TOP_RATED_PERCENTAGE_COMMAND = 'codetaster.setTopRatedPercentage';
+export const MARK_VIEWED_AND_OPEN_NEXT_COMMAND = 'codetaster.markViewedAndOpenNext';
 
 type PullRequestFileNode = GitFileChangeNode | RemoteFileChangeNode | InMemFileChangeNode;
 
@@ -26,7 +31,107 @@ function configuredExecutablePath(): string {
 	return vscode.workspace.getConfiguration(CODETASTER_SETTINGS_NAMESPACE).get<string>(EXECUTABLE_PATH_SETTING) || 'codetaster';
 }
 
+function configuredTopRatedPercentage(): number | undefined {
+	return vscode.workspace.getConfiguration(CODETASTER_SETTINGS_NAMESPACE).get<number | null>(TOP_RATED_PERCENTAGE_SETTING) ?? undefined;
+}
+
 export const codetasterChecks = new CodetasterChecks(new NodeCodetasterProcess(), configuredExecutablePath);
+
+interface PullRequestReviewOrder {
+	readonly folderRepoManager: FolderRepositoryManager;
+	readonly pullRequest: PullRequestModel;
+	readonly files: readonly OrderedFile<PullRequestFileNode>[];
+}
+
+/** The checked-out PR's files in the order the file list shows them, per repository. */
+const reviewOrders = new Map<FolderRepositoryManager, PullRequestReviewOrder>();
+
+/** The review orders of PRs that are still checked out. */
+function activeReviewOrders(): PullRequestReviewOrder[] {
+	return [...reviewOrders.values()].filter(order => order.pullRequest.equals(order.folderRepoManager.activePullRequest));
+}
+
+function isViewed(file: PullRequestFileNode): boolean {
+	return file.pullRequest.fileChangeViewedState[file.fileName] === ViewedState.VIEWED;
+}
+
+/** The URI of the file in the active editor tab, or the modified side of a diff. */
+function activeTabUri(): vscode.Uri | undefined {
+	const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+	if (input instanceof vscode.TabInputTextDiff) {
+		return input.modified;
+	}
+	if (input instanceof vscode.TabInputText) {
+		return input.uri;
+	}
+	return undefined;
+}
+
+/** The PR file `uri` shows. Of files whose path `uri` ends with, the longest path wins. */
+function fileShownAt(uri: vscode.Uri): { order: PullRequestReviewOrder, path: string } | undefined {
+	let found: { order: PullRequestReviewOrder, path: string } | undefined;
+	for (const order of activeReviewOrders()) {
+		for (const { path } of order.files) {
+			if (uri.path.endsWith(`/${path}`) && path.length > (found?.path.length ?? -1)) {
+				found = { order, path };
+			}
+		}
+	}
+	return found;
+}
+
+/**
+ * Marks the current PR file as viewed and opens the next file to review, in the order
+ * of the codetaster file list. The current file is `node` if given, e.g. from the file
+ * list, else the active editor's. Without a current file, opens the first file to review.
+ */
+async function markViewedAndOpenNext(node: unknown): Promise<void> {
+	const tabUri = activeTabUri();
+	let current: { order: PullRequestReviewOrder, path: string } | undefined;
+	if (node instanceof FileChangeNode) {
+		const order = activeReviewOrders().find(candidate => candidate.pullRequest.equals(node.pullRequest));
+		current = order && { order, path: node.fileName };
+	} else if (tabUri) {
+		current = fileShownAt(tabUri);
+	}
+	const order = current?.order ?? activeReviewOrders()[0];
+	if (!order) {
+		vscode.window.showInformationMessage('codetaster: check out a pull request to review its files.');
+		return;
+	}
+	const currentFile = order.files.find(entry => entry.path === current?.path)?.file;
+	const next = nextFileToReview(order.files, current?.path, file => file === currentFile || isViewed(file));
+	try {
+		if (next) {
+			await next.openDiff(order.folderRepoManager);
+		} else {
+			vscode.window.showInformationMessage('codetaster: every file to review is viewed.');
+		}
+		await currentFile?.markFileAsViewed(false);
+	} catch (e) {
+		vscode.window.showErrorMessage(`codetaster: could not move to the next file: ${e}`);
+	}
+}
+
+async function setTopRatedPercentage(): Promise<void> {
+	const current = configuredTopRatedPercentage();
+	const input = await vscode.window.showInputBox({
+		title: 'codetaster: top-rated percentage',
+		prompt: 'The percentage, from 0 to 100, of changed files with the highest AI ratings that need review. Leave empty to use the project config.',
+		value: current === undefined ? '' : String(current),
+		validateInput: value => value.trim() === '' || /^(100|[1-9]?[0-9])$/.test(value.trim())
+			? undefined
+			: 'Enter a whole number from 0 to 100, or nothing.',
+	});
+	if (input === undefined) {
+		return;
+	}
+	await vscode.workspace.getConfiguration(CODETASTER_SETTINGS_NAMESPACE).update(
+		TOP_RATED_PERCENTAGE_SETTING,
+		input.trim() === '' ? undefined : Number(input.trim()),
+		vscode.ConfigurationTarget.Workspace,
+	);
+}
 
 /** Where codetaster keeps the ratings file unless `[review] ratings_path` says otherwise. */
 const DEFAULT_RATINGS_FILE_GLOB = '**/.codetaster/ratings.json';
@@ -60,8 +165,10 @@ export function registerCodetaster(context: vscode.ExtensionContext): void {
 		ratingsWatcher.onDidDelete(() => codetasterChecks.refresh()),
 		{ dispose: () => disposeAll(headListeners) },
 		vscode.commands.registerCommand(REFRESH_CHECK_COMMAND, () => codetasterChecks.refresh()),
+		vscode.commands.registerCommand(SET_TOP_RATED_PERCENTAGE_COMMAND, setTopRatedPercentage),
+		vscode.commands.registerCommand(MARK_VIEWED_AND_OPEN_NEXT_COMMAND, markViewedAndOpenNext),
 		vscode.workspace.onDidChangeConfiguration(e => {
-			if (e.affectsConfiguration(`${CODETASTER_SETTINGS_NAMESPACE}.${EXECUTABLE_PATH_SETTING}`)) {
+			if ([EXECUTABLE_PATH_SETTING, TOP_RATED_PERCENTAGE_SETTING].some(setting => e.affectsConfiguration(`${CODETASTER_SETTINGS_NAMESPACE}.${setting}`))) {
 				codetasterChecks.refresh();
 			}
 		}),
@@ -96,9 +203,11 @@ export class VerdictGroupNode extends TreeNode implements vscode.TreeItem {
 		this.label = group.label;
 		this.contextValue = `codetaster:verdictGroup:${group.verdict}`;
 		this._children = fileListNodes(this, group.files, layout);
-		this.collapsibleState = group.files.length
-			? vscode.TreeItemCollapsibleState.Expanded
-			: vscode.TreeItemCollapsibleState.None;
+		this.collapsibleState = !group.files.length
+			? vscode.TreeItemCollapsibleState.None
+			: group.collapsed
+				? vscode.TreeItemCollapsibleState.Collapsed
+				: vscode.TreeItemCollapsibleState.Expanded;
 	}
 
 	getTreeItem(): vscode.TreeItem {
@@ -225,6 +334,7 @@ export async function codetasterFileNodes(
 		base: baseRevision(folderRepoManager, pullRequest),
 		fileListKey: fileListKey(allFiles),
 		localHead: folderRepoManager.repository.state.HEAD?.commit,
+		topRatedPercentage: configuredTopRatedPercentage(),
 	});
 	if (isCheckedOut) {
 		refreshOnHeadChange(folderRepoManager.repository);
@@ -233,8 +343,15 @@ export async function codetasterFileNodes(
 		return undefined;
 	}
 	if (outcome.kind === 'error') {
+		reviewOrders.delete(folderRepoManager);
 		return [new CodetasterErrorNode(parent, outcome.message)];
 	}
+	// From all files, so a viewed file hidden from the list keeps its place.
+	reviewOrders.set(folderRepoManager, {
+		folderRepoManager,
+		pullRequest,
+		files: reviewOrder(groupFilesByVerdict(outcome.report, allFiles, file => file.fileName), file => file.fileName, layout),
+	});
 	showFileRatings(outcome.report, shownFiles);
 	const groups = groupFilesByVerdict(outcome.report, shownFiles, file => file.fileName)
 		.map(group => new VerdictGroupNode(parent, group, layout));

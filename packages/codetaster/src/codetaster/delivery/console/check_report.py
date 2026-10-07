@@ -21,6 +21,7 @@ from codetaster.domain.domain_model.review.sampling import (
     FileAssessment,
     Verdict,
 )
+from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 
 
 class SchemaVersion(RootModel[int]):
@@ -30,7 +31,7 @@ class SchemaVersion(RootModel[int]):
 
     @staticmethod
     def fake() -> SchemaVersion:
-        return SchemaVersion(2)
+        return SchemaVersion(3)
 
 
 class ReportFlag(RootModel[bool]):
@@ -110,16 +111,12 @@ class FileReport(BaseModel):
         "match this file's change. null if the file is unrated."
     )
     unrated: ReportFlag = Field(
-        description="true if no rating matches, so only base_probability applies."
-    )
-    probability: Probability = Field(
-        description="The probability, from 0 to 1, that this file needs review: "
-        "the larger of base_probability and the rating's probability."
+        description="true if no rating matches, so the file cannot be in needs-review."
     )
     draw: Draw = Field(
-        description="From 0 inclusive to 1 exclusive. The file is in needs-review "
-        "if draw < the rating's probability, else sampled if draw < "
-        "base_probability. SHA-256 over the JSON array [before_path, "
+        description="From 0 inclusive to 1 exclusive. A file not in needs-review "
+        "is sampled if draw < base_probability. Of equally rated files, the lower "
+        "draw is picked for needs-review first. SHA-256 over the JSON array [before_path, "
         "before_blob, after_path, after_blob], null for a missing side, with the "
         "first 53 bits divided by 2^53. It changes only when the file's change does."
     )
@@ -133,8 +130,10 @@ class CheckReport(BaseModel):
     """Which changed files need human review, in three groups. Every changed file
     is in exactly one group. Files are ordered by path.
 
-    Schema version 2 added `sampled`. In version 1, `needs-review` held the files
-    that are now `sampled`. The ratings file at [review] ratings_path is never
+    Schema version 3 picks needs-review by rank, adds `top_rated_percentage` and
+    drops each file's `probability`. In version 2, a file was in needs-review if
+    its draw was below its rating. Schema version 2 added `sampled`. In version 1,
+    `needs-review` held the files that are now `sampled`. The ratings file at [review] ratings_path is never
     listed.
     """
 
@@ -153,14 +152,20 @@ class CheckReport(BaseModel):
     )
     base: BaseReport
     head: HeadReport
+    top_rated_percentage: TopRatedPercentage = Field(
+        description="The percentage, from 0 to 100, of changed files that need "
+        "review: --top-rated-percentage if given, else [review] "
+        "top_rated_percentage."
+    )
     ratings_error: RatingsErrorMessage | None = Field(
         description="Why the ratings file at [review] ratings_path was ignored, "
         "leaving every file unrated. null if it is valid or missing."
     )
     needs_review_files: tuple[FileReport, ...] = Field(
         serialization_alias="needs-review",
-        description="The files whose draw is below their rating's probability. "
-        "Unrated files are never here.",
+        description="The rated files with the highest ratings, "
+        "top_rated_percentage of all changed files rounded up. Unrated files are "
+        "never here, so there are fewer if too few files are rated.",
     )
     sampled_files: tuple[FileReport, ...] = Field(
         serialization_alias="sampled",
@@ -185,12 +190,13 @@ def check_report_from_result(result: CheckResult) -> CheckReport:
         )
 
     return CheckReport(
-        schema_version=SchemaVersion(2),
+        schema_version=SchemaVersion(3),
         needs_review=ReportFlag(root=result.verdict() is not Verdict.NO_REVIEW),
         # Nothing applies an override label yet.
         override_label_applied=ReportFlag(root=False),
         base=BaseReport(ref=result.base, merge_base=result.merge_base),
         head=HeadReport(commit=result.head),
+        top_rated_percentage=result.top_rated_percentage,
         ratings_error=None
         if result.ratings_problem is None
         else ratings_error_message(result.ratings_problem),
@@ -216,7 +222,6 @@ def file_report_from_assessment(assessment: FileAssessment) -> FileReport:
         if assessment.rating is None
         else rating_report_from_rating(assessment.rating),
         unrated=ReportFlag(root=assessment.rating is None),
-        probability=assessment.probability,
         draw=assessment.draw,
     )
 

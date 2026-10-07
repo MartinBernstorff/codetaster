@@ -5,13 +5,14 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
-from codetaster.domain.domain_model.review.changes import FileChange
+from codetaster.domain.domain_model.review.changes import FileChange, FileChanges
 from codetaster.domain.domain_model.review.probability import Probability
-from codetaster.domain.domain_model.review.ratings import FileRating
+from codetaster.domain.domain_model.review.ratings import FileRating, RatingsFile
+from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 
 
 class Draw(RootModel[Annotated[float, Field(ge=0, lt=1)]]):
-    """A file's reproducible random number. It needs review if this is below its probability."""
+    """A file's reproducible random number. It is sampled if this is below the base probability."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -23,7 +24,7 @@ class Draw(RootModel[Annotated[float, Field(ge=0, lt=1)]]):
 class Verdict(StrEnum):
     """The group a changed file is reported in, most urgent first.
 
-    needs-review: the draw is below the file's rating.
+    needs-review: among the top-rated files; see `assess_file_changes`.
     sampled: not needs-review, but the draw is below the base probability.
     no-review: everything else.
     """
@@ -64,7 +65,6 @@ class FileAssessment(BaseModel):
     change: FileChange
     base_probability: Probability
     rating: FileRating | None
-    probability: Probability
     draw: Draw
     verdict: Verdict
 
@@ -74,7 +74,6 @@ class FileAssessment(BaseModel):
             change=FileChange.fake(),
             base_probability=Probability.fake(),
             rating=None,
-            probability=Probability.fake(),
             draw=Draw.fake(),
             verdict=Verdict.NO_REVIEW,
         )
@@ -88,28 +87,40 @@ class FileAssessments(RootModel[tuple[FileAssessment, ...]]):
         return FileAssessments((FileAssessment.fake(),))
 
 
-def assess_file_change(
-    change: FileChange, base_probability: Probability, rating: FileRating | None
-) -> FileAssessment:
-    """needs-review if the draw is below the rating, else sampled if it is below
-    the base probability. Without a rating a file can never need review.
-
-    The caller matches `rating` to `change`; see `RatingsFile.rating_for`.
-    """
-    draw = draw_for_file_change(change)
-    if rating is not None and draw.root < rating.probability.root:
-        verdict = Verdict.NEEDS_REVIEW
-    elif draw.root < base_probability.root:
-        verdict = Verdict.SAMPLED
-    else:
-        verdict = Verdict.NO_REVIEW
-    return FileAssessment(
-        change=change,
-        base_probability=base_probability,
-        rating=rating,
-        probability=base_probability
-        if rating is None
-        else Probability(max(base_probability.root, rating.probability.root)),
-        draw=draw,
-        verdict=verdict,
+def assess_file_changes(
+    changes: FileChanges,
+    base_probability: Probability,
+    ratings: RatingsFile,
+    top_rated: TopRatedPercentage,
+) -> FileAssessments:
+    draws = tuple(draw_for_file_change(change) for change in changes.root)
+    file_ratings = tuple(ratings.rating_for(change) for change in changes.root)
+    ranked = sorted(
+        (
+            (index, rating)
+            for index, rating in enumerate(file_ratings)
+            if rating is not None
+        ),
+        key=lambda rated: (-rated[1].probability.root, draws[rated[0]].root),
+    )
+    # The percentage of the changed files, rounded up.
+    picked_count = -(-top_rated.root * len(changes.root) // 100)
+    picked = {index for index, _ in ranked[:picked_count]}
+    return FileAssessments(
+        tuple(
+            FileAssessment(
+                change=change,
+                base_probability=base_probability,
+                rating=rating,
+                draw=draw,
+                verdict=Verdict.NEEDS_REVIEW
+                if index in picked
+                else Verdict.SAMPLED
+                if draw.root < base_probability.root
+                else Verdict.NO_REVIEW,
+            )
+            for index, (change, rating, draw) in enumerate(
+                zip(changes.root, file_ratings, draws, strict=True)
+            )
+        )
     )
