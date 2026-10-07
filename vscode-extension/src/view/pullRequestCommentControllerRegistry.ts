@@ -1,0 +1,147 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+'use strict';
+
+import * as vscode from 'vscode';
+import { PullRequestCommentController } from './pullRequestCommentController';
+import { Disposable } from '../common/lifecycle';
+import { ITelemetry } from '../common/telemetry';
+import { fromPRUri, Schemes } from '../common/uri';
+import { FolderRepositoryManager } from '../github/folderRepositoryManager';
+import { GHPRComment } from '../github/prComment';
+import { PullRequestModel } from '../github/pullRequestModel';
+import { CommentReactionHandler } from '../github/utils';
+
+interface PullRequestCommentHandlerInfo extends vscode.Disposable {
+	handler: PullRequestCommentController & CommentReactionHandler;
+	refCount: number;
+}
+
+interface PRCommentingRangeProviderInfo extends vscode.Disposable {
+	provider: vscode.CommentingRangeProvider2;
+	refCount: number;
+}
+
+export class PRCommentControllerRegistry extends Disposable implements vscode.CommentingRangeProvider, CommentReactionHandler {
+	private _prCommentHandlers: { [key: number]: PullRequestCommentHandlerInfo } = {};
+	private _prCommentingRangeProviders: { [key: number]: PRCommentingRangeProviderInfo } = {};
+	private readonly _activeChangeListeners: Map<FolderRepositoryManager, vscode.Disposable> = new Map();
+	public readonly resourceHints = { schemes: [Schemes.Pr] };
+
+	constructor(public readonly commentsController: vscode.CommentController, private readonly _telemetry: ITelemetry) {
+		super();
+		this.commentsController.commentingRangeProvider = this;
+		this.commentsController.reactionHandler = this.toggleReaction.bind(this);
+	}
+
+	async provideCommentingRanges(document: vscode.TextDocument, token: vscode.CancellationToken): Promise<vscode.Range[] | undefined> {
+		const uri = document.uri;
+		const params = fromPRUri(uri);
+
+		if (!params || !this._prCommentingRangeProviders[params.prNumber]) {
+			return;
+		}
+
+		const provideCommentingRanges = this._prCommentingRangeProviders[params.prNumber].provider.provideCommentingRanges.bind(
+			this._prCommentingRangeProviders[params.prNumber].provider,
+		);
+
+		return provideCommentingRanges(document, token);
+	}
+
+	async toggleReaction(comment: GHPRComment, reaction: vscode.CommentReaction): Promise<void> {
+		const uri = comment.parent!.uri;
+		const params = fromPRUri(uri);
+
+		if (
+			!params ||
+			!this._prCommentHandlers[params.prNumber] ||
+			!this._prCommentHandlers[params.prNumber].handler.toggleReaction
+		) {
+			return;
+		}
+
+		const toggleReaction = this._prCommentHandlers[params.prNumber].handler.toggleReaction!.bind(
+			this._prCommentHandlers[params.prNumber].handler,
+		);
+
+		return toggleReaction(comment, reaction);
+	}
+
+	public unregisterCommentController(prNumber: number): void {
+		if (this._prCommentHandlers[prNumber]) {
+			this._prCommentHandlers[prNumber].dispose();
+			delete this._prCommentHandlers[prNumber];
+		}
+	}
+
+	public registerCommentController(prNumber: number, pullRequestModel: PullRequestModel, folderRepositoryManager: FolderRepositoryManager): vscode.Disposable {
+		if (this._prCommentHandlers[prNumber]) {
+			this._prCommentHandlers[prNumber].refCount += 1;
+			return this._prCommentHandlers[prNumber];
+		}
+
+		if (!this._activeChangeListeners.has(folderRepositoryManager)) {
+			this._activeChangeListeners.set(folderRepositoryManager, folderRepositoryManager.onDidChangeActivePullRequest(e => {
+				if (e.old) {
+					this._prCommentHandlers[e.old.number]?.dispose();
+				}
+			}));
+		}
+
+		const handler = new PullRequestCommentController(pullRequestModel, folderRepositoryManager, this.commentsController, this._telemetry);
+		this._prCommentHandlers[prNumber] = {
+			handler,
+			refCount: 1,
+			dispose: () => {
+				if (!this._prCommentHandlers[prNumber]) {
+					return;
+				}
+
+				this._prCommentHandlers[prNumber].refCount -= 1;
+				if (this._prCommentHandlers[prNumber].refCount === 0) {
+					this._prCommentHandlers[prNumber].handler.dispose();
+					delete this._prCommentHandlers[prNumber];
+				}
+			}
+		};
+
+		return this._prCommentHandlers[prNumber];
+	}
+
+	public registerCommentingRangeProvider(prNumber: number, provider: vscode.CommentingRangeProvider2): vscode.Disposable {
+		if (this._prCommentingRangeProviders[prNumber]) {
+			this._prCommentingRangeProviders[prNumber].refCount += 1;
+			return this._prCommentingRangeProviders[prNumber];
+		}
+
+		this._prCommentingRangeProviders[prNumber] = {
+			provider,
+			refCount: 1,
+			dispose: () => {
+				if (!this._prCommentingRangeProviders[prNumber]) {
+					return;
+				}
+
+				this._prCommentingRangeProviders[prNumber].refCount -= 1;
+				if (this._prCommentingRangeProviders[prNumber].refCount === 0) {
+					delete this._prCommentingRangeProviders[prNumber];
+				}
+			}
+		};
+
+		return this._prCommentingRangeProviders[prNumber];
+	}
+
+	override dispose() {
+		super.dispose();
+		Object.keys(this._prCommentHandlers).forEach(key => {
+			this._prCommentHandlers[key].handler.dispose();
+		});
+
+		this._prCommentingRangeProviders = {};
+		this._prCommentHandlers = {};
+	}
+}

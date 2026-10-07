@@ -1,0 +1,595 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+import { createContext } from 'react';
+import { getState, setState, updateState } from './cache';
+import { COMMENT_TEXTAREA_ID } from './constants';
+import { getMessageHandler, MessageHandler } from './message';
+import { CloseResult, DescriptionResult, OpenCommitChangesArgs, OpenLocalFileArgs } from '../../common/views';
+import { IComment } from '../../src/common/comment';
+import { EventType, ReviewEvent, SessionLinkInfo, TimelineEvent } from '../../src/common/timelineEvent';
+import { IProjectItem, MergeMethod, PullRequestCheckStatus, ReadyForReview } from '../../src/github/interface';
+import { CancelCodingAgentReply, ChangeAssigneesReply, ChangeBaseReply, ConvertToDraftReply, DeleteReviewResult, FileUploadCompletedMessage, MergeArguments, MergeResult, ProjectItemsReply, PullRequest, ReadyForReviewReply, SubmitReviewArgs, SubmitReviewReply, UploadFilesReply } from '../../src/github/views';
+
+/**
+ * Encode a {@linkcode Uint8Array} as a base64 string. Uses fixed-size chunks to
+ * keep the conversion linear in time and avoid huge intermediate string
+ * allocations when handling large clipboard payloads.
+ */
+function bytesToBase64(bytes: Uint8Array): string {
+	const chunkSize = 0x8000;
+	const parts: string[] = [];
+	for (let i = 0; i < bytes.length; i += chunkSize) {
+		const chunk = bytes.subarray(i, i + chunkSize);
+		parts.push(String.fromCharCode.apply(null, chunk as unknown as number[]));
+	}
+	return btoa(parts.join(''));
+}
+
+// Keep in sync with MAX_UPLOAD_SIZE_BYTES on the extension host.
+const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024;
+
+export class PRContext {
+	constructor(
+		public pr: PullRequest | undefined = getState(),
+		public onchange: ((ctx: PullRequest | undefined) => void) | null = null,
+		private _handler: MessageHandler | null = null,
+	) {
+		if (!_handler) {
+			this._handler = getMessageHandler(this.handleMessage);
+		}
+	}
+
+	public setTitle = async (title: string) => {
+		const result = await this.postMessage({ command: 'pr.edit-title', args: { text: title } });
+		this.updatePR({ titleHTML: result.titleHTML });
+	};
+
+	public setDescription = (description: string) =>
+		this.postMessage({ command: 'pr.edit-description', args: { text: description } });
+
+	public checkout = () => this.postMessage({ command: 'pr.checkout' });
+
+	public openChanges = (openToTheSide?: boolean) => this.postMessage({ command: 'pr.open-changes', args: { openToTheSide } });
+
+	public copyPrLink = () => this.postMessage({ command: 'pr.copy-prlink' });
+
+	public copyVscodeDevLink = () => this.postMessage({ command: 'pr.copy-vscodedevlink' });
+
+	public cancelCodingAgent = (event: TimelineEvent): Promise<CancelCodingAgentReply> => this.postMessage({ command: 'pr.cancel-coding-agent', args: event });
+
+	public exitReviewMode = async () => {
+		if (!this.pr) {
+			return;
+		}
+		return this.postMessage({
+			command: 'pr.checkout-default-branch',
+			args: this.pr.repositoryDefaultBranch,
+		});
+	};
+
+	public gotoChangesSinceReview = () => this.postMessage({ command: 'pr.gotoChangesSinceReview' });
+
+	public refresh = async () =>{
+		if (this.pr) {
+			this.pr.busy = true;
+		}
+		this.updatePR(this.pr);
+		await this.postMessage({ command: 'pr.refresh' });
+		if (this.pr) {
+			this.pr.busy = false;
+		}
+		this.updatePR(this.pr);
+	};
+
+	public checkMergeability = () => this.postMessage({ command: 'pr.checkMergeability' });
+
+	public changeEmail = async (current: string) => {
+		const newEmail = await this.postMessage({ command: 'pr.change-email', args: current });
+		this.updatePR({ emailForCommit: newEmail });
+	};
+
+	public merge = async (args: MergeArguments): Promise<MergeResult> => {
+		const result: MergeResult = await this.postMessage({ command: 'pr.merge', args });
+		return result;
+	};
+
+	public openOnGitHub = () => this.postMessage({ command: 'pr.openOnGitHub' });
+
+	public deleteBranch = () => this.postMessage({ command: 'pr.deleteBranch' });
+
+	public revert = async () => {
+		this.updatePR({ busy: true });
+		const revertResult = await this.postMessage({ command: 'pr.revert' });
+		this.updatePR({ busy: false, ...revertResult });
+	};
+
+	public readyForReview = (): Promise<ReadyForReview> => this.postMessage({ command: 'pr.readyForReview' });
+
+	public readyForReviewAndMerge = (args: { mergeMethod: MergeMethod }): Promise<ReadyForReview> => this.postMessage({ command: 'pr.readyForReviewAndMerge', args });
+
+	public convertToDraft = (): Promise<ConvertToDraftReply> => this.postMessage({ command: 'pr.convertToDraft' });
+
+	public addReviewers = () => this.postMessage({ command: 'pr.change-reviewers' });
+	public addReviewerCopilot = () => this.postMessage({ command: 'pr.add-reviewer-copilot' });
+	public changeBaseBranch = async () => {
+		const result: ChangeBaseReply = await this.postMessage({ command: 'pr.change-base-branch' });
+		if (result?.base) {
+			this.updatePR({ base: result.base, events: result.events });
+		}
+	};
+	public changeProjects = (): Promise<ProjectItemsReply> => this.postMessage({ command: 'pr.change-projects' });
+	public removeProject = (project: IProjectItem) => this.postMessage({ command: 'pr.remove-project', args: project });
+	public addMilestone = () => this.postMessage({ command: 'pr.add-milestone' });
+	public removeMilestone = () => this.postMessage({ command: 'pr.remove-milestone' });
+	public addAssignees = (): Promise<ChangeAssigneesReply> => this.postMessage({ command: 'pr.change-assignees' });
+	public addAssigneeYourself = (): Promise<ChangeAssigneesReply> => this.postMessage({ command: 'pr.add-assignee-yourself' });
+	public addAssigneeCopilot = (): Promise<ChangeAssigneesReply> => this.postMessage({ command: 'pr.add-assignee-copilot' });
+	public addLabels = () => this.postMessage({ command: 'pr.add-labels' });
+	public create = () => this.postMessage({ command: 'pr.open-create' });
+
+	public deleteComment = async (args: { id: number; pullRequestReviewId?: number }) => {
+		await this.postMessage({ command: 'pr.delete-comment', args });
+		const { pr } = this;
+		if (!pr) {
+			throw new Error('Unexpectedly no pull request when trying to delete comment');
+		}
+		const { id, pullRequestReviewId } = args;
+		if (!pullRequestReviewId) {
+			this.updatePR({
+				events: pr.events.filter(e => e.id !== id),
+			});
+			return;
+		}
+		const index = pr.events.findIndex(e => e.id === pullRequestReviewId);
+		if (index === -1) {
+			console.error('Could not find review:', pullRequestReviewId);
+			return;
+		}
+		const review: ReviewEvent = pr.events[index] as ReviewEvent;
+		if (!review.comments) {
+			console.error('No comments to delete for review:', pullRequestReviewId, review);
+			return;
+		}
+		pr.events.splice(index, 1, {
+			...review,
+			comments: review.comments.filter(c => c.id !== id),
+		});
+		this.updatePR(pr);
+	};
+
+	public editComment = (args: { comment: IComment; text: string }) =>
+		this.postMessage({ command: 'pr.edit-comment', args });
+
+	public generateDescription = (): Promise<DescriptionResult> =>
+		this.postMessage({ command: 'pr.generate-description' });
+
+	public cancelGenerateDescription = () =>
+		this.postMessage({ command: 'pr.cancel-generate-description' });
+
+	public updateDraft = (id: number, body: string) => {
+		const pullRequest = getState();
+		const pendingCommentDrafts = pullRequest.pendingCommentDrafts || Object.create(null);
+		if (body === pendingCommentDrafts[id]) {
+			return;
+		}
+		pendingCommentDrafts[id] = body;
+		this.updatePR({ pendingCommentDrafts: pendingCommentDrafts });
+	};
+
+	private async submitReviewCommand(command: string, args: SubmitReviewArgs) {
+		try {
+			const result: SubmitReviewReply = await this.postMessage({ command, args });
+			return this.appendReview(result);
+		} catch (error) {
+			return this.updatePR({ busy: false });
+		}
+	}
+
+	public requestChanges = (body: string, addAttestation: boolean = false) =>
+		this.submitReviewCommand('pr.request-changes', { body, addAttestation });
+
+	public approve = (body: string, addAttestation: boolean = false) =>
+		this.submitReviewCommand('pr.approve', { body, addAttestation });
+
+	public submit = (body: string, addAttestation: boolean = false) =>
+		this.submitReviewCommand('pr.submit', { body, addAttestation });
+
+	private _uploadCompletionHandlers: Map<string, (message: FileUploadCompletedMessage) => void> = new Map();
+
+	/**
+	 * Asks the host to prompt the user for files to upload.
+	 *
+	 * @param insertPlaceholders called once with the textual placeholders to insert into the textarea
+	 * @param replacePlaceholder called as each upload finishes (or fails) to replace the placeholder with the resulting markdown (or remove it on error)
+	 */
+	public uploadFiles = async (
+		insertPlaceholders: (placeholders: string) => void,
+		replacePlaceholder: (placeholder: string, markdownOrEmpty: string) => void,
+	) => {
+		const result: UploadFilesReply | undefined = await this.postMessage({ command: 'pr.upload-files' });
+		this._registerUploadHandlers(result, insertPlaceholders, replacePlaceholder);
+	};
+
+	/**
+	 * Send a list of files (typically from a clipboard paste or drop) to the host for upload.
+	 */
+	public uploadPastedFiles = async (
+		files: readonly File[],
+		insertPlaceholders: (placeholders: string) => void,
+		replacePlaceholder: (placeholder: string, markdownOrEmpty: string) => void,
+	) => {
+		if (files.length === 0) {
+			return;
+		}
+		const oversized = files.find(f => f.size > MAX_UPLOAD_SIZE_BYTES);
+		if (oversized) {
+			const limitMb = MAX_UPLOAD_SIZE_BYTES / (1024 * 1024);
+			const sizeMb = Math.round(oversized.size / (1024 * 1024));
+			void this.postMessage({
+				command: 'alert',
+				args: `File "${oversized.name || 'pasted-file'}" is too large to upload (${sizeMb} MB). The maximum allowed size is ${limitMb} MB.`,
+			});
+			return;
+		}
+		const fileArgs = await Promise.all(files.map(async file => {
+			const buffer = new Uint8Array(await file.arrayBuffer());
+			const bytesBase64 = bytesToBase64(buffer);
+			return { name: file.name || 'pasted-file', type: file.type ?? '', bytesBase64 };
+		}));
+		const result: UploadFilesReply | undefined = await this.postMessage({
+			command: 'pr.upload-pasted-files',
+			args: { files: fileArgs },
+		});
+		this._registerUploadHandlers(result, insertPlaceholders, replacePlaceholder);
+	};
+
+	private _registerUploadHandlers(
+		result: UploadFilesReply | undefined,
+		insertPlaceholders: (placeholders: string) => void,
+		replacePlaceholder: (placeholder: string, markdownOrEmpty: string) => void,
+	) {
+		if (!result || !result.uploads || result.uploads.length === 0) {
+			return;
+		}
+		const placeholdersText = result.uploads.map(u => u.placeholder).join('\n');
+		insertPlaceholders(placeholdersText);
+		for (const upload of result.uploads) {
+			this._uploadCompletionHandlers.set(upload.placeholder, message => {
+				if (message.error) {
+					replacePlaceholder(message.placeholder, '');
+					this.postMessage({ command: 'alert', args: `Failed to upload ${message.name}: ${message.error}` });
+				} else {
+					replacePlaceholder(message.placeholder, message.markdown ?? '');
+				}
+			});
+		}
+	}
+
+	/**
+	 * Convenience wrapper that uploads files into the current pending comment text in the PR state.
+	 */
+	public uploadFilesIntoPendingComment = () => {
+		return this.uploadFiles(
+			placeholders => this._appendToPendingComment(placeholders),
+			(placeholder, markdown) => this._replaceInPendingComment(placeholder, markdown),
+		);
+	};
+
+	/**
+	 * Convenience wrapper that uploads pasted files into the current pending comment text.
+	 */
+	public uploadPastedFilesIntoPendingComment = (files: readonly File[]) => {
+		return this.uploadPastedFiles(
+			files,
+			placeholders => this._appendToPendingComment(placeholders),
+			(placeholder, markdown) => this._replaceInPendingComment(placeholder, markdown),
+		);
+	};
+
+	private _appendToPendingComment(placeholders: string) {
+		const current = this.pr?.pendingCommentText ?? '';
+		const separator = current.length > 0 && !current.endsWith('\n') ? '\n' : '';
+		this.updatePR({ pendingCommentText: `${current}${separator}${placeholders}\n` });
+	}
+
+	private _replaceInPendingComment(placeholder: string, markdown: string) {
+		const current = this.pr?.pendingCommentText ?? '';
+		this.updatePR({ pendingCommentText: current.replace(placeholder, markdown) });
+	}
+
+	private completeFileUpload(message: FileUploadCompletedMessage) {
+		const handler = this._uploadCompletionHandlers.get(message.placeholder);
+		if (handler) {
+			this._uploadCompletionHandlers.delete(message.placeholder);
+			handler(message);
+		}
+	}
+
+	public deleteReview = async () => {
+		try {
+			const result: DeleteReviewResult = await this.postMessage({ command: 'pr.delete-review' });
+
+			const state = this.pr;
+			const eventsWithoutPendingReview = state?.events.filter(event =>
+				!(event.event === EventType.Reviewed && event.id === result.deletedReviewId)
+			) ?? [];
+
+			if (state && (eventsWithoutPendingReview.length < state.events.length)) {
+				// Update the PR state to reflect the deleted review
+				state.busy = false;
+				state.pendingCommentText = '';
+				state.pendingCommentDrafts = {};
+				// Remove the deleted review from events
+				state.events = eventsWithoutPendingReview;
+				this.updatePR(state);
+			}
+			return result;
+		} catch (error) {
+			return this.updatePR({ busy: false });
+		}
+	};
+
+	public close = async (body?: string) => {
+		const { pr } = this;
+		if (!pr) {
+			throw new Error('Unexpectedly no pull request when trying to close');
+		}
+		try {
+			const result: CloseResult = await this.postMessage({ command: 'pr.close', args: body });
+			let events: TimelineEvent[] = [...pr.events];
+			if (result.commentEvent) {
+				events.push(result.commentEvent);
+			}
+			if (result.closeEvent) {
+				events.push(result.closeEvent);
+			}
+			this.updatePR({
+				events,
+				pendingCommentText: '',
+				state: result.state
+			});
+		} catch (_) {
+			// Ignore
+		}
+	};
+
+	public removeLabel = async (label: string) => {
+		const { pr } = this;
+		if (!pr) {
+			throw new Error('Unexpectedly no pull request when trying to remove label');
+		}
+		await this.postMessage({ command: 'pr.remove-label', args: label });
+		const labels = pr.labels.filter(r => r.name !== label);
+		this.updatePR({ labels });
+	};
+
+	public applyPatch = async (comment: IComment) => {
+		this.postMessage({ command: 'pr.apply-patch', args: { comment } });
+	};
+
+	private appendReview(reply: SubmitReviewReply) {
+		const { pr: state } = this;
+		if (!state) {
+			throw new Error('Unexpectedly no pull request when trying to append review');
+		}
+		const { events, additionalEvents, reviewers, reviewedEvent } = reply;
+		state.busy = false;
+		if (!events) {
+			this.updatePR(state);
+			return;
+		}
+		if (reviewers) {
+			state.reviewers = reviewers;
+		}
+		// If the caller sent a fresh full timeline (`events.length > 0`), replace state
+		// with it. Otherwise append `additionalEvents` (if any) followed by the review.
+		state.events = events.length === 0
+			? [...state.events, ...(additionalEvents ?? []), reviewedEvent]
+			: events;
+		if (reviewedEvent.event === EventType.Reviewed) {
+			state.currentUserReviewState = reviewedEvent.state;
+		}
+		state.pendingCommentText = '';
+		state.pendingReviewType = undefined;
+		this.updatePR(state);
+	}
+
+	private readyForReviewComplete(reply: ReadyForReviewReply) {
+		const { pr: state } = this;
+		if (!state) {
+			throw new Error('Unexpectedly no pull request when trying to ready for review');
+		}
+		const { isDraft, reviewEvent, reviewers } = reply;
+		state.busy = false;
+		state.isDraft = isDraft;
+		if (!reviewEvent) {
+			this.updatePR(state);
+			return;
+		}
+		if (reviewers) {
+			state.reviewers = reviewers;
+		}
+		state.events = [...state.events, reviewEvent];
+		if (reviewEvent.event === EventType.Reviewed) {
+			state.currentUserReviewState = reviewEvent.state;
+		}
+		if (reply.autoMerge !== undefined) {
+			state.autoMerge = reply.autoMerge;
+			state.autoMergeMethod = state.defaultMergeMethod;
+		}
+		this.updatePR(state);
+	}
+
+	public reRequestReview = async (reviewerId: string) => {
+		const { pr: state } = this;
+		if (!state) {
+			throw new Error('Unexpectedly no pull request when trying to re-request review');
+		}
+		const { reviewers } = await this.postMessage({ command: 'pr.re-request-review', args: reviewerId });
+		state.reviewers = reviewers;
+		this.updatePR(state);
+	};
+
+	public async updateAutoMerge({ autoMerge, autoMergeMethod }: { autoMerge?: boolean, autoMergeMethod?: MergeMethod }) {
+		const { pr: state } = this;
+		if (!state) {
+			throw new Error('Unexpectedly no pull request when trying to update auto merge');
+		}
+		const response: { autoMerge: boolean, autoMergeMethod?: MergeMethod } = await this.postMessage({ command: 'pr.update-automerge', args: { autoMerge, autoMergeMethod } });
+		state.autoMerge = response.autoMerge;
+		state.autoMergeMethod = response.autoMergeMethod;
+		this.updatePR(state);
+	}
+
+	public updateBranch = async () => {
+		const { pr: state } = this;
+		if (!state) {
+			throw new Error('Unexpectedly no pull request when trying to update branch');
+		}
+		const result: Partial<PullRequest> = await this.postMessage({ command: 'pr.update-branch' });
+		state.events = result.events ?? state.events;
+		state.mergeable = result.mergeable ?? state.mergeable;
+		state.canUpdateBranch = result.canUpdateBranch ?? state.canUpdateBranch;
+		this.updatePR(state);
+	};
+
+	public dequeue = async () => {
+		const { pr: state } = this;
+		if (!state) {
+			throw new Error('Unexpectedly no pull request when trying to dequeue');
+		}
+		const isDequeued = await this.postMessage({ command: 'pr.dequeue' });
+		if (isDequeued) {
+			state.mergeQueueEntry = undefined;
+		}
+		this.updatePR(state);
+	};
+
+	public enqueue = async () => {
+		const { pr: state } = this;
+		if (!state) {
+			throw new Error('Unexpectedly no pull request when trying to enqueue');
+		}
+		const result = await this.postMessage({ command: 'pr.enqueue' });
+		if (result.mergeQueueEntry) {
+			state.mergeQueueEntry = result.mergeQueueEntry;
+		}
+		this.updatePR(state);
+	};
+
+	public openDiff = (comment: IComment) => this.postMessage({ command: 'pr.open-diff', args: { comment } });
+
+	public toggleResolveComment = (threadId: string, thread: IComment[], newResolved: boolean) => {
+		this.postMessage({
+			command: 'pr.resolve-comment-thread',
+			args: { threadId: threadId, toResolve: newResolved, thread }
+		}).then((timelineEvents: TimelineEvent[] | undefined) => {
+			if (timelineEvents) {
+				this.updatePR({ events: timelineEvents });
+			}
+			else {
+				this.refresh();
+			}
+		});
+	};
+
+	public openSessionLog = (link: SessionLinkInfo) => this.postMessage({ command: 'pr.open-session-log', args: { link } });
+
+	public openLocalFile = (file: string, startLine: number, endLine: number, href: string) => {
+		const args: OpenLocalFileArgs = { file, startLine, endLine, href };
+		this.postMessage({ command: 'pr.open-local-file', args });
+	};
+
+	public openDiffFromLink = (file: string, startLine: number, endLine: number, href: string) => {
+		const args: OpenLocalFileArgs = { file, startLine, endLine, href };
+		this.postMessage({ command: 'pr.open-diff-from-link', args });
+	};
+
+	public viewCheckLogs = (status: PullRequestCheckStatus) => this.postMessage({ command: 'pr.view-check-logs', args: { status } });
+
+	public openCommitChanges = async (commitSha: string) => {
+		this.updatePR({ loadingCommit: commitSha });
+		try {
+			const args: OpenCommitChangesArgs = { commitSha };
+			await this.postMessage({ command: 'pr.openCommitChanges', args });
+		} finally {
+			this.updatePR({ loadingCommit: undefined });
+		}
+	};
+
+	setPR = (pr: PullRequest | undefined) => {
+		this.pr = pr;
+		setState(this.pr);
+		if (this.onchange) {
+			this.onchange(this.pr);
+		}
+		return this;
+	};
+
+	updatePR = (pr: Partial<PullRequest> | undefined) => {
+		updateState(pr);
+		this.pr = this.pr ? { ...this.pr, ...pr } : pr as PullRequest;
+		if (this.onchange) {
+			this.onchange(this.pr);
+		}
+		return this;
+	};
+
+	postMessage(message: any) {
+		return (this._handler?.postMessage(message) ?? Promise.resolve(undefined));
+	}
+
+	handleMessage = (message: any) => {
+		switch (message.command) {
+			case 'pr.clear':
+				this.setPR(undefined);
+				return;
+			case 'pr.initialize':
+				return this.setPR(message.pullrequest);
+			case 'update-state':
+				return this.updatePR({ state: message.state });
+			case 'pr.update-checkout-status':
+				return this.updatePR({ isCurrentlyCheckedOut: message.isCurrentlyCheckedOut });
+			case 'pr.deleteBranch':
+				const stateChange: { isLocalHeadDeleted?: boolean, isRemoteHeadDeleted?: boolean } = {};
+				message.branchTypes && message.branchTypes.map((branchType: string) => {
+					if (branchType === 'local') {
+						stateChange.isLocalHeadDeleted = true;
+					} else if ((branchType === 'remote') || (branchType === 'upstream')) {
+						stateChange.isRemoteHeadDeleted = true;
+					}
+				});
+				return this.updatePR(stateChange);
+			case 'pr.enable-exit':
+				return this.updatePR({ isCurrentlyCheckedOut: true });
+			case 'set-scroll':
+				window.scrollTo(message.scrollPosition.x, message.scrollPosition.y);
+				return;
+			case 'pr.scrollToPendingReview':
+				const pendingReview = document.getElementById('pending-review') ?? document.getElementById(COMMENT_TEXTAREA_ID);
+				if (pendingReview) {
+					pendingReview.scrollIntoView();
+					pendingReview.focus();
+				}
+				return;
+			case 'pr.submitting-review':
+				return this.updatePR({ busy: true, lastReviewType: message.lastReviewType });
+			case 'pr.append-review':
+				return this.appendReview(message);
+			case 'pr.readying-for-review':
+				return this.updatePR({ busy: true });
+			case 'pr.readied-for-review':
+				return this.readyForReviewComplete(message);
+			case 'pr.file-upload-completed':
+				return this.completeFileUpload(message);
+		}
+	};
+
+	public static instance = new PRContext();
+}
+
+const PullRequestContext = createContext<PRContext>(PRContext.instance);
+export default PullRequestContext;

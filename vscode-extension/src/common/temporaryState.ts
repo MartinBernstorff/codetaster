@@ -1,0 +1,143 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+import * as vscode from 'vscode';
+import { disposeAll } from './lifecycle';
+import Logger from './logger';
+import { isDescendant } from './utils';
+
+let tempState: TemporaryState | undefined;
+
+export class TemporaryState extends vscode.Disposable {
+	static readonly ID = 'TemporaryState';
+	private readonly SUBPATH = 'temp';
+	private readonly disposables: vscode.Disposable[] = [];
+	private readonly persistInSessionDisposables: vscode.Disposable[] = [];
+
+	constructor(private readonly _storageUri: vscode.Uri) {
+		super(() => disposeAll(this.disposables));
+	}
+
+	private get path(): vscode.Uri {
+		return vscode.Uri.joinPath(this._storageUri, this.SUBPATH);
+	}
+
+	override dispose() {
+		disposeAll(this.disposables);
+		disposeAll(this.persistInSessionDisposables);
+	}
+
+	private addDisposable(disposable: vscode.Disposable, persistInSession: boolean) {
+		if (persistInSession) {
+			this.persistInSessionDisposables.push(disposable);
+		} else {
+			if (this.disposables.length > 30) {
+				const oldDisposable = this.disposables.shift();
+				oldDisposable?.dispose();
+			}
+			this.disposables.push(disposable);
+		}
+	}
+
+	private async writeState(subpath: string, filename: string, contents: Uint8Array, persistInSession: boolean, repositoryUri: vscode.Uri): Promise<vscode.Uri> {
+		let filePath: vscode.Uri = this.path;
+		let workspace: string | undefined;
+
+		if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+			const matchingFolder = vscode.workspace.workspaceFolders.find(folder =>
+				isDescendant(folder.uri.fsPath, repositoryUri.fsPath) || isDescendant(repositoryUri.fsPath, folder.uri.fsPath)
+			);
+			workspace = matchingFolder?.name;
+		}
+
+		// Fall back to the first workspace folder if no match found
+		if (!workspace && vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+			workspace = vscode.workspace.workspaceFolders[0].name;
+		}
+
+		if (workspace) {
+			filePath = vscode.Uri.joinPath(filePath, workspace);
+		}
+
+		if (subpath) {
+			filePath = vscode.Uri.joinPath(filePath, subpath);
+		}
+		await vscode.workspace.fs.createDirectory(filePath);
+		const file = vscode.Uri.joinPath(filePath, filename);
+		await vscode.workspace.fs.writeFile(file, contents);
+
+		const dispose = {
+			dispose: () => {
+				try {
+					return vscode.workspace.fs.delete(file, { recursive: true });
+				} catch (e) {
+					// No matter the error, we do not want to throw in dispose.
+				}
+			}
+		};
+		this.addDisposable(dispose, persistInSession);
+		return file;
+	}
+
+	private async readState(subpath: string, filename: string, repositoryUri: vscode.Uri): Promise<Uint8Array> {
+		let filePath: vscode.Uri = this.path;
+		let workspace: string | undefined;
+
+		if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+			const matchingFolder = vscode.workspace.workspaceFolders.find(folder =>
+				isDescendant(folder.uri.fsPath, repositoryUri.fsPath) || isDescendant(repositoryUri.fsPath, folder.uri.fsPath)
+			);
+			workspace = matchingFolder?.name;
+		}
+
+		// Fall back to the first workspace folder if no match found
+		if (!workspace && vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+			workspace = vscode.workspace.workspaceFolders[0].name;
+		}
+
+		if (workspace) {
+			filePath = vscode.Uri.joinPath(filePath, workspace);
+		}
+		filePath = vscode.Uri.joinPath(filePath, subpath);
+		const file = vscode.Uri.joinPath(filePath, filename);
+		return vscode.workspace.fs.readFile(file);
+	}
+
+	static async init(context: vscode.ExtensionContext): Promise<vscode.Disposable | undefined> {
+		if (context.globalStorageUri && !tempState) {
+			tempState = new TemporaryState(context.globalStorageUri);
+			try {
+				await vscode.workspace.fs.delete(tempState.path, { recursive: true });
+			} catch (e) {
+				// Ignore FileNotFound errors - the temp directory may not exist yet on first run.
+				if (!(e instanceof vscode.FileSystemError) || e.code !== 'FileNotFound') {
+					Logger.appendLine(`Error in initialization: ${e.message}`, TemporaryState.ID);
+				}
+			}
+			try {
+				await vscode.workspace.fs.createDirectory(tempState.path);
+			} catch (e) {
+				Logger.appendLine(`Error in initialization: ${e.message}`, TemporaryState.ID);
+			}
+			context.subscriptions.push(tempState);
+			return tempState;
+		}
+	}
+
+	static async write(subpath: string, filename: string, contents: Uint8Array, persistInSession: boolean = false, repositoryUri: vscode.Uri): Promise<vscode.Uri | undefined> {
+		if (!tempState) {
+			return;
+		}
+
+		return tempState.writeState(subpath, filename, contents, persistInSession, repositoryUri);
+	}
+
+	static async read(subpath: string, filename: string, repositoryUri: vscode.Uri): Promise<Uint8Array | undefined> {
+		if (!tempState) {
+			return;
+		}
+
+		return tempState.readState(subpath, filename, repositoryUri);
+	}
+}

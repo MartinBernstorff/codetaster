@@ -1,0 +1,65 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+import * as vscode from 'vscode';
+import { CommitNode } from './commitNode';
+import { TreeNode, TreeNodeParent } from './treeNode';
+import Logger, { PR_TREE } from '../../common/logger';
+import { createCommitsNodeUri } from '../../common/uri';
+import { FolderRepositoryManager } from '../../github/folderRepositoryManager';
+import { PullRequestModel } from '../../github/pullRequestModel';
+
+export class CommitsNode extends TreeNode implements vscode.TreeItem {
+	public collapsibleState: vscode.TreeItemCollapsibleState;
+	public resourceUri: vscode.Uri;
+	private _folderRepoManager: FolderRepositoryManager;
+	private _pr: PullRequestModel;
+	public tooltip?: string;
+
+	constructor(
+		parent: TreeNodeParent,
+		reposManager: FolderRepositoryManager,
+		pr: PullRequestModel,
+	) {
+		super(parent);
+		this.label = vscode.l10n.t('Commits');
+		this._pr = pr;
+		this._folderRepoManager = reposManager;
+		this.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
+		this.resourceUri = createCommitsNodeUri(pr.remote.owner, pr.remote.repositoryName, pr.number);
+		this.tooltip = vscode.l10n.t('Commits');
+
+		this.childrenDisposables = [];
+		this.childrenDisposables.push(this._pr.onDidChangeReviewThreads(() => {
+			Logger.appendLine(`Review threads have changed, refreshing Commits node`, PR_TREE);
+			this.refresh(this);
+		}));
+		this.childrenDisposables.push(this._pr.onDidChange(e => {
+			if (e.comments) {
+				Logger.appendLine(`Comments have changed, refreshing Commits node`, PR_TREE);
+				this.refresh(this);
+			}
+		}));
+	}
+
+	getTreeItem(): vscode.TreeItem {
+		return this;
+	}
+
+	override async getChildren(): Promise<TreeNode[]> {
+		super.getChildren();
+		try {
+			Logger.appendLine(`Getting children for Commits node`, PR_TREE);
+			const commits = await this._pr.getCommits();
+			this._children = commits.map(
+				(commit, index) => new CommitNode(this, this._folderRepoManager, this._pr, commit, (index === commits.length - 1) && (this._folderRepoManager.repository.state.HEAD?.commit === commit.sha)),
+			);
+			Logger.appendLine(`Got all children for Commits node`, PR_TREE);
+			return this._children;
+		} catch (e) {
+			return [];
+		}
+	}
+}

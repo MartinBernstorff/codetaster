@@ -1,0 +1,192 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+import { default as assert } from 'assert';
+import * as vscode from 'vscode';
+import { SinonSandbox, createSandbox, match as sinonMatch } from 'sinon';
+
+import { FolderRepositoryManager } from '../../github/folderRepositoryManager';
+import { MockTelemetry } from '../mocks/mockTelemetry';
+import { MockRepository } from '../mocks/mockRepository';
+import { PullRequestOverviewPanel } from '../../github/pullRequestOverview';
+import { panelKey } from '../../github/issueOverview';
+import { PullRequestModel } from '../../github/pullRequestModel';
+import { MockCommandRegistry } from '../mocks/mockCommandRegistry';
+import { Protocol } from '../../common/protocol';
+import { convertRESTPullRequestToRawPullRequest } from '../../github/utils';
+import { PullRequestBuilder } from '../builders/rest/pullRequestBuilder';
+import { MockExtensionContext } from '../mocks/mockExtensionContext';
+import { MockGitHubRepository } from '../mocks/mockGitHubRepository';
+import { GitApiImpl } from '../../api/api1';
+import { CredentialStore } from '../../github/credentials';
+import { GitHubServerType } from '../../common/authentication';
+import { GitHubRemote } from '../../common/remote';
+import { CheckState } from '../../github/interface';
+import { CreatePullRequestHelper } from '../../view/createPullRequestHelper';
+import { RepositoriesManager } from '../../github/repositoriesManager';
+import { MockThemeWatcher } from '../mocks/mockThemeWatcher';
+
+const EXTENSION_URI = vscode.Uri.joinPath(vscode.Uri.file(__dirname), '../../..');
+
+describe('PullRequestOverview', function () {
+	let sinon: SinonSandbox;
+	let pullRequestManager: FolderRepositoryManager;
+	let context: MockExtensionContext;
+	let remote: GitHubRemote;
+	let repo: MockGitHubRepository;
+	let telemetry: MockTelemetry;
+	let credentialStore: CredentialStore;
+	let mockThemeWatcher: MockThemeWatcher;
+
+	beforeEach(async function () {
+		sinon = createSandbox();
+		MockCommandRegistry.install(sinon);
+		context = new MockExtensionContext();
+
+		const repository = new MockRepository();
+		telemetry = new MockTelemetry();
+		credentialStore = new CredentialStore(telemetry, context);
+		mockThemeWatcher = new MockThemeWatcher();
+		const createPrHelper = new CreatePullRequestHelper();
+		const repositoriesManager = new RepositoriesManager(credentialStore, telemetry);
+		pullRequestManager = new FolderRepositoryManager(0, context, repository, telemetry, new GitApiImpl(repositoriesManager), credentialStore, createPrHelper, mockThemeWatcher);
+
+		const url = 'https://github.com/aaa/bbb';
+		remote = new GitHubRemote('origin', url, new Protocol(url), GitHubServerType.GitHubDotCom);
+		repo = new MockGitHubRepository(remote, pullRequestManager.credentialStore, telemetry, sinon);
+	});
+
+	afterEach(function () {
+		// Dispose all open panels
+		for (const panel of (PullRequestOverviewPanel as any)._panels.values()) {
+			panel.dispose();
+		}
+
+		pullRequestManager.dispose();
+		context.dispose();
+		sinon.restore();
+	});
+
+	describe('createOrShow', function () {
+		it('creates a new panel', async function () {
+			assert.strictEqual(PullRequestOverviewPanel.findPanel('aaa', 'bbb', 1000), undefined);
+			const createWebviewPanel = sinon.spy(vscode.window, 'createWebviewPanel');
+
+			repo.addGraphQLPullRequest(builder => {
+				builder.pullRequest(response => {
+					response.repository(r => {
+						r.pullRequest(pr => pr.number(1000));
+					});
+				});
+			});
+
+			const prItem = convertRESTPullRequestToRawPullRequest(new PullRequestBuilder().number(1000).build(), repo);
+			const prModel = new PullRequestModel(credentialStore, telemetry, repo, remote, prItem);
+			const identity = { owner: prModel.remote.owner, repo: prModel.remote.repositoryName, number: prModel.number };
+
+			await PullRequestOverviewPanel.createOrShow(telemetry, EXTENSION_URI, pullRequestManager, identity, prModel);
+
+			assert(
+				createWebviewPanel.calledWith(sinonMatch.string, '#1000', vscode.ViewColumn.One, {
+					enableScripts: true,
+					retainContextWhenHidden: true,
+					localResourceRoots: [vscode.Uri.joinPath(EXTENSION_URI, 'dist')],
+					enableFindWidget: true
+				}),
+			);
+			assert.notStrictEqual(PullRequestOverviewPanel.findPanel('aaa', 'bbb', 1000), undefined);
+		});
+
+		it('reveals an existing panel for the same PR', async function () {
+			const createWebviewPanel = sinon.spy(vscode.window, 'createWebviewPanel');
+
+			repo.addGraphQLPullRequest(builder => {
+				builder.pullRequest(response => {
+					response.repository(r => {
+						r.pullRequest(pr => pr.number(1000));
+					});
+				});
+			});
+			repo.addGraphQLPullRequest(builder => {
+				builder.pullRequest(response => {
+					response.repository(r => {
+						r.pullRequest(pr => pr.number(2000));
+					});
+				});
+			});
+
+			const prItem0 = convertRESTPullRequestToRawPullRequest(new PullRequestBuilder().number(1000).build(), repo);
+			const prModel0 = new PullRequestModel(credentialStore, telemetry, repo, remote, prItem0);
+			const identity0 = { owner: prModel0.remote.owner, repo: prModel0.remote.repositoryName, number: prModel0.number };
+			const resolveStub = sinon.stub(pullRequestManager, 'resolvePullRequest').resolves(prModel0);
+			sinon.stub(prModel0, 'getReviewRequests').resolves([]);
+			sinon.stub(prModel0, 'getTimelineEvents').resolves([]);
+			sinon.stub(prModel0, 'validateDraftMode').resolves(true);
+			sinon.stub(prModel0, 'getStatusChecks').resolves([{ state: CheckState.Success, statuses: [] }, null]);
+			await PullRequestOverviewPanel.createOrShow(telemetry, EXTENSION_URI, pullRequestManager, identity0, prModel0);
+
+			const panel0 = PullRequestOverviewPanel.findPanel(identity0.owner, identity0.repo, identity0.number);
+			assert.notStrictEqual(panel0, undefined);
+			assert.strictEqual(createWebviewPanel.callCount, 1);
+			assert.strictEqual(panel0!.getCurrentTitle(), '#1000 New feature');
+
+			// Opening the same PR again should reuse the existing panel
+			await PullRequestOverviewPanel.createOrShow(telemetry, EXTENSION_URI, pullRequestManager, identity0, prModel0);
+
+			assert.strictEqual(panel0, PullRequestOverviewPanel.findPanel(identity0.owner, identity0.repo, identity0.number));
+			assert.strictEqual(createWebviewPanel.callCount, 1);
+		});
+
+		it('creates separate panels for different PRs', async function () {
+			const createWebviewPanel = sinon.spy(vscode.window, 'createWebviewPanel');
+
+			repo.addGraphQLPullRequest(builder => {
+				builder.pullRequest(response => {
+					response.repository(r => {
+						r.pullRequest(pr => pr.number(1000));
+					});
+				});
+			});
+			repo.addGraphQLPullRequest(builder => {
+				builder.pullRequest(response => {
+					response.repository(r => {
+						r.pullRequest(pr => pr.number(2000));
+					});
+				});
+			});
+
+			const prItem0 = convertRESTPullRequestToRawPullRequest(new PullRequestBuilder().number(1000).build(), repo);
+			const prModel0 = new PullRequestModel(credentialStore, telemetry, repo, remote, prItem0);
+			const identity0 = { owner: prModel0.remote.owner, repo: prModel0.remote.repositoryName, number: prModel0.number };
+			const resolveStub = sinon.stub(pullRequestManager, 'resolvePullRequest').resolves(prModel0);
+			sinon.stub(prModel0, 'getReviewRequests').resolves([]);
+			sinon.stub(prModel0, 'getTimelineEvents').resolves([]);
+			sinon.stub(prModel0, 'validateDraftMode').resolves(true);
+			sinon.stub(prModel0, 'getStatusChecks').resolves([{ state: CheckState.Success, statuses: [] }, null]);
+			await PullRequestOverviewPanel.createOrShow(telemetry, EXTENSION_URI, pullRequestManager, identity0, prModel0);
+
+			const panel0 = PullRequestOverviewPanel.findPanel(identity0.owner, identity0.repo, identity0.number);
+			assert.notStrictEqual(panel0, undefined);
+			assert.strictEqual(createWebviewPanel.callCount, 1);
+
+			const prItem1 = convertRESTPullRequestToRawPullRequest(new PullRequestBuilder().number(2000).build(), repo);
+			const prModel1 = new PullRequestModel(credentialStore, telemetry, repo, remote, prItem1);
+			const identity1 = { owner: prModel1.remote.owner, repo: prModel1.remote.repositoryName, number: prModel1.number };
+			resolveStub.resolves(prModel1);
+			sinon.stub(prModel1, 'getReviewRequests').resolves([]);
+			sinon.stub(prModel1, 'getTimelineEvents').resolves([]);
+			sinon.stub(prModel1, 'validateDraftMode').resolves(true);
+			sinon.stub(prModel1, 'getStatusChecks').resolves([{ state: CheckState.Success, statuses: [] }, null]);
+			await PullRequestOverviewPanel.createOrShow(telemetry, EXTENSION_URI, pullRequestManager, identity1, prModel1);
+
+			const panel1 = PullRequestOverviewPanel.findPanel(identity1.owner, identity1.repo, identity1.number);
+			assert.notStrictEqual(panel1, undefined);
+			assert.notStrictEqual(panel0, panel1);
+			assert.strictEqual(createWebviewPanel.callCount, 2);
+			assert.strictEqual(panel0!.getCurrentTitle(), '#1000 New feature');
+			assert.strictEqual(panel1!.getCurrentTitle(), '#2000 New feature');
+		});
+	});
+});

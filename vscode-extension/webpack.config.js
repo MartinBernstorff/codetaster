@@ -1,0 +1,434 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/* eslint-disable @typescript-eslint/ban-ts-comment */
+/* eslint-disable @typescript-eslint/no-var-requires */
+/* eslint-disable import/no-dynamic-require */
+
+//@ts-check
+/** @typedef {import('webpack').Configuration} WebpackConfig **/
+
+const execFile = require('child_process').execFile;
+const path = require('path');
+const { EsbuildPlugin } = require('esbuild-loader');
+const ForkTsCheckerPlugin = require('fork-ts-checker-webpack-plugin');
+const JSON5 = require('json5');
+const TerserPlugin = require('terser-webpack-plugin');
+const webpack = require('webpack');
+
+async function resolveTSConfig(configFile) {
+	const data = await new Promise((resolve, reject) => {
+		execFile(
+			'npx',
+			['tsc', `-p ${configFile}`, '--showConfig'],
+			{ cwd: __dirname, encoding: 'utf8', shell: true },
+			function (error, stdout, stderr) {
+				if (error != null) {
+					reject(error);
+				}
+				resolve(stdout);
+			},
+		);
+	});
+
+	const index = data.indexOf('{\n');
+	const endIndex = data.indexOf('Done in');
+	const substr = data.substring(index, endIndex > index ? endIndex : undefined);
+	const json = JSON5.parse(substr);
+	return json;
+}
+
+/**
+ * @param { 'production' | 'development' | 'none' } mode
+ * @param {{ esbuild?: boolean; }} env
+ * @param { WebpackConfig['entry'] } entry
+ * @returns { Promise<WebpackConfig> }
+ */
+async function getWebviewConfig(mode, env, entry) {
+	const basePath = path.join(__dirname, 'webviews');
+
+	/**
+	 * @type WebpackConfig['plugins'] | any
+	 */
+	const plugins = [
+		new webpack.optimize.LimitChunkCountPlugin({
+			maxChunks: 1
+		}),
+		new ForkTsCheckerPlugin({
+			async: false,
+			formatter: 'basic',
+			typescript: {
+				configFile: path.join(__dirname, 'tsconfig.webviews.json'),
+			},
+		}),
+	];
+
+	return {
+		name: 'webviews',
+		entry: entry,
+		mode: mode,
+		target: 'web',
+		devtool: mode !== 'production' ? 'source-map' : undefined,
+		output: {
+			filename: '[name].js',
+			path: path.resolve(__dirname, 'dist'),
+			// Use absolute paths (file:///) in source maps instead of the default webpack:// scheme
+			devtoolModuleFilenameTemplate: info => 'file:///' + info.absoluteResourcePath.replace(/\\/g, '/'),
+			devtoolFallbackModuleFilenameTemplate: 'file:///[absolute-resource-path]'
+		},
+		optimization: {
+			minimizer: [
+				// @ts-ignore
+				env.esbuild
+					? new EsbuildPlugin({
+						format: 'cjs',
+						minify: true,
+						treeShaking: true,
+						// Keep the class names
+						keepNames: true,
+						target: 'es2019',
+					})
+					: new TerserPlugin({
+						extractComments: false,
+						parallel: true,
+						terserOptions: {
+							ecma: 2019,
+							keep_classnames: /^AbortSignal$/,
+							module: true,
+						},
+					}),
+			],
+		},
+		module: {
+			rules: [
+				{
+					exclude: /node_modules/,
+					include: [basePath, path.join(__dirname, 'src'), path.join(__dirname, 'common')],
+					test: /\.tsx?$/,
+					use: env.esbuild
+						? {
+							loader: 'esbuild-loader',
+							options: {
+								target: 'es2019',
+								tsconfigRaw: await resolveTSConfig(path.join(__dirname, 'tsconfig.webviews.json')),
+							},
+						}
+						: {
+							loader: 'ts-loader',
+							options: {
+								configFile: path.join(__dirname, 'tsconfig.webviews.json'),
+								experimentalWatchApi: true,
+								transpileOnly: true,
+							},
+						},
+				},
+				{
+					test: /\.css/,
+					use: ['style-loader', 'css-loader'],
+				},
+				{
+					test: /\.svg/,
+					use: ['svg-inline-loader'],
+				},
+				{
+					test: /\.ttf$/,
+					type: 'asset/resource'
+				},
+			],
+		},
+		resolve: {
+			extensions: ['.ts', '.tsx', '.js', '.jsx', '.json', '.svg'],
+			fallback: {
+				crypto: require.resolve("crypto-browserify"),
+				path: require.resolve('path-browserify'),
+				stream: require.resolve("stream-browserify"),
+				http: require.resolve("stream-http")
+			},
+		},
+		plugins: plugins,
+	};
+}
+
+/**
+ * @param { 'node' | 'webworker' } target
+ * @param { 'production' | 'development' | 'none' } mode
+ * @param {{ esbuild?: boolean; }} env
+ * @returns { Promise<WebpackConfig> }
+ */
+async function getExtensionConfig(target, mode, env) {
+	const basePath = path.join(__dirname, 'src');
+	const glob = require('glob');
+
+	/**
+	 * @type WebpackConfig['plugins'] | any
+	 */
+	const plugins = [
+		new ForkTsCheckerPlugin({
+			async: false,
+			formatter: 'basic',
+			typescript: {
+				configFile: path.join(__dirname, target === 'webworker' ? 'tsconfig.browser.json' : 'tsconfig.json'),
+			},
+		}),
+		new webpack.ContextReplacementPlugin(/mocha/, /^$/)
+	];
+
+	// Add fixtures copying plugin for node target (which has individual test files)
+	if (target === 'node') {
+		const fs = require('fs');
+		const srcRoot = 'src';
+		class CopyFixturesPlugin {
+			apply(compiler) {
+				compiler.hooks.afterEmit.tap('CopyFixturesPlugin', () => {
+					this.copyFixtures(srcRoot, compiler.options.output.path);
+				});
+			}
+
+			copyFixtures(inputDir, outputDir) {
+				try {
+					const files = fs.readdirSync(inputDir);
+					for (const file of files) {
+						const filePath = path.join(inputDir, file);
+						const stats = fs.statSync(filePath);
+						if (stats.isDirectory()) {
+							if (file === 'fixtures') {
+								const outputFilePath = path.join(outputDir, inputDir.substring(srcRoot.length), file);
+								const inputFilePath = path.join(inputDir, file);
+								fs.cpSync(inputFilePath, outputFilePath, { recursive: true, force: true });
+							} else {
+								this.copyFixtures(filePath, outputDir);
+							}
+						}
+					}
+				} catch (error) {
+					// Ignore errors during fixtures copying to not break the build
+					console.warn('Warning: Could not copy fixtures:', error.message);
+				}
+			}
+		}
+
+		plugins.push(new CopyFixturesPlugin());
+	}
+
+	if (target === 'webworker') {
+		plugins.push(new webpack.ProvidePlugin({
+			process: path.join(
+				__dirname,
+				'node_modules',
+				'process',
+				'browser.js')
+		}));
+		plugins.push(new webpack.ProvidePlugin({
+			Buffer: ['buffer', 'Buffer']
+		}));
+	}
+
+	const entry = {
+		extension: './src/extension.ts',
+	};
+
+	// Add test entry points
+	if (target === 'webworker') {
+		entry['test/index'] = './src/test/browser/index.ts';
+	} else if (target === 'node') {
+		// Add main test runner
+		entry['test/index'] = './src/test/index.ts';
+
+		// Add individual test files as separate entry points
+		const testFiles = glob.sync('src/test/**/*.test.ts', { cwd: __dirname });
+		testFiles.forEach(testFile => {
+			// Convert src/test/github/utils.test.ts -> test/github/utils.test
+			const entryName = testFile.replace('src/', '').replace('.ts', '');
+			entry[entryName] = `./${testFile}`;
+		});
+	}
+
+	// Don't limit chunks for node target when we have individual test files
+	if (target !== 'node' || !('test/index' in entry && Object.keys(entry).some(key => key.endsWith('.test')))) {
+		plugins.unshift(new webpack.optimize.LimitChunkCountPlugin({
+			maxChunks: 1
+		}));
+	}
+
+	return {
+		name: `extension:${target}`,
+		entry,
+		mode: mode,
+		target: target,
+		devtool: mode !== 'production' ? 'source-map' : undefined,
+		output: {
+			path: target === 'webworker' ? path.join(__dirname, 'dist', 'browser') : path.join(__dirname, 'dist'),
+			libraryTarget: 'commonjs2',
+			filename: '[name].js',
+			chunkFilename: 'feature-[name].js',
+			// Use absolute paths (file:///) in source maps for easier debugging of tests & sources
+			devtoolModuleFilenameTemplate: info => 'file:///' + info.absoluteResourcePath.replace(/\\/g, '/'),
+			devtoolFallbackModuleFilenameTemplate: 'file:///[absolute-resource-path]',
+		},
+		optimization: {
+			minimizer: [
+				// @ts-ignore
+				env.esbuild
+					? new EsbuildPlugin({
+						format: 'cjs',
+						minify: true,
+						treeShaking: true,
+						// // Keep the class names
+						// keepNames: true,
+						target: 'es2019',
+					})
+					: new TerserPlugin({
+						extractComments: false,
+						parallel: true,
+						terserOptions: {
+							ecma: 2019,
+							// // Keep the class names
+							// keep_classnames: true,
+							module: true,
+						},
+					}),
+			],
+		},
+		module: {
+			rules: [
+				{
+					exclude: /node_modules/,
+					include: [path.join(__dirname, 'src'), path.join(__dirname, 'common')],
+					test: /\.tsx?$/,
+					use: env.esbuild
+						? {
+							loader: 'esbuild-loader',
+							options: {
+								target: 'es2019',
+								tsconfigRaw: await resolveTSConfig(
+									path.join(
+										__dirname,
+										target === 'webworker' ? 'tsconfig.browser.json' : 'tsconfig.json',
+									),
+								),
+							},
+						}
+						: {
+							loader: 'ts-loader',
+							options: {
+								configFile: path.join(
+									__dirname,
+									target === 'webworker' ? 'tsconfig.browser.json' : 'tsconfig.json',
+								),
+								experimentalWatchApi: true,
+								transpileOnly: true,
+							},
+						},
+				},
+				// // FIXME: apollo-client uses .mjs, which imposes hard restrictions
+				// // on imports available from other callers. They probably didn't know
+				// // this. They just used .mjs because it seemed new and hip.
+				// //
+				// // We should either fix or remove that package, then remove this rule,
+				// // which introduces nonstandard behavior for mjs files, which are
+				// // terrible. This is all terrible. Everything is terrible.
+				// {
+				// 	test: /\.mjs$/,
+				// 	include: /node_modules/,
+				// 	type: "javascript/auto",
+				// },
+				{
+					exclude: /node_modules/,
+					test: /\.(graphql|gql)$/,
+					loader: 'graphql-tag/loader',
+				}
+			],
+		},
+		resolve: {
+			alias:
+				target === 'webworker'
+					? {
+						'node-fetch': 'cross-fetch',
+						'../env/node/net': path.resolve(__dirname, 'src', 'env', 'browser', 'net'),
+						'../env/node/ssh': path.resolve(__dirname, 'src', 'env', 'browser', 'ssh'),
+						'../../env/node/ssh': path.resolve(__dirname, 'src', 'env', 'browser', 'ssh'),
+						'./env/node/gitProviders/api': path.resolve(
+							__dirname,
+							'src',
+							'env',
+							'browser',
+							'gitProviders',
+							'api',
+						)
+					}
+					: undefined,
+			// : {
+			// 	'universal-user-agent': path.join(__dirname, 'node_modules', 'universal-user-agent', 'dist-node', 'index.js'),
+			// },
+			fallback:
+				target === 'webworker'
+					? {
+						crypto: require.resolve("crypto-browserify"),
+						path: require.resolve('path-browserify'),
+						stream: require.resolve("stream-browserify"),
+						url: false,
+						vm: false,
+						'assert': require.resolve('assert'),
+						'os': require.resolve('os-browserify/browser'),
+						"constants": require.resolve("constants-browserify"),
+						buffer: require.resolve('buffer'),
+						timers: require.resolve('timers-browserify'),
+						http: require.resolve("stream-http")
+					}
+					: {
+						http: require.resolve("stream-http")
+					},
+			extensions: ['.ts', '.tsx', '.js', '.jsx', '.json'],
+			symlinks: false,
+		},
+		externals: {
+			vscode: 'commonjs vscode',
+			// 'utf-8-validate': 'utf-8-validate',
+			// 'bufferutil': 'bufferutil',
+			// 'encoding': 'encoding',
+			'applicationinsights-native-metrics': 'applicationinsights-native-metrics',
+			'@opentelemetry/tracing': '@opentelemetry/tracing',
+			'@opentelemetry/instrumentation': '@opentelemetry/instrumentation',
+			'@azure/opentelemetry-instrumentation-azure-sdk': '@azure/opentelemetry-instrumentation-azure-sdk',
+			'fs': 'fs',
+			'mocha': 'commonjs mocha',
+		},
+		plugins: plugins,
+		stats: {
+			preset: 'errors-warnings',
+			assets: true,
+			colors: true,
+			env: true,
+			errorsCount: true,
+			warningsCount: true,
+			timings: true,
+		}
+	};
+}
+
+module.exports =
+	/**
+	 * @param {{ esbuild?: boolean; } | undefined } env
+	 * @param {{ mode: 'production' | 'development' | 'none' | undefined; }} argv
+	 * @returns { Promise<WebpackConfig[]> }
+	 */
+	async function (env, argv) {
+		const mode = argv.mode || 'none';
+
+		env = {
+			esbuild: false,
+			...env,
+		};
+
+		return Promise.all([
+			getExtensionConfig('node', mode, env),
+			getExtensionConfig('webworker', mode, env),
+			getWebviewConfig(mode, env, {
+				'webview-pr-description': './webviews/editorWebview/index.ts',
+				'webview-open-pr-view': './webviews/activityBarView/index.ts',
+				'webview-create-pr-view-new': './webviews/createPullRequestViewNew/index.ts',
+			}),
+		]);
+	};

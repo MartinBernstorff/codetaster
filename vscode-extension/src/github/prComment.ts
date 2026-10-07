@@ -1,0 +1,558 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+import * as path from 'path';
+import * as vscode from 'vscode';
+import { GitHubRepository } from './githubRepository';
+import { IAccount } from './interface';
+import { updateCommentReactions } from './utils';
+import { COPILOT_ACCOUNTS, IComment } from '../common/comment';
+import { emojify, ensureEmojis } from '../common/emoji';
+import Logger from '../common/logger';
+import { DataUri } from '../common/uri';
+import { ALLOWED_USERS, JSDOC_NON_USERS, PHPDOC_NON_USERS } from '../common/user';
+import { escapeRegExp, stringReplaceAsync } from '../common/utils';
+
+export interface GHPRCommentThread extends vscode.CommentThread2 {
+	gitHubThreadId: string;
+
+	/**
+	 * The uri of the document the thread has been created on.
+	 */
+	uri: vscode.Uri;
+
+	/**
+	 * The range the comment thread is located within the document. The thread icon will be shown
+	 * at the first line of the range.
+	 */
+	range: vscode.Range | undefined;
+
+	/**
+	 * The ordered comments of the thread.
+	 */
+	comments: (GHPRComment | TemporaryComment)[];
+
+	/**
+	 * Whether the thread should be collapsed or expanded when opening the document.
+	 * Defaults to Collapsed.
+	 */
+	collapsibleState: vscode.CommentThreadCollapsibleState;
+
+	/**
+	 * The optional human-readable label describing the [Comment Thread](#CommentThread)
+	 */
+	label?: string;
+
+	canReply: boolean | vscode.CommentAuthorInformation;
+
+	/**
+	 * Whether the thread has been marked as resolved.
+	 */
+	state?: { resolved: vscode.CommentThreadState; applicability?: vscode.CommentThreadApplicability };
+
+	reveal(comment?: vscode.Comment, options?: vscode.CommentThreadRevealOptions): Promise<void>;
+
+	dispose: () => void;
+}
+
+export namespace GHPRCommentThread {
+	export function is(value: any): value is GHPRCommentThread {
+		return (value && (typeof (value as GHPRCommentThread).gitHubThreadId) === 'string');
+	}
+}
+
+abstract class CommentBase implements vscode.Comment {
+	public abstract commentId: undefined | string;
+
+	/**
+	 * The comment thread the comment is from
+	 */
+	public parent: GHPRCommentThread;
+
+	/**
+	 * The text of the comment as from GitHub
+	 */
+	public abstract get body(): string | vscode.MarkdownString;
+	public abstract set body(body: string | vscode.MarkdownString);
+
+	/**
+	 * Whether the comment is in edit mode or not
+	 */
+	public mode: vscode.CommentMode;
+
+	/**
+	 * The author of the comment
+	 */
+	public abstract get author(): vscode.CommentAuthorInformation;
+
+	/**
+	 * The author of the comment, before any modifications we make for display purposes.
+	 */
+	public originalAuthor: vscode.CommentAuthorInformation;
+
+	/**
+	 * The label to display on the comment, 'Pending' or nothing
+	 */
+	public label: string | undefined;
+
+	/**
+	 * The list of reactions to the comment
+	 */
+	public reactions?: vscode.CommentReaction[] | undefined;
+
+	/**
+	 * The context value, used to determine whether the command should be visible/enabled based on clauses in package.json
+	 */
+	public contextValue: string;
+
+	/**
+	 * The state of the comment (Published or Draft)
+	 */
+	public state?: vscode.CommentState;
+
+	constructor(
+		parent: GHPRCommentThread,
+	) {
+		this.parent = parent;
+	}
+
+	public abstract commentEditId(): number | string;
+
+	startEdit() {
+		this.parent.comments = this.parent.comments.map(cmt => {
+			if (cmt instanceof CommentBase && cmt.commentEditId() === this.commentEditId()) {
+				cmt.mode = vscode.CommentMode.Editing;
+			}
+
+			return cmt;
+		});
+	}
+
+	protected abstract getCancelEditBody(): string | vscode.MarkdownString;
+	protected abstract doSetBody(body: string | vscode.MarkdownString, refresh: boolean): Promise<void>;
+
+	cancelEdit() {
+		this.parent.comments = this.parent.comments.map(cmt => {
+			if (cmt instanceof CommentBase && cmt.commentEditId() === this.commentEditId()) {
+				cmt.mode = vscode.CommentMode.Preview;
+				this.doSetBody(this.getCancelEditBody(), true);
+			}
+
+			return cmt;
+		});
+	}
+}
+
+/**
+ * Used to optimistically render updates to comment threads. Temporary comments are immediately
+ * set when a command is run, and then replaced with real data when the operation finishes.
+ */
+export class TemporaryComment extends CommentBase {
+	public commentId: undefined;
+
+	/**
+	 * The id of the comment
+	 */
+	public id: number;
+
+	/**
+	 * If the temporary comment is in place for an edit, the original text value of the comment
+	 */
+	public originalBody?: string;
+
+	static idPool = 0;
+
+	constructor(
+		parent: GHPRCommentThread,
+		private input: string,
+		isDraft: boolean,
+		currentUser: IAccount,
+		originalComment?: GHPRComment,
+	) {
+		super(parent);
+		this.mode = vscode.CommentMode.Preview;
+		this.originalAuthor = {
+			name: currentUser.specialDisplayName ?? currentUser.login,
+			iconPath: (currentUser.avatarUrl && DataUri.isGitHubDotComAvatar(currentUser.avatarUrl)) ? vscode.Uri.parse(`${currentUser.avatarUrl}&s=64`) : undefined,
+		};
+		this.label = isDraft ? vscode.l10n.t('Pending') : undefined;
+		this.state = isDraft ? vscode.CommentState.Draft : vscode.CommentState.Published;
+		this.contextValue = 'temporary,canEdit,canDelete';
+		this.originalBody = originalComment ? originalComment.rawComment.body : undefined;
+		this.reactions = originalComment ? originalComment.reactions : undefined;
+		this.id = TemporaryComment.idPool++;
+	}
+
+	protected async doSetBody(input: string | vscode.MarkdownString): Promise<void> {
+		if (typeof input === 'string') {
+			this.input = input;
+		}
+	}
+
+	set body(input: string | vscode.MarkdownString) {
+		this.doSetBody(input);
+	}
+
+	get body(): string | vscode.MarkdownString {
+		const s = new vscode.MarkdownString(this.input);
+		s.supportAlertSyntax = true;
+		return s;
+	}
+
+	get author(): vscode.CommentAuthorInformation {
+		return this.originalAuthor;
+	}
+
+	commentEditId() {
+		return this.id;
+	}
+
+	protected getCancelEditBody() {
+		return this.originalBody || this.body;
+	}
+}
+
+const SUGGESTION_EXPRESSION = /```suggestion(\u0020*(\r\n|\n))((?<suggestion>[\s\S]*?)(\r\n|\n))?```/;
+const IMG_EXPRESSION = /<img\b[^>]*?\ssrc\s*=\s*['"](?<src>[^'"]+?)['"][^>]*?>/gi;
+const IMG_ALT_EXPRESSION = /\salt\s*=\s*(['"])(?<alt>[\s\S]*?)\1/i;
+const UUID_EXPRESSION = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}/;
+export const COMMIT_SHA_EXPRESSION = /(?<![`\/\w])([0-9a-f]{7})([0-9a-f]{33})?(?![`\/\w])/g;
+
+export class GHPRComment extends CommentBase {
+	private static ID = 'GHPRComment';
+	public commentId: string;
+	public timestamp: Date;
+
+	/**
+	 * The complete comment data returned from GitHub
+	 */
+	public rawComment: IComment;
+
+	private _rawBody: string | vscode.MarkdownString;
+	private replacedBody: string;
+	private githubRepository: GitHubRepository | undefined;
+
+	constructor(private readonly context: vscode.ExtensionContext, comment: IComment, parent: GHPRCommentThread, githubRepositories?: GitHubRepository[]) {
+		super(parent);
+		this.rawComment = comment;
+		this.originalAuthor = {
+			name: comment.user?.specialDisplayName ?? comment.user!.login,
+			iconPath: (comment.user && comment.user.avatarUrl && DataUri.isGitHubDotComAvatar(comment.user.avatarUrl)) ? vscode.Uri.parse(comment.user.avatarUrl) : undefined,
+		};
+		const url = vscode.Uri.parse(comment.url);
+		this.githubRepository = githubRepositories?.find(repo => repo.remote.host === url.authority);
+
+		const avatarUrisPromise = (comment.user && DataUri.isGitHubDotComAvatar(comment.user.avatarUrl)) ? DataUri.avatarCirclesAsImageDataUris(context, [comment.user], 28, 28) : Promise.resolve([]);
+		this.doSetBody(comment.body, !comment.user).then(async () => { // only refresh if there's no user. If there's a user, we'll refresh in the then.
+			const avatarUris = await avatarUrisPromise;
+			if (avatarUris.length > 0) {
+				this.author.iconPath = avatarUris[0];
+			}
+			this.refresh();
+		});
+		this.commentId = comment.id.toString();
+
+		updateCommentReactions(this, comment.reactions);
+
+		this.label = comment.isDraft ? vscode.l10n.t('Pending') : undefined;
+		this.state = comment.isDraft ? vscode.CommentState.Draft : vscode.CommentState.Published;
+
+		const contextValues: string[] = [];
+		if (comment.canEdit) {
+			contextValues.push('canEdit');
+		}
+
+		if (comment.canDelete) {
+			contextValues.push('canDelete');
+		}
+
+		if (this.suggestion !== undefined) {
+			contextValues.push('hasSuggestion');
+		}
+
+		this.contextValue = contextValues.join(',');
+		this.timestamp = new Date(comment.createdAt);
+	}
+
+	get author(): vscode.CommentAuthorInformation {
+		if (!this.rawComment.user?.specialDisplayName) {
+			return this.originalAuthor;
+		}
+		return {
+			name: this.rawComment.user.specialDisplayName,
+			iconPath: this.originalAuthor.iconPath,
+		};
+	}
+
+	update(comment: IComment) {
+		const oldRawComment = this.rawComment;
+		this.rawComment = comment;
+		let refresh: boolean = false;
+
+		if (updateCommentReactions(this, comment.reactions)) {
+			refresh = true;
+		}
+
+		const oldLabel = this.label;
+		this.label = comment.isDraft ? vscode.l10n.t('Pending') : undefined;
+		const newState = comment.isDraft ? vscode.CommentState.Draft : vscode.CommentState.Published;
+		if (this.label !== oldLabel || this.state !== newState) {
+			this.state = newState;
+			refresh = true;
+		}
+
+		const contextValues: string[] = [];
+		if (comment.canEdit) {
+			contextValues.push('canEdit');
+		}
+
+		if (comment.canDelete) {
+			contextValues.push('canDelete');
+		}
+
+		if (this.suggestion !== undefined) {
+			contextValues.push('hasSuggestion');
+		}
+
+		const oldContextValue = this.contextValue;
+		this.contextValue = contextValues.join(',');
+		if (oldContextValue !== this.contextValue) {
+			refresh = true;
+		}
+
+		// Set the comment body last as it will trigger an update if set.
+		if (oldRawComment.body !== comment.body) {
+			this.doSetBody(comment.body, true);
+			refresh = false;
+		}
+
+		if (refresh) {
+			this.refresh();
+		}
+	}
+
+	private refresh() {
+		// Self assign the comments to trigger an update of the comments in VS Code now that we have replaced the body.
+		// eslint-disable-next-line no-self-assign
+		this.parent.comments = this.parent.comments;
+	}
+
+	get suggestion(): string | undefined {
+		const match = this.rawComment.body.match(SUGGESTION_EXPRESSION);
+		const suggestionBody = match?.groups?.suggestion;
+		if (match) {
+			return suggestionBody ? suggestionBody : '';
+		}
+		return undefined;
+	}
+
+	public commentEditId() {
+		return this.commentId;
+	}
+
+	private replaceImg(body: string) {
+		return body.replace(IMG_EXPRESSION, (substring, _1, _2, _3, { src }) => {
+			const altMatch = substring.match(IMG_ALT_EXPRESSION);
+			const alt = (altMatch?.groups?.alt ?? '').replace(/[\r\n]+/g, ' ').trim();
+			const safeAlt = alt.replace(/([\\\[\]`])/g, '\\$1');
+			return `![${safeAlt || 'image'}](${src})`;
+		});
+	}
+
+	private replaceSuggestion(body: string) {
+		return body.replace(new RegExp(SUGGESTION_EXPRESSION, 'g'), (_substring: string, ...args: any[]) => {
+			return `***
+Suggested change:
+\`\`\`
+${args[3] ?? ''}
+\`\`\`
+***`;
+		});
+	}
+
+	private async createLocalFilePath(rootUri: vscode.Uri, fileSubPath: string, startLine: number, endLine: number): Promise<string | undefined> {
+		const localFile = vscode.Uri.joinPath(rootUri, fileSubPath);
+		try {
+			const stat = await vscode.workspace.fs.stat(localFile);
+			if (stat.type === vscode.FileType.File) {
+				return `${localFile.with({ fragment: `${startLine}-${endLine}` }).toString()}`;
+			}
+		} catch (e) {
+			return undefined;
+		}
+	}
+
+	private async replacePermalink(body: string): Promise<string> {
+		const githubRepository = this.githubRepository;
+		if (!githubRepository) {
+			return body;
+		}
+
+		const repoName = escapeRegExp(githubRepository.remote.repositoryName);
+		const expression = new RegExp(`https://github.com/(.+)/${repoName}/blob/([0-9a-f]{40})/(.*)#L([0-9]+)(-L([0-9]+))?`, 'g');
+		return stringReplaceAsync(body, expression, async (match: string, owner: string, sha: string, file: string, start: string, _endGroup?: string, end?: string, index?: number) => {
+			if (index && (index > 0) && (body.charAt(index - 1) === '(')) {
+				return match;
+			}
+
+			const startLine = parseInt(start);
+			const endLine = end ? parseInt(end) : startLine + 1;
+			const lineContents = await githubRepository.getLines(sha, file, startLine, endLine);
+			if (!lineContents) {
+				return match;
+			}
+			const localFile = await this.createLocalFilePath(githubRepository.rootUri, file, startLine, endLine);
+			const lineMessage = end ? `Lines ${startLine} to ${endLine} in \`${sha.substring(0, 7)}\`` : `Line ${startLine} in \`${sha.substring(0, 7)}\``;
+			return `
+***
+[${file}](${localFile ?? match})${localFile ? ` ([view on GitHub](${match}))` : ''}
+
+${lineMessage}
+\`\`\`
+${lineContents}
+\`\`\`
+***`;
+		});
+	}
+
+	private replaceImages(body: string): string {
+		const html = this.rawComment.bodyHTML;
+		if (!html) {
+			return body;
+		}
+
+		return replaceImages(body, html, this.githubRepository?.remote.host);
+	}
+
+	private replaceCommitShas(body: string): string {
+		const githubRepository = this.githubRepository;
+		if (!githubRepository) {
+			return body;
+		}
+
+		// Match commit SHAs that are:
+		// - Either 7 or 40 hex characters
+		// - Not already part of a URL or markdown link
+		// - Not inside code blocks (backticks)
+		return body.replace(COMMIT_SHA_EXPRESSION, (match, shortSha, remaining, offset) => {
+			// Don't replace if inside code blocks
+			const beforeMatch = body.substring(0, offset);
+			const backtickCount = (beforeMatch.match(/`/g)?.length ?? 0);
+			if (backtickCount % 2 === 1) {
+				return match;
+			}
+
+			// Don't replace if already part of a markdown link
+			if (beforeMatch.endsWith('[') || body.substring(offset + match.length).startsWith(']')) {
+				return match;
+			}
+
+			const owner = githubRepository.remote.owner;
+			const repo = githubRepository.remote.repositoryName;
+			const commitUrl = `https://${githubRepository.remote.host}/${owner}/${repo}/commit/${match}`;
+			return `[${shortSha}](${commitUrl})`;
+		});
+	}
+
+	private replaceNewlines(body: string) {
+		return body.replace(/(?<!\s)(\r\n|\n)/g, '  \n');
+	}
+
+	private postpendSpecialAuthorComment(body: string) {
+		if (!this.rawComment.specialDisplayBodyPostfix) {
+			return body;
+		}
+		return `${body}  \n\n_${this.rawComment.specialDisplayBodyPostfix}_`;
+	}
+
+	private async replaceBody(body: string | vscode.MarkdownString): Promise<string> {
+		const emojiPromise = ensureEmojis(this.context);
+		Logger.trace('Replace comment body', GHPRComment.ID);
+		if (body instanceof vscode.MarkdownString) {
+			const permalinkReplaced = await this.replacePermalink(body.value);
+			return this.replaceImg(this.replaceSuggestion(permalinkReplaced));
+		}
+		const imagesReplaced = this.replaceImages(body);
+		const newLinesReplaced = this.replaceNewlines(imagesReplaced);
+		const documentLanguage = (await vscode.workspace.openTextDocument(this.parent.uri)).languageId;
+		const replacerRegex = new RegExp(`([^/\[\`]|^)@(${ALLOWED_USERS})`, 'g');
+		// Replace user
+		const linkified = newLinesReplaced.replace(replacerRegex, (substring, _1, _2, offset) => {
+			// Do not try to replace user if there's a code block.
+			if ((newLinesReplaced.substring(0, offset).match(/```/g)?.length ?? 0) % 2 === 1) {
+				return substring;
+			}
+			// Do not try to replace user if it might already be part of a link
+			if (substring.includes(']') || substring.includes(')')) {
+				return substring;
+			}
+
+			const username = substring.substring(substring.startsWith('@') ? 1 : 2);
+			if ((((documentLanguage === 'javascript') || (documentLanguage === 'typescript')) && JSDOC_NON_USERS.includes(username))
+				|| ((documentLanguage === 'php') && PHPDOC_NON_USERS.includes(username))) {
+				return substring;
+			}
+			const url = COPILOT_ACCOUNTS[username]?.url ?? `${path.dirname(this.rawComment.user!.url)}/${username}`;
+			return `${substring.startsWith('@') ? '' : substring.charAt(0)}[@${username}](${url})`;
+		});
+
+		const commitShasReplaced = this.replaceCommitShas(linkified);
+		const permalinkReplaced = await this.replacePermalink(commitShasReplaced);
+		await emojiPromise;
+		return this.postpendSpecialAuthorComment(emojify(this.replaceImg(this.replaceSuggestion(permalinkReplaced))));
+	}
+
+	protected async doSetBody(body: string | vscode.MarkdownString, refresh: boolean) {
+		this._rawBody = body;
+		const replacedBody = await this.replaceBody(body);
+
+		if (replacedBody !== this.replacedBody) {
+			this.replacedBody = replacedBody;
+			if (refresh) {
+				this.refresh();
+			}
+		}
+	}
+
+	set body(body: string | vscode.MarkdownString) {
+		this.doSetBody(body, false);
+	}
+
+	get body(): string | vscode.MarkdownString {
+		if (this.mode === vscode.CommentMode.Editing) {
+			return this._rawBody;
+		}
+		const s = new vscode.MarkdownString(this.replacedBody);
+		s.supportAlertSyntax = true;
+		return s;
+	}
+
+	protected getCancelEditBody() {
+		const s = new vscode.MarkdownString(this.rawComment.body);
+		s.supportAlertSyntax = true;
+		return s;
+	}
+}
+
+export function replaceImages(markdownBody: string, htmlBody: string, host: string = 'github.com') {
+	const originalExpression = new RegExp(`https:\/\/${host}\/.+\/assets\/([^\/]+\/)?(?<uuid>${UUID_EXPRESSION.source})`);
+	let originalMatch = markdownBody.match(originalExpression);
+	const htmlHost = escapeRegExp(host === 'github.com' ? 'githubusercontent.com' : host);
+
+	while (originalMatch) {
+		if (originalMatch.groups?.uuid) {
+			const uuid = escapeRegExp(originalMatch.groups.uuid);
+			const htmlExpression = new RegExp(`https:\/\/([^"]*${htmlHost})\/[^?]+${uuid}[^"]+`);
+			const htmlMatch = htmlBody.match(htmlExpression);
+			if (htmlMatch && htmlMatch[0]) {
+				markdownBody = markdownBody.replace(originalMatch[0], htmlMatch[0]);
+			} else {
+				return markdownBody;
+			}
+		}
+		originalMatch = markdownBody.match(originalExpression);
+	}
+	return markdownBody;
+}

@@ -1,0 +1,17 @@
+{
+	"editor.insertSpaces": false,
+	"files.associations": {
+		".eslintrc.json": "jsonc",
+		".eslintrc.*.json": "jsonc"
+	},
+	"json.schemas": [
+		{
+			"fileMatch": [
+				"**/.eslintrc.*.json"
+			],
+			"url": "https://json.schemastore.org/eslintrc"
+		}
+	],
+	"files.trimTrailingWhitespace": true,
+	"gitlens.advanced.blame.customArguments": ["--ignore-revs-file", ".gitignore-revs"]
+}

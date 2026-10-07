@@ -222,3 +222,8 @@ __marimo__/
 # moon
 .moon/cache
 .moon/docker
+
+# The vendored VS Code extension has its own .gitignore. Keep upstream folders that
+# the Python patterns above would otherwise hide.
+!/vscode-extension/build/
+!/vscode-extension/src/env/

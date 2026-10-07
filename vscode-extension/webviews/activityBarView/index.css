@@ -1,0 +1,259 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	padding: 10px 20px;
+}
+
+textarea {
+	min-height: 80px;
+	max-height: 500px;
+	border-radius: 4px;
+}
+
+.form-actions {
+	display: flex;
+	padding: 10px 0;
+}
+
+.icon svg {
+	margin-right: 6px;
+	width: 16px;
+}
+
+.reviewer-icons .icon svg {
+	margin-right: 0px;
+}
+
+.reviewer-icons {
+	margin-left: 20px;
+}
+
+#status-checks {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 16px 0;
+}
+
+.comment-form {
+	padding-bottom: 16px;
+}
+
+.textarea-wrapper {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	box-sizing: border-box;
+	border: 1px solid var(--vscode-dropdown-border);
+	background-color: var(--vscode-input-background);
+	border-radius: 4px;
+	margin-bottom: 4px;
+	overflow: hidden;
+	resize: vertical;
+}
+
+.textarea-wrapper:focus-within {
+	outline: 1px solid var(--vscode-focusBorder);
+}
+
+.textarea-wrapper textarea {
+	flex: 1;
+	width: 100%;
+	box-sizing: border-box;
+	border: none;
+	background: transparent;
+	border-radius: 0;
+	outline: none;
+	margin: 0;
+	resize: none;
+}
+
+.textarea-wrapper .comment-upload-button {
+	align-self: flex-start;
+	margin: 2px 0 4px 4px;
+	border: none;
+	background: none;
+	padding: 4px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 4px;
+	color: var(--vscode-foreground);
+}
+
+.textarea-wrapper .comment-upload-button:hover:not(:disabled) {
+	cursor: pointer;
+	background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.textarea-wrapper .comment-upload-button:disabled {
+	opacity: 0.5;
+}
+.status-section {
+	padding-bottom: 16px;
+}
+
+.ready-for-review-container {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding-bottom: 16px;
+}
+
+.ready-for-review-heading,
+.status-section p {
+	line-height: 1.5em;
+	margin: 0;
+}
+
+.select-container {
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+}
+
+.select-control,
+#merge-on-github,
+form,
+.button-container {
+	display: flex;
+	margin: auto;
+	max-width: 260px;
+	width: 100%;
+}
+
+.button-container>button {
+	width: 100%;
+}
+
+.button-container:has(> .dropdown-container) {
+	display: flex;
+	min-width: 0;
+}
+
+.dropdown-container {
+	flex-grow: 1;
+	width: 100%;
+}
+
+#merge-on-github {
+	justify-content: center;
+}
+
+#comment-textarea {
+	margin-bottom: 10px;
+}
+
+.select-control form {
+	flex-grow: 2;
+}
+
+.select-control form input,
+form button {
+	width: 100%;
+}
+
+.select-control svg path {
+	fill: var(--vscode-button-foreground);
+}
+
+
+.select-control button,
+.branch-status-container button,
+input[type='submit'] {
+	white-space: normal;
+}
+
+.select-control .open {
+	background-color: var(--vscode-button-hoverBackground);
+}
+
+button .icon svg {
+	margin-right: 0;
+}
+
+.options-select {
+	display: flex;
+	flex-direction: column;
+	width: inherit;
+	max-width: 260px;
+	margin: auto;
+}
+
+.options-select button {
+	margin-top: 1px;
+	background-color: var(--vscode-dropdown-background);
+	color: var(--vscode-dropdown-foreground);
+	text-align: start;
+	white-space: break-spaces;
+}
+
+.options-select button:hover,
+.options-select button:focus {
+	color: var(--vscode-button-foreground);
+}
+
+.branch-status-container {
+	padding: 10px 0;
+}
+
+.radio-button {
+	display: flex;
+	align-items: center;
+	margin-right: 3px;
+}
+
+.radio-button input {
+	margin-top: 0;
+}
+
+@media (max-width: 250px) {
+	.form-actions {
+		flex-direction: column;
+	}
+
+	.radio-button {
+		margin-bottom: 3px;
+	}
+}
+
+#status-checks .branch-status-message {
+	display: flex;
+}
+
+#status-checks .branch-status-icon {
+	display: flex;
+	padding-top: 1px;
+}
+
+#status-checks .button-container {
+	padding-top: 16px;
+}
+
+.comment-button {
+	display: flex;
+	flex-grow: 1;
+	min-width: 0;
+	position: relative;
+	align-items: center;
+}
+
+.attestation-checkbox-row {
+	margin-top: 6px;
+	margin-right: auto;
+	margin-left: auto;
+	margin-bottom: 12px;
+	width: fit-content;
+}
+
+.dropdown-container {
+	justify-content: center;
+}
+
+button.split-left {
+	display: block;
+}

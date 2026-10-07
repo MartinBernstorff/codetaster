@@ -1,0 +1,329 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+import * as path from 'path';
+import * as vscode from 'vscode';
+import { issueBodyHasLink } from './issueLinkLookup';
+import { IssueItem, QueryGroup, StateManager } from './stateManager';
+import { commands, contexts } from '../common/executeCommands';
+import { ISSUE_AVATAR_DISPLAY, IssueAvatarDisplay, ISSUES_SETTINGS_NAMESPACE, SHOW_ISSUE_NUMBER_IN_TREE } from '../common/settingKeys';
+import { DataUri } from '../common/uri';
+import { groupBy } from '../common/utils';
+import { FolderRepositoryManager, ReposManagerState } from '../github/folderRepositoryManager';
+import { IAccount } from '../github/interface';
+import { IssueModel } from '../github/issueModel';
+import { issueMarkdown } from '../github/markdownUtils';
+import { RepositoriesManager } from '../github/repositoriesManager';
+
+export class QueryNode {
+	constructor(
+		public readonly repoRootUri: vscode.Uri,
+		public readonly queryLabel: string,
+		public readonly isFirst: boolean
+	) {
+	}
+}
+
+class IssueGroupNode {
+	constructor(public readonly repoRootUri: vscode.Uri, public readonly queryLabel, public readonly isInFirstQuery: boolean, public readonly groupLevel: number, public readonly group: string, public readonly groupByOrder: QueryGroup[], public readonly issuesInGroup: IssueItem[]) {
+	}
+}
+
+export class IssuesTreeData
+	implements vscode.TreeDataProvider<FolderRepositoryManager | QueryNode | IssueGroupNode | IssueItem> {
+	private _onDidChangeTreeData: vscode.EventEmitter<
+		FolderRepositoryManager | IssueItem | null | undefined | void
+	> = new vscode.EventEmitter();
+	public onDidChangeTreeData: vscode.Event<
+		FolderRepositoryManager | IssueItem | null | undefined | void
+	> = this._onDidChangeTreeData.event;
+
+	constructor(
+		private stateManager: StateManager,
+		private manager: RepositoriesManager,
+		private context: vscode.ExtensionContext,
+	) {
+		context.subscriptions.push(
+			this.manager.onDidChangeState(() => {
+				this._onDidChangeTreeData.fire();
+			}),
+		);
+		context.subscriptions.push(
+			this.stateManager.onDidChangeIssueData(() => {
+				this._onDidChangeTreeData.fire();
+			}),
+		);
+
+		context.subscriptions.push(
+			this.stateManager.onDidChangeCurrentIssue(() => {
+				this._onDidChangeTreeData.fire();
+			}),
+		);
+
+		// Listen for changes to the avatar display setting
+		context.subscriptions.push(
+			vscode.workspace.onDidChangeConfiguration(change => {
+				if (change.affectsConfiguration(`${ISSUES_SETTINGS_NAMESPACE}.${ISSUE_AVATAR_DISPLAY}`)
+					|| change.affectsConfiguration(`${ISSUES_SETTINGS_NAMESPACE}.${SHOW_ISSUE_NUMBER_IN_TREE}`)) {
+					this._onDidChangeTreeData.fire();
+				}
+			}),
+		);
+	}
+
+	private getFolderRepoItem(element: FolderRepositoryManager): vscode.TreeItem {
+		return new vscode.TreeItem(path.basename(element.repository.rootUri.fsPath), getQueryExpandState(this.context, element, vscode.TreeItemCollapsibleState.Expanded));
+	}
+
+	private getQueryItem(element: QueryNode): vscode.TreeItem {
+		const item = new vscode.TreeItem(element.queryLabel, getQueryExpandState(this.context, element, element.isFirst ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed));
+		item.contextValue = 'query';
+		return item;
+	}
+
+	private getIssueGroupItem(element: IssueGroupNode): vscode.TreeItem {
+		return new vscode.TreeItem(element.group, getQueryExpandState(this.context, element, element.isInFirstQuery ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed));
+	}
+
+	private async getIssueTreeItem(element: IssueItem): Promise<vscode.TreeItem> {
+		const showIssueNumber = vscode.workspace
+			.getConfiguration(ISSUES_SETTINGS_NAMESPACE, null)
+			.get<boolean>(SHOW_ISSUE_NUMBER_IN_TREE, false);
+		const numberPrefix = showIssueNumber ? `#${element.number}: ` : '';
+		const treeItem = new vscode.TreeItem(`${numberPrefix}${element.title}`, vscode.TreeItemCollapsibleState.None);
+
+		const avatarDisplaySetting = vscode.workspace
+			.getConfiguration(ISSUES_SETTINGS_NAMESPACE, null)
+			.get<IssueAvatarDisplay>(ISSUE_AVATAR_DISPLAY, 'author');
+
+		if (avatarDisplaySetting === 'state') {
+			treeItem.iconPath = element.isOpen
+				? new vscode.ThemeIcon('issues', new vscode.ThemeColor('issues.open'))
+				: new vscode.ThemeIcon('issue-closed', new vscode.ThemeColor('issues.closed'));
+		} else if (avatarDisplaySetting === 'generic') {
+			treeItem.iconPath = new vscode.ThemeIcon('issues');
+		} else {
+			let avatarUser: IAccount | undefined;
+			if ((avatarDisplaySetting === 'assignee') && element.assignees && (element.assignees.length > 0)) {
+				avatarUser = element.assignees[0];
+			} else {
+				avatarUser = element.author;
+			}
+
+			if (avatarUser) {
+				// For enterprise, use placeholder icon instead of trying to fetch avatar
+				if (!DataUri.isGitHubDotComAvatar(avatarUser.avatarUrl)) {
+					treeItem.iconPath = new vscode.ThemeIcon('github');
+				} else {
+					treeItem.iconPath = (await DataUri.avatarCirclesAsImageDataUris(this.context, [avatarUser], 16, 16))[0] ??
+						(element.isOpen
+							? new vscode.ThemeIcon('issues', new vscode.ThemeColor('issues.open'))
+							: new vscode.ThemeIcon('issue-closed', new vscode.ThemeColor('github.issues.closed')));
+				}
+			} else {
+				// Use GitHub codicon when assignee setting is selected but no assignees exist
+				treeItem.iconPath = new vscode.ThemeIcon('github');
+			}
+		}
+
+		treeItem.command = {
+			command: 'issue.openDescription',
+			title: vscode.l10n.t('View Issue Description'),
+			arguments: [element]
+		};
+
+		if (this.stateManager.currentIssue(element.uri)?.issue.number === element.number) {
+			// Escape any $(...) syntax to avoid rendering issue titles as icons.
+			const escapedTitle = element.title.replace(/\$\([a-zA-Z0-9~-]+\)/g, '\\$&');
+			const label: vscode.TreeItemLabel2 = {
+				label: new vscode.MarkdownString(`$(check) ${numberPrefix}${escapedTitle}`, true)
+			};
+			treeItem.label = label as vscode.TreeItemLabel;
+			treeItem.contextValue = 'currentissue';
+		} else {
+			const savedState = this.stateManager.getSavedIssueState(element.number);
+			if (savedState.branch) {
+				treeItem.contextValue = 'continueissue';
+			} else {
+				treeItem.contextValue = 'issue';
+			}
+		}
+		if (issueBodyHasLink(element)) {
+			treeItem.contextValue = 'link' + treeItem.contextValue;
+		}
+		return treeItem;
+	}
+
+	async getTreeItem(element: FolderRepositoryManager | QueryNode | IssueGroupNode | IssueItem): Promise<vscode.TreeItem> {
+		if (element instanceof FolderRepositoryManager) {
+			return this.getFolderRepoItem(element);
+		} else if (element instanceof QueryNode) {
+			return this.getQueryItem(element);
+		} else if (element instanceof IssueGroupNode) {
+			return this.getIssueGroupItem(element);
+		} else {
+			return this.getIssueTreeItem(element);
+		}
+	}
+
+	getChildren(
+		element: FolderRepositoryManager | QueryNode | IssueGroupNode | IssueItem | undefined,
+	): FolderRepositoryManager[] | QueryNode[] | Promise<FolderRepositoryManager[] | QueryNode[] | IssueItem[] | IssueGroupNode[]> {
+		if (element === undefined && this.manager.state !== ReposManagerState.RepositoriesLoaded) {
+			return this.getStateChildren();
+		} else {
+			return this.getIssuesChildren(element);
+		}
+	}
+
+	async resolveTreeItem(
+		item: vscode.TreeItem,
+		element: FolderRepositoryManager | QueryNode | IssueGroupNode | IssueItem,
+	): Promise<vscode.TreeItem> {
+		if (element instanceof IssueModel) {
+			item.tooltip = await issueMarkdown(element, this.context, this.manager);
+		}
+		return item;
+	}
+
+	getStateChildren(): [] {
+		if ((this.manager.state === ReposManagerState.NeedsAuthentication)
+			|| !this.manager.folderManagers.length) {
+			return [];
+		} else {
+			commands.setContext(contexts.LOADING_ISSUES_TREE, true);
+			return [];
+		}
+	}
+
+	private async getRootChildren(): Promise<FolderRepositoryManager[] | QueryNode[] | IssueItem[] | IssueGroupNode[]> {
+		// If there's only one folder manager go straight to the query nodes
+		if (this.manager.folderManagers.length === 1) {
+			return this.getRepoChildren(this.manager.folderManagers[0]);
+		} else if (this.manager.folderManagers.length > 1) {
+			// Hide repositories that have no matching issues in any query
+			const managersWithIssues: FolderRepositoryManager[] = [];
+			for (const fm of this.manager.folderManagers) {
+				const issueCol = this.stateManager.getIssueCollection(fm.repository.rootUri);
+				const queryResultPromises = Array.from(issueCol.values());
+				const queryResults = await Promise.allSettled(queryResultPromises);
+				const hasMatchingIssues = queryResults.some(r =>
+					r.status === 'fulfilled' && r.value.issues && r.value.issues.length > 0
+				);
+				if (hasMatchingIssues) {
+					managersWithIssues.push(fm);
+				}
+			}
+			return managersWithIssues;
+		} else {
+			return [];
+		}
+	}
+
+	private getRepoChildren(folderManager: FolderRepositoryManager): QueryNode[] | Promise<IssueItem[] | IssueGroupNode[]> {
+		const issueCollection = this.stateManager.getIssueCollection(folderManager.repository.rootUri);
+		const queryLabels = Array.from(issueCollection.keys());
+		if (queryLabels.length === 1) {
+			return this.getQueryNodeChildren(new QueryNode(folderManager.repository.rootUri, queryLabels[0], true));
+		}
+		return queryLabels.map((label, index) => {
+			const item = new QueryNode(folderManager.repository.rootUri, label, index === 0);
+			return item;
+		});
+	}
+
+	private async getQueryNodeChildren(queryNode: QueryNode): Promise<IssueItem[] | IssueGroupNode[]> {
+		const issueCollection = this.stateManager.getIssueCollection(queryNode.repoRootUri);
+		const issueQueryResult = await issueCollection.get(queryNode.queryLabel);
+		if (!issueQueryResult) {
+			return [];
+		}
+		return this.getIssueGroupsForGroupIndex(queryNode.repoRootUri, queryNode.queryLabel, queryNode.isFirst, issueQueryResult.groupBy, 0, issueQueryResult.issues ?? []);
+	}
+
+	private getIssueGroupsForGroupIndex(repoRootUri: vscode.Uri, queryLabel: string, isFirst: boolean, groupByOrder: QueryGroup[], indexInGroupByOrder: number, issues: IssueItem[]): IssueGroupNode[] | IssueItem[] {
+		if (groupByOrder.length <= indexInGroupByOrder) {
+			return issues;
+		}
+		const groupByValue = groupByOrder[indexInGroupByOrder];
+		if ((groupByValue !== 'milestone' && groupByValue !== 'repository') || groupByOrder.findIndex(groupBy => groupBy === groupByValue) !== indexInGroupByOrder) {
+			return this.getIssueGroupsForGroupIndex(repoRootUri, queryLabel, isFirst, groupByOrder, indexInGroupByOrder + 1, issues);
+		}
+
+		const groups = groupBy(issues, issue => {
+			if (groupByValue === 'repository') {
+				return `${issue.remote.owner}/${issue.remote.repositoryName}`;
+			} else {
+				return issue.milestone?.title ?? 'No Milestone';
+			}
+		});
+		const nodes: IssueGroupNode[] = [];
+		for (const group in groups) {
+			nodes.push(new IssueGroupNode(repoRootUri, queryLabel, isFirst, indexInGroupByOrder, group, groupByOrder, groups[group]));
+		}
+		return nodes;
+	}
+
+	private async getIssueGroupChildren(issueGroupNode: IssueGroupNode): Promise<IssueItem[] | IssueGroupNode[]> {
+		return this.getIssueGroupsForGroupIndex(issueGroupNode.repoRootUri, issueGroupNode.queryLabel, issueGroupNode.isInFirstQuery, issueGroupNode.groupByOrder, issueGroupNode.groupLevel + 1, issueGroupNode.issuesInGroup);
+	}
+
+	getIssuesChildren(
+		element: FolderRepositoryManager | QueryNode | IssueGroupNode | IssueItem | undefined,
+	): FolderRepositoryManager[] | QueryNode[] | Promise<FolderRepositoryManager[] | QueryNode[] | IssueItem[] | IssueGroupNode[]> {
+		if (element === undefined) {
+			return this.getRootChildren();
+		} else if (element instanceof FolderRepositoryManager) {
+			return this.getRepoChildren(element);
+		} else if (element instanceof QueryNode) {
+			return this.getQueryNodeChildren(element);
+		} else if (element instanceof IssueGroupNode) {
+			return this.getIssueGroupChildren(element);
+		} else {
+			return [];
+		}
+	}
+}
+
+const EXPANDED_ISSUES_STATE = 'expandedIssuesState';
+
+function expandStateId(element: FolderRepositoryManager | QueryNode | IssueGroupNode | IssueItem) {
+	let id: string | undefined;
+	if (element instanceof FolderRepositoryManager) {
+		id = element.repository.rootUri.toString();
+	} else if (element instanceof QueryNode) {
+		id = `${element.repoRootUri.toString()}/${element.queryLabel}`;
+	} else if (element instanceof IssueGroupNode) {
+		id = `${element.repoRootUri.toString()}/${element.queryLabel}/${element.groupLevel}/${element.group}`;
+	}
+	return id;
+}
+
+export function updateExpandedQueries(context: vscode.ExtensionContext, element: FolderRepositoryManager | QueryNode | IssueGroupNode | IssueItem, isExpanded: boolean) {
+	const id = expandStateId(element);
+
+	if (id) {
+		const expandedQueries = new Set<string>(context.workspaceState.get(EXPANDED_ISSUES_STATE, []) as string[]);
+		if (isExpanded) {
+			expandedQueries.add(id);
+		} else {
+			expandedQueries.delete(id);
+		}
+		context.workspaceState.update(EXPANDED_ISSUES_STATE, Array.from(expandedQueries.keys()));
+	}
+}
+
+function getQueryExpandState(context: vscode.ExtensionContext, element: FolderRepositoryManager | QueryNode | IssueGroupNode, defaultState: vscode.TreeItemCollapsibleState = vscode.TreeItemCollapsibleState.Expanded): vscode.TreeItemCollapsibleState {
+	const id = expandStateId(element);
+	if (id) {
+		const savedValue = context.workspaceState.get(EXPANDED_ISSUES_STATE);
+		if (!savedValue) {
+			return defaultState;
+		}
+		const expandedQueries = new Set<string>(savedValue as string[]);
+		return expandedQueries.has(id) ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed;
+	}
+	return vscode.TreeItemCollapsibleState.None;
+}
