@@ -29,6 +29,7 @@ from codetaster.infrastructure.config_file_store.local import LocalConfigFileSto
 from codetaster.infrastructure.environment_variables.os_environment import (
     OsEnvironmentVariables,
 )
+from codetaster.infrastructure.ratings_file_store.local import LocalRatingsFileStore
 
 # Added to the main app without a name, so `check` is a top-level command.
 check_app = typer.Typer()
@@ -70,9 +71,10 @@ def check_changes(
         ),
     ] = False,
 ) -> None:
-    """Sample which files changed since the merge base with the base need review.
+    """Decide which files changed since the merge base with the base need review.
 
-    Only committed changes count. Exits 0 whatever the verdict, unless
+    Files are rated from \\[review] ratings_path, if it exists. Only committed
+    changes count. Exits 0 whatever the verdict, unless
     --fail-on-needs-review is given.
     """
     if not checkout.root.is_dir():
@@ -95,6 +97,7 @@ def check_changes(
         CheckRequest(checkout=checkout, base_override=base),
         configuration.value,
         GitCommittedChanges(),
+        LocalRatingsFileStore(),
     ):
         case Ok(result):
             pass
