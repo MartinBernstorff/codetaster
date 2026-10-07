@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from codetaster.domain.domain_model.configuration.settings import Settings
 from codetaster.domain.domain_model.review.changes import RepositoryPath, RevisionName
+from codetaster.domain.domain_model.review.path_rules import PathRules
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 
@@ -30,6 +31,14 @@ class ReviewSettings(BaseModel):
         description="The AI ratings file, relative to the repository root. "
         "Usually gitignored. `check` never lists it.",
     )
+    path_rules: PathRules = Field(
+        default=PathRules(()),
+        description="Base probabilities for the files whose path matches a glob, "
+        "in place of base_probability. Write each as a [[review.path_rules]] table "
+        'with a pattern, such as "*.toml" or "src/**/*.sql", and a probability. '
+        "A pattern without / matches the file name in any directory. When several "
+        "match, the last one wins.",
+    )
 
     @staticmethod
     def fake() -> ReviewSettings:
@@ -38,6 +47,7 @@ class ReviewSettings(BaseModel):
             base_probability=Probability.fake(),
             top_rated_percentage=TopRatedPercentage.fake(),
             ratings_path=RepositoryPath(".codetaster/ratings.json"),
+            path_rules=PathRules(()),
         )
 
 

@@ -6,6 +6,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from codetaster.domain.domain_model.review.changes import FileChange, FileChanges
+from codetaster.domain.domain_model.review.path_rules import PathRule, PathRules
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import FileRating, RatingsFile
 from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
@@ -57,13 +58,16 @@ def draw_for_file_change(change: FileChange) -> Draw:
 class FileAssessment(BaseModel):
     """Which group a changed file is in, and what decided it.
 
-    `rating` is `None` if the file is unrated.
+    `base_probability` is the matching path rule's probability, or the configured
+    base probability if `path_rule` is `None`. `rating` is `None` if the file is
+    unrated.
     """
 
     model_config = ConfigDict(frozen=True)
 
     change: FileChange
     base_probability: Probability
+    path_rule: PathRule | None
     rating: FileRating | None
     draw: Draw
     verdict: Verdict
@@ -73,6 +77,7 @@ class FileAssessment(BaseModel):
         return FileAssessment(
             change=FileChange.fake(),
             base_probability=Probability.fake(),
+            path_rule=None,
             rating=None,
             draw=Draw.fake(),
             verdict=Verdict.NO_REVIEW,
@@ -90,11 +95,17 @@ class FileAssessments(RootModel[tuple[FileAssessment, ...]]):
 def assess_file_changes(
     changes: FileChanges,
     base_probability: Probability,
+    path_rules: PathRules,
     ratings: RatingsFile,
     top_rated: TopRatedPercentage,
 ) -> FileAssessments:
+    """A matching path rule's probability replaces `base_probability` for sampling."""
     draws = tuple(draw_for_file_change(change) for change in changes.root)
     file_ratings = tuple(ratings.rating_for(change) for change in changes.root)
+    file_rules = tuple(path_rules.rule_for(change.path()) for change in changes.root)
+    file_base_probabilities = tuple(
+        base_probability if rule is None else rule.probability for rule in file_rules
+    )
     ranked = sorted(
         (
             (index, rating)
@@ -110,17 +121,25 @@ def assess_file_changes(
         tuple(
             FileAssessment(
                 change=change,
-                base_probability=base_probability,
+                base_probability=file_base,
+                path_rule=rule,
                 rating=rating,
                 draw=draw,
                 verdict=Verdict.NEEDS_REVIEW
                 if index in picked
                 else Verdict.SAMPLED
-                if draw.root < base_probability.root
+                if draw.root < file_base.root
                 else Verdict.NO_REVIEW,
             )
-            for index, (change, rating, draw) in enumerate(
-                zip(changes.root, file_ratings, draws, strict=True)
+            for index, (change, rule, file_base, rating, draw) in enumerate(
+                zip(
+                    changes.root,
+                    file_rules,
+                    file_base_probabilities,
+                    file_ratings,
+                    draws,
+                    strict=True,
+                )
             )
         )
     )

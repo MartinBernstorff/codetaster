@@ -10,6 +10,11 @@ from codetaster.domain.domain_model.review.changes import (
     FileVersion,
     RepositoryPath,
 )
+from codetaster.domain.domain_model.review.path_rules import (
+    PathPattern,
+    PathRule,
+    PathRules,
+)
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import (
     FileRating,
@@ -57,11 +62,14 @@ def assessments_of(
     base_probability: Probability | None = None,
     ratings: RatingsFile | None = None,
     top_rated: TopRatedPercentage | None = None,
+    path_rules: PathRules | None = None,
 ) -> tuple[FileAssessment, ...]:
-    """Without ratings, at a base probability and top-rated percentage of 0."""
+    """Without ratings or path rules, at a base probability and top-rated
+    percentage of 0."""
     return assess_file_changes(
         FileChanges(tuple(changes)),
         base_probability or Probability(0),
+        path_rules or PathRules(()),
         ratings or RatingsFile(ratings=()),
         top_rated or TopRatedPercentage(0),
     ).root
@@ -316,3 +324,31 @@ def test_a_rating_for_another_blob_is_the_same_as_no_rating(
     unrated = assessments_of(changes, base_probability, top_rated=top_rated)
 
     assert rated == unrated
+
+
+def test_a_path_rule_replaces_the_base_probability() -> None:
+    change = FileChange.fake()
+    rule = PathRule(pattern=PathPattern("*"), probability=Probability(1))
+
+    [assessment] = assessments_of(
+        [change], base_probability=Probability(0), path_rules=PathRules((rule,))
+    )
+
+    assert assessment.verdict is Verdict.SAMPLED
+    assert assessment.base_probability == rule.probability
+    assert assessment.path_rule == rule
+
+
+def test_a_path_rule_of_zero_still_lets_a_top_rated_file_need_review() -> None:
+    change = FileChange.fake()
+    rule = PathRule(pattern=PathPattern("*"), probability=Probability(0))
+
+    [assessment] = assessments_of(
+        [change],
+        base_probability=Probability(1),
+        ratings=RatingsFile(ratings=(rating_of(change, Probability(1)),)),
+        top_rated=TopRatedPercentage(100),
+        path_rules=PathRules((rule,)),
+    )
+
+    assert assessment.verdict is Verdict.NEEDS_REVIEW

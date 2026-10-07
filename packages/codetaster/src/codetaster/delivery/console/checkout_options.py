@@ -1,15 +1,11 @@
 """The arguments shared by commands that compare a checkout against its base."""
 
-from pathlib import Path
 from typing import Annotated
 
 import typer
-from safe_result import Err
 
-from codetaster.delivery.console.conventions import codetaster_conventions
-from codetaster.domain.application_services.load_configuration import (
-    ConfigurationRequest,
-    load_configuration,
+from codetaster.delivery.console.configuration_loading import (
+    load_configuration_or_exit,
 )
 from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.configuration.configuration import Configuration
@@ -17,10 +13,6 @@ from codetaster.domain.domain_model.filesystem import Location
 from codetaster.domain.domain_model.review.changes import (
     RevisionName,
     WorkingTreeState,
-)
-from codetaster.infrastructure.config_file_store.local import LocalConfigFileStore
-from codetaster.infrastructure.environment_variables.os_environment import (
-    OsEnvironmentVariables,
 )
 
 CheckoutArgument = Annotated[
@@ -55,19 +47,7 @@ def resolve_checkout(checkout: CheckoutPath) -> CheckoutPath:
 
 def load_checkout_configuration(checkout: CheckoutPath) -> Configuration:
     """The configuration for `checkout`, or exit with a message."""
-    configuration = load_configuration(
-        ConfigurationRequest(
-            home=Location(Path.home()),
-            working_directory=Location(checkout.root),
-            conventions=codetaster_conventions(),
-        ),
-        LocalConfigFileStore(),
-        OsEnvironmentVariables(),
-    )
-    if isinstance(configuration, Err):
-        typer.echo(f"Error: invalid config file {configuration.error}", err=True)
-        raise typer.Exit(code=1)
-    return configuration.value
+    return load_configuration_or_exit(Location(checkout.root))
 
 
 def warn_about_uncommitted_changes(working_tree: WorkingTreeState) -> None:

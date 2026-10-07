@@ -1,7 +1,8 @@
 from pydantic import BaseModel, ConfigDict
 
+from codetaster.domain.domain_model.checkout import RepositoryName
 from codetaster.domain.domain_model.environment import VariableName
-from codetaster.domain.domain_model.filesystem import PathName
+from codetaster.domain.domain_model.filesystem import FileSuffix, PathName
 
 
 class ConfigConventions(BaseModel):
@@ -13,6 +14,7 @@ class ConfigConventions(BaseModel):
     xdg_config_home_variable: VariableName
     fallback_config_home: PathName
     developer_file: PathName
+    developer_project_file_suffix: FileSuffix
     secrets_file: PathName
     project_file: PathName
     repository_marker: PathName
@@ -25,8 +27,13 @@ class ConfigConventions(BaseModel):
             xdg_config_home_variable=VariableName("XDG_CONFIG_HOME"),
             fallback_config_home=PathName(".config"),
             developer_file=PathName("config.toml"),
+            developer_project_file_suffix=FileSuffix(".toml"),
             secrets_file=PathName("secrets.toml"),
             project_file=PathName("codetaster.toml"),
             repository_marker=PathName(".git"),
             api_token_variable=VariableName("CODETASTER_API_TOKEN"),
         )
+
+    def developer_project_file(self, repository: RepositoryName) -> PathName:
+        """The developer's config for one repository, such as `codetaster.toml`."""
+        return PathName(f"{repository.root}{self.developer_project_file_suffix.root}")

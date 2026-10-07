@@ -11,6 +11,7 @@ from codetaster.domain.domain_model.review.changes import (
     RevisionName,
 )
 from codetaster.domain.domain_model.review.check_result import CheckResult
+from codetaster.domain.domain_model.review.path_rules import PathPattern, PathRule
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import FileRating, RatingReason
 from codetaster.domain.domain_model.review.ratings_validation import (
@@ -92,6 +93,19 @@ class RatingReport(BaseModel):
         return rating_report_from_rating(FileRating.fake())
 
 
+class PathRuleReport(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    pattern: PathPattern = Field(description="The rule's glob.")
+    probability: Probability = Field(
+        description="The base probability for files matching `pattern`."
+    )
+
+    @staticmethod
+    def fake() -> PathRuleReport:
+        return path_rule_report_from_rule(PathRule.fake())
+
+
 class FileReport(BaseModel):
     """One changed file, and the inputs to whether it needs review."""
 
@@ -105,7 +119,14 @@ class FileReport(BaseModel):
         description="A renamed file's old path. null for other change types."
     )
     change_type: ChangeType = Field(description="added, modified, deleted or renamed.")
-    base_probability: Probability = Field(description="[review] base_probability.")
+    base_probability: Probability = Field(
+        description="The probability the file is sampled at: path_rule's "
+        "probability if a rule matches, else [review] base_probability."
+    )
+    path_rule: PathRuleReport | None = Field(
+        description="The last rule in [review] path_rules whose pattern matches "
+        "`path`. null if none does."
+    )
     rating: RatingReport | None = Field(
         description="The AI rating from [review] ratings_path whose path and blob "
         "match this file's change. null if the file is unrated."
@@ -218,12 +239,19 @@ def file_report_from_assessment(assessment: FileAssessment) -> FileReport:
         previous_path=assessment.change.previous_path(),
         change_type=assessment.change.change_type(),
         base_probability=assessment.base_probability,
+        path_rule=None
+        if assessment.path_rule is None
+        else path_rule_report_from_rule(assessment.path_rule),
         rating=None
         if assessment.rating is None
         else rating_report_from_rating(assessment.rating),
         unrated=ReportFlag(root=assessment.rating is None),
         draw=assessment.draw,
     )
+
+
+def path_rule_report_from_rule(rule: PathRule) -> PathRuleReport:
+    return PathRuleReport(pattern=rule.pattern, probability=rule.probability)
 
 
 def rating_report_from_rating(rating: FileRating) -> RatingReport:

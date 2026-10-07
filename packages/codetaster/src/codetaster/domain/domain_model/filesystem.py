@@ -13,6 +13,16 @@ class PathName(RootModel[str]):
         return PathName("codetaster.toml")
 
 
+class FileSuffix(RootModel[str]):
+    """A file name's extension, with its dot, such as `.toml`."""
+
+    model_config = ConfigDict(frozen=True)
+
+    @staticmethod
+    def fake() -> FileSuffix:
+        return FileSuffix(".toml")
+
+
 class Location(RootModel[Path]):
     """A path on the local filesystem."""
 

@@ -5,6 +5,7 @@ from hypothesis import strategies as st
 
 from codetaster.domain.domain_model.review.changes import FileChange, FileChanges
 from codetaster.domain.domain_model.review.check_result import CheckResult
+from codetaster.domain.domain_model.review.path_rules import PathRules
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import RatingsFile
 from codetaster.domain.domain_model.review.sampling import (
@@ -88,7 +89,11 @@ def test_the_groups_partition_the_changed_files(
     result = CheckResult.fake().model_copy(
         update={
             "assessments": assess_file_changes(
-                FileChanges(tuple(changes)), base_probability, ratings, top_rated
+                FileChanges(tuple(changes)),
+                base_probability,
+                PathRules(()),
+                ratings,
+                top_rated,
             )
         }
     )

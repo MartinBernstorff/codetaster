@@ -43,7 +43,8 @@ def check_committed_changes(
 ) -> Result[CheckResult, BranchChangeError]:
     """Decide which files changed since the merge base with the base need review.
 
-    A file's AI rating applies if it matches the file's change. Without a ratings
+    A path rule matching a file's path replaces the base probability for it. A
+    file's AI rating applies if it matches the file's change. Without a ratings
     file every file is unrated, and so with an invalid one, which is reported. The
     ratings file itself is never assessed. `top_rated_override` replaces
     `[review] top_rated_percentage`.
@@ -72,7 +73,11 @@ def check_committed_changes(
             head=change.head,
             top_rated_percentage=top_rated,
             assessments=assess_file_changes(
-                change.files, review.base_probability, ratings_file, top_rated
+                change.files,
+                review.base_probability,
+                review.path_rules,
+                ratings_file,
+                top_rated,
             ),
             working_tree=branch.value.working_tree,
             ratings_problem=ratings_problem,
