@@ -46,12 +46,15 @@ export interface CheckTarget {
 	readonly base: string;
 	/** Identifies the PR's head and file list; the check re-runs when it changes. */
 	readonly fileListKey: string;
+	/** The checkout's HEAD commit; the check re-runs when it changes, e.g. after a local commit. */
+	readonly localHead: string | undefined;
 }
 
 /**
  * The check results the PR file views group by. Only a checked-out PR is checked.
- * A check re-runs only when the checkout, base or PR's file list changes, or on refresh,
- * so tree refreshes (viewed state, comments) don't each start a process.
+ * A check re-runs only when the checkout, its HEAD commit, the base or the PR's file list
+ * changes, after it failed, or on refresh, so tree refreshes (viewed state, comments)
+ * don't each start a process.
  */
 export class CodetasterChecks {
 	private readonly checks = new Map<string, Promise<CheckOutcome>>();
@@ -64,15 +67,22 @@ export class CodetasterChecks {
 
 	/** The PR's check, or undefined if the PR is not checked out. */
 	checkFor(target: CheckTarget): Promise<CheckOutcome> | undefined {
-		const { checkout, base, fileListKey } = target;
+		const { checkout, base, fileListKey, localHead } = target;
 		if (checkout === undefined) {
 			return undefined;
 		}
-		const cacheKey = JSON.stringify([checkout, base, fileListKey]);
+		const cacheKey = JSON.stringify([checkout, base, fileListKey, localHead ?? null]);
 		let check = this.checks.get(cacheKey);
 		if (!check) {
-			check = runCodetasterCheck(this.process, this.executable(), checkout, base);
-			this.checks.set(cacheKey, check);
+			const started = runCodetasterCheck(this.process, this.executable(), checkout, base);
+			check = started;
+			this.checks.set(cacheKey, started);
+			// Errors are not cached, so the next tree refresh retries.
+			started.then(outcome => {
+				if (outcome.kind === 'error' && this.checks.get(cacheKey) === started) {
+					this.checks.delete(cacheKey);
+				}
+			});
 		}
 		return check;
 	}

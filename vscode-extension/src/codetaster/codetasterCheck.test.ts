@@ -93,7 +93,7 @@ describe('runCodetasterCheck', () => {
 });
 
 function checkedOutPullRequest(target: Partial<CheckTarget> = {}): CheckTarget {
-	return { checkout: '/repo', base: 'origin/main', fileListKey: 'a.py', ...target };
+	return { checkout: '/repo', base: 'origin/main', fileListKey: 'a.py', localHead: 'c'.repeat(40), ...target };
 }
 
 describe('CodetasterChecks', () => {
@@ -144,6 +144,27 @@ describe('CodetasterChecks', () => {
 		await checks.checkFor(checkedOutPullRequest());
 		await checks.checkFor(checkedOutPullRequest({ fileListKey: 'a.py,b.py' }));
 
+		assert.strictEqual(process.calls.length, 2);
+	});
+
+	it('re-runs the check when the local HEAD commit changes, e.g. after a local commit', async () => {
+		const process = successfulProcess();
+		const checks = new CodetasterChecks(process, () => 'codetaster');
+
+		await checks.checkFor(checkedOutPullRequest({ localHead: 'c'.repeat(40) }));
+		await checks.checkFor(checkedOutPullRequest({ localHead: 'd'.repeat(40) }));
+
+		assert.strictEqual(process.calls.length, 2);
+	});
+
+	it('re-runs a check that failed, rather than reusing the error', async () => {
+		const process = new FakeCodetasterProcess(exitedWith(1, '', 'Error: something went wrong\n'));
+		const checks = new CodetasterChecks(process, () => 'codetaster');
+
+		const first = await checks.checkFor(checkedOutPullRequest());
+		await checks.checkFor(checkedOutPullRequest());
+
+		assert.strictEqual(first?.kind, 'error');
 		assert.strictEqual(process.calls.length, 2);
 	});
 

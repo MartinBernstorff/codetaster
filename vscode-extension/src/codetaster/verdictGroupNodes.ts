@@ -6,6 +6,7 @@ import { headMismatchWarning } from './headMismatch';
 import { NodeCodetasterProcess } from './nodeCodetasterProcess';
 import { ratingsErrorWarning } from './ratingsError';
 import { groupFilesByVerdict, VerdictGroup } from './verdictGroups';
+import type { Repository } from '../api/api';
 import { findLocalRepoRemoteFromGitHubRef } from '../common/githubRef';
 import { disposeAll } from '../common/lifecycle';
 import { compareIgnoreCase } from '../common/utils';
@@ -27,8 +28,37 @@ function configuredExecutablePath(): string {
 
 export const codetasterChecks = new CodetasterChecks(new NodeCodetasterProcess(), configuredExecutablePath);
 
+/** Where codetaster keeps the ratings file unless `[review] ratings_path` says otherwise. */
+const DEFAULT_RATINGS_FILE_GLOB = '**/.codetaster/ratings.json';
+
+const headListeners: vscode.Disposable[] = [];
+const repositoriesWatchedForHead = new WeakSet<Repository>();
+
+/** Re-runs the checks when `repository`'s HEAD commit changes, e.g. after a local commit. */
+function refreshOnHeadChange(repository: Repository): void {
+	if (repositoriesWatchedForHead.has(repository)) {
+		return;
+	}
+	repositoriesWatchedForHead.add(repository);
+	let head = repository.state.HEAD?.commit;
+	headListeners.push(repository.state.onDidChange(() => {
+		const current = repository.state.HEAD?.commit;
+		if (current !== head) {
+			head = current;
+			codetasterChecks.refresh();
+		}
+	}));
+}
+
 export function registerCodetaster(context: vscode.ExtensionContext): void {
+	// The ratings file is usually gitignored, so nothing else notices it change.
+	const ratingsWatcher = vscode.workspace.createFileSystemWatcher(DEFAULT_RATINGS_FILE_GLOB);
 	context.subscriptions.push(
+		ratingsWatcher,
+		ratingsWatcher.onDidCreate(() => codetasterChecks.refresh()),
+		ratingsWatcher.onDidChange(() => codetasterChecks.refresh()),
+		ratingsWatcher.onDidDelete(() => codetasterChecks.refresh()),
+		{ dispose: () => disposeAll(headListeners) },
 		vscode.commands.registerCommand(REFRESH_CHECK_COMMAND, () => codetasterChecks.refresh()),
 		vscode.workspace.onDidChangeConfiguration(e => {
 			if (e.affectsConfiguration(`${CODETASTER_SETTINGS_NAMESPACE}.${EXECUTABLE_PATH_SETTING}`)) {
@@ -194,7 +224,11 @@ export async function codetasterFileNodes(
 		checkout: isCheckedOut ? folderRepoManager.repository.rootUri.fsPath : undefined,
 		base: baseRevision(folderRepoManager, pullRequest),
 		fileListKey: fileListKey(allFiles),
+		localHead: folderRepoManager.repository.state.HEAD?.commit,
 	});
+	if (isCheckedOut) {
+		refreshOnHeadChange(folderRepoManager.repository);
+	}
 	if (!outcome) {
 		return undefined;
 	}
