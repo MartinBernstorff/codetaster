@@ -7,3 +7,16 @@ unstable_python:
 
 unstable_uv:
   syncArgs: ['--locked']
+
+# The vendored VS Code extension in vscode-extension/. Versions come from .prototools.
+# Its `install` task installs dependencies instead of moon: moon runs `npm install`,
+# which rewrites upstream's package-lock.json.
+javascript:
+  packageManager: 'npm'
+  installDependencies: false
+  # Leave upstream's package.json alone.
+  syncPackageManagerField: false
+
+node: {}
+
+npm: {}

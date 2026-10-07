@@ -3,6 +3,8 @@ line-length = 88
 src = [
     "packages/codetaster/src",
 ]
+# Vendored TypeScript; its node_modules may contain Python files.
+extend-exclude = ["vscode-extension"]
 
 [lint]
 select = [

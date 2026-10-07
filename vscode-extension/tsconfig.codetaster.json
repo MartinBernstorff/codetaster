@@ -1,0 +1,11 @@
+// codetaster's own code and tests in src/codetaster, run by mocha through ts-node.
+{
+	"extends": "./tsconfig.base.json",
+	"compilerOptions": {
+		"module": "commonjs",
+		"noEmit": true,
+		"strictNullChecks": true,
+		"types": ["node"]
+	},
+	"include": ["src/codetaster"]
+}

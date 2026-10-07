@@ -1,85 +1,36 @@
-[![Build Status](https://dev.azure.com/vscode/vscode-pull-request-github/_apis/build/status/vscode-pull-request-github%20%28pr%29?branchName=main)](https://dev.azure.com/vscode/vscode-pull-request-github/_build?definitionId=44&branchName=main)
+# GitHub Pull Requests (codetaster)
 
-> Review and manage your GitHub pull requests and issues directly in VS Code
+A fork of [microsoft/vscode-pull-request-github](https://github.com/microsoft/vscode-pull-request-github) (MIT, see `LICENSE`) that groups a pull request's changed files by codetaster's review verdict. Its extension ID is `codetaster.vscode-pull-request-github`, so disable the upstream extension while using it.
 
-This extension allows you to review and manage GitHub pull requests and issues in Visual Studio Code. The support includes:
+## Upstream
 
-- Authenticating and connecting VS Code to GitHub and GitHub Enterprise.
-- Listing and browsing PRs from within VS Code.
-- Reviewing PRs from within VS Code with in-editor commenting.
-- Validating PRs from within VS Code with easy checkouts.
-- Terminal integration that enables UI and CLIs to co-exist.
-- Listing and browsing issues from within VS Code.
-- Hover cards for "@" mentioned users and for issues.
-- Completion suggestions for users and issues.
-- A "Start working on issue" action which can create a branch for you.
-- Code actions to create issues from "todo" comments.
+Copied without history from tag `v0.162.0` (commit `b0ff780afcd13a9f818bdcab173003eaf8885f12`).
 
-![PR Demo](.readme/demo.gif)
+Left out of the copy: `documentation/`, `.readme/`, `.github/`, `.husky/`, `azure-pipeline.*.yml`, and upstream's `README.md`, which this file replaces.
 
-![Issue Demo](.readme/issueDemo.gif)
+Edits to upstream files:
 
-# Getting Started
+- `package.json`: `publisher` is `codetaster`.
+- `package.nls.json`: `displayName`.
+- `src/constants.ts`: `EXTENSION_ID`.
 
-It's easy to get started with GitHub Pull Requests for Visual Studio Code. Simply follow these steps to get started.
+Sync with upstream only when needed. Put codetaster changes in new files under `src/codetaster/`, and keep edits to upstream files to small hook points, listed above.
 
-1. Install the extension from within VS Code or download it from [the marketplace](https://aka.ms/vscodepr-download).
-1. Open your desired GitHub repository in VS Code.
-1. A new viewlet will appear on the activity bar which shows a list of pull requests and issues.
-1. Use the button on the viewlet to sign in to GitHub.
-1. You may need to configure the `githubPullRequests.remotes` setting, by default the extension will look for PRs for `origin` and `upstream`. If you have different remotes, add them to the remotes list.
-1. You should be good to go!
+## Tasks
 
-Check out https://www.youtube.com/watch?v=LdSwWxVzUpo for additional getting started tips!
+Run from the repo root:
 
-# Configuring the extension
+| Task | Does |
+| --- | --- |
+| `moon run vscode-extension:build` | Installs dependencies and bundles the extension into `dist/` |
+| `moon run vscode-extension:package` | Writes `codetaster.vsix` |
+| `moon run vscode-extension:test` | Runs codetaster's tests (`src/codetaster/**/*.test.ts`) with mocha. Upstream's suite is not run. |
+| `moon run vscode-extension:full` | All of the above. CI runs this through `moon ci :full`. |
 
-There are several settings that can be used to configure the extension.
+## Proposed API
 
-As mentioned above, `githubPullRequests.remotes` is used to specify what remotes the extension should try to fetch pull requests from.
+The extension uses VS Code proposed APIs (`enabledApiProposals` in `package.json`). VS Code only allows these for allowlisted extension IDs, which this fork is not. To enable them, add the ID to `enable-proposed-api` in VS Code's `argv.json` (Command Palette: "Preferences: Configure Runtime Arguments"):
 
-To customize the pull request tree, you can use the `githubPullRequests.queries` setting. This setting is a list of labels and search queries which populate the categories of the tree. By default, these queries are "Waiting For My Review", "Assigned To Me", and "Created By Me". An example of adding a "Mentioned Me" category is to change the setting to the following:
-
+```json
+"enable-proposed-api": ["codetaster.vscode-pull-request-github"]
 ```
-"githubPullRequests.queries": [
-	{
-		"label": "Waiting For My Review",
-		"query": "is:open review-requested:${user}"
-	},
-	{
-		"label": "Assigned To Me",
-		"query": "is:open assignee:${user}"
-	},
-	{
-		"label": "Created By Me",
-		"query": "is:open author:${user}"
-	},
-	{
-		"label": "Mentioned Me",
-		"query": "is:open mentions:${user}"
-	}
-]
-```
-
-Similarly, there is a setting to configure your issues queries: `githubIssues.queries`.
-
-Queries use [GitHub search syntax](https://help.github.com/en/articles/understanding-the-search-syntax).
-
-To view additional settings for the extension, you can open VS Code settings and search for "github pull requests".
-
-# Issues
-
-This extension is still in development, so please refer to our [issue tracker for known issues](https://github.com/Microsoft/vscode-pull-request-github/issues), and please contribute with additional information if you encounter an issue yourself.
-
-## Questions? Authentication? GitHub Enterprise?
-
-See our [wiki](https://github.com/Microsoft/vscode-pull-request-github/wiki) for our FAQ.
-
-## Contributing
-
-If you're interested in contributing, or want to explore the source code of this extension yourself, see our [contributing guide](https://github.com/Microsoft/vscode-pull-request-github/wiki/Contributing), which includes:
-
-- [How to Build and Run](https://github.com/Microsoft/vscode-pull-request-github/wiki/Contributing#build-and-run)
-- [Architecture](https://github.com/Microsoft/vscode-pull-request-github/wiki/Contributing#architecture)
-- [Making Pull Requests](https://github.com/Microsoft/vscode-pull-request-github/wiki/Contributing#pull-requests)
-- [Code of Conduct](https://github.com/Microsoft/vscode-pull-request-github/wiki/Contributing#code-of-conduct)
