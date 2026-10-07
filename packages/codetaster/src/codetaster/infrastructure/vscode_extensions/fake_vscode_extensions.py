@@ -11,7 +11,6 @@ from codetaster.domain.domain_model.tool_errors import (
 )
 from codetaster.domain.domain_model.vscode_extension import (
     ExtensionId,
-    ExtensionIds,
     ExtensionPackagePath,
 )
 from codetaster.domain.secondary_ports.vscode_extensions import VsCodeExtensions
@@ -46,7 +45,3 @@ class FakeVsCodeExtensions(VsCodeExtensions):
             )
         self.installed.add(self.packages[package])
         return Ok(None)
-
-    @override
-    def list_installed_extensions(self) -> Result[ExtensionIds, ToolError]:
-        return Ok(ExtensionIds(frozenset(self.installed)))

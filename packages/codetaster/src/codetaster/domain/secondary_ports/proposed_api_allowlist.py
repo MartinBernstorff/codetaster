@@ -6,7 +6,6 @@ from codetaster.domain.domain_model.vscode_extension import (
     AllowlistUpdate,
     ArgvFileError,
     ExtensionId,
-    ExtensionIds,
 )
 
 
@@ -21,5 +20,3 @@ class ProposedApiAllowlist(Protocol):
     ) -> Result[AllowlistUpdate, ArgvFileError]:
         """Add `extension` to the list, keeping everything else. Idempotent."""
         ...
-
-    def list_allowed_extensions(self) -> Result[ExtensionIds, ArgvFileError]: ...

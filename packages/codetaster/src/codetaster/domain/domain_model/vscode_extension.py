@@ -27,8 +27,9 @@ class ExtensionId(RootModel[str]):
 class ExtensionIds(RootModel[frozenset[ExtensionId]]):
     model_config = ConfigDict(frozen=True)
 
-    def includes(self, extension: ExtensionId) -> bool:
-        return extension.normalised() in {each.normalised() for each in self.root}
+    def normalised(self) -> ExtensionIds:
+        """The same IDs in lower case, so they can be compared with `in`."""
+        return ExtensionIds(frozenset(each.normalised() for each in self.root))
 
     @staticmethod
     def fake() -> ExtensionIds:

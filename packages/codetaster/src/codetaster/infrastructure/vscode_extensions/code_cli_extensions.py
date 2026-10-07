@@ -2,15 +2,11 @@ from pathlib import Path
 from typing import override
 
 from pydantic import ConfigDict, RootModel
-from safe_result import Err, Ok, Result
+from safe_result import Result
 
 from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.tool_errors import InstallationHint, ToolError
-from codetaster.domain.domain_model.vscode_extension import (
-    ExtensionId,
-    ExtensionIds,
-    ExtensionPackagePath,
-)
+from codetaster.domain.domain_model.vscode_extension import ExtensionPackagePath
 from codetaster.domain.secondary_ports.vscode_extensions import VsCodeExtensions
 from codetaster.infrastructure.external_tool.run_external_tool import (
     OutputMode,
@@ -63,17 +59,6 @@ class CodeCliExtensions(VsCodeExtensions):
             ToolArguments(("--install-extension", str(package), "--force")),
             OutputMode.SHOW,
         ).map(lambda _: None)
-
-    @override
-    def list_installed_extensions(self) -> Result[ExtensionIds, ToolError]:
-        match self._run_code(ToolArguments(("--list-extensions",)), OutputMode.CAPTURE):
-            case Err() as failed:
-                return failed
-            case Ok(output):
-                lines = (line.strip() for line in output.root.splitlines())
-                return Ok(
-                    ExtensionIds(frozenset(ExtensionId(id_) for id_ in lines if id_))
-                )
 
     def _run_code(
         self, arguments: ToolArguments, mode: OutputMode

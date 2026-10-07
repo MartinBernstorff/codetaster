@@ -44,7 +44,7 @@ class ArgvJsonAllowlist(ProposedApiAllowlist):
         match self._allowed_in(text):
             case Err() as failed:
                 return failed
-            case Ok(allowed) if allowed.includes(extension):
+            case Ok(allowed) if extension.normalised() in allowed.normalised().root:
                 return Ok(AllowlistUpdate.ALREADY_ALLOWED)
             case Ok():
                 pass
@@ -61,14 +61,6 @@ class ArgvJsonAllowlist(ProposedApiAllowlist):
                 ArgvFileError(self.location, ProblemDescription(f"unwritable: {error}"))
             )
         return Ok(AllowlistUpdate.ADDED)
-
-    @override
-    def list_allowed_extensions(self) -> Result[ExtensionIds, ArgvFileError]:
-        match self._read_text():
-            case Err() as failed:
-                return failed
-            case Ok(text):
-                return self._allowed_in(text)
 
     def _allowed_in(self, text: JsoncText) -> Result[ExtensionIds, ArgvFileError]:
         match read_string_list(text, self.key):

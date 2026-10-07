@@ -26,13 +26,10 @@ class InMemoryProposedApiAllowlist(ProposedApiAllowlist):
     ) -> Result[AllowlistUpdate, ArgvFileError]:
         if self.failure is not None:
             return Err(self.failure)
-        if ExtensionIds(frozenset(self.allowed)).includes(extension):
+        if (
+            extension.normalised()
+            in ExtensionIds(frozenset(self.allowed)).normalised().root
+        ):
             return Ok(AllowlistUpdate.ALREADY_ALLOWED)
         self.allowed.add(extension)
         return Ok(AllowlistUpdate.ADDED)
-
-    @override
-    def list_allowed_extensions(self) -> Result[ExtensionIds, ArgvFileError]:
-        if self.failure is not None:
-            return Err(self.failure)
-        return Ok(ExtensionIds(frozenset(self.allowed)))

@@ -39,9 +39,7 @@ def test_adds_to_vscodes_default_file_and_keeps_its_settings(tmp_path: Path) -> 
     updated = location.read_text()
     for line in VSCODE_DEFAULT_ARGV.splitlines():
         assert line in updated
-    listed = allowlist.list_allowed_extensions()
-    assert isinstance(listed, Ok)
-    assert listed.value.includes(extension)
+    assert f'"enable-proposed-api": ["{extension}"]' in updated
 
 
 def test_an_unexpected_value_is_an_error_and_the_file_is_left_alone(

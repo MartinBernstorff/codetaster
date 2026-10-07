@@ -79,9 +79,6 @@ class Token(BaseModel):
     start: Offset
     end: Offset
 
-    def is_punctuation(self, mark: JsoncText) -> bool:
-        return self.text == mark
-
     @staticmethod
     def fake() -> Token:
         return Token(text=JsoncText("{"), start=Offset(0), end=Offset(1))
@@ -214,7 +211,7 @@ def _value_start_of(tokens: Tokens, key: JsonKey) -> Token | None:
             depth == 1
             and token.text.root.startswith('"')
             and index + 2 < len(items)
-            and items[index + 1].is_punctuation(JsoncText(":"))
+            and items[index + 1].text == JsoncText(":")
             and json.loads(token.text.root) == key.root
         ):
             found = items[index + 2]

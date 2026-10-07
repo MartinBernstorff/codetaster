@@ -3,10 +3,7 @@ from typing import Protocol
 from safe_result import Result
 
 from codetaster.domain.domain_model.tool_errors import ToolError
-from codetaster.domain.domain_model.vscode_extension import (
-    ExtensionIds,
-    ExtensionPackagePath,
-)
+from codetaster.domain.domain_model.vscode_extension import ExtensionPackagePath
 
 
 class VsCodeExtensions(Protocol):
@@ -17,5 +14,3 @@ class VsCodeExtensions(Protocol):
     ) -> Result[None, ToolError]:
         """Install `package`, replacing any installed copy, even of the same version."""
         ...
-
-    def list_installed_extensions(self) -> Result[ExtensionIds, ToolError]: ...
