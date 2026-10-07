@@ -5,14 +5,15 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
-from codetaster.domain.domain_model.review.changes import FileChange
-from codetaster.domain.domain_model.review.path_rules import PathRule
+from codetaster.domain.domain_model.review.changes import FileChange, FileChanges
+from codetaster.domain.domain_model.review.path_rules import PathRule, PathRules
 from codetaster.domain.domain_model.review.probability import Probability
-from codetaster.domain.domain_model.review.ratings import FileRating
+from codetaster.domain.domain_model.review.ratings import FileRating, RatingsFile
+from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 
 
 class Draw(RootModel[Annotated[float, Field(ge=0, lt=1)]]):
-    """A file's reproducible random number. It needs review if this is below its probability."""
+    """A file's reproducible random number. It is sampled if this is below the base probability."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -24,7 +25,7 @@ class Draw(RootModel[Annotated[float, Field(ge=0, lt=1)]]):
 class Verdict(StrEnum):
     """The group a changed file is reported in, most urgent first.
 
-    needs-review: the draw is below the file's rating.
+    needs-review: among the top-rated files; see `assess_file_changes`.
     sampled: not needs-review, but the draw is below the base probability.
     no-review: everything else.
     """
@@ -68,7 +69,6 @@ class FileAssessment(BaseModel):
     base_probability: Probability
     path_rule: PathRule | None
     rating: FileRating | None
-    probability: Probability
     draw: Draw
     verdict: Verdict
 
@@ -79,7 +79,6 @@ class FileAssessment(BaseModel):
             base_probability=Probability.fake(),
             path_rule=None,
             rating=None,
-            probability=Probability.fake(),
             draw=Draw.fake(),
             verdict=Verdict.NO_REVIEW,
         )
@@ -93,37 +92,54 @@ class FileAssessments(RootModel[tuple[FileAssessment, ...]]):
         return FileAssessments((FileAssessment.fake(),))
 
 
-def assess_file_change(
-    change: FileChange,
-    configured_base_probability: Probability,
-    path_rule: PathRule | None,
-    rating: FileRating | None,
-) -> FileAssessment:
-    """needs-review if the draw is below the rating, else sampled if it is below
-    the base probability. Without a rating a file can never need review.
-
-    A matching path rule's probability replaces the configured base probability.
-    The caller matches `path_rule` and `rating` to `change`; see
-    `PathRules.rule_for` and `RatingsFile.rating_for`.
-    """
-    base_probability = (
-        configured_base_probability if path_rule is None else path_rule.probability
+def assess_file_changes(
+    changes: FileChanges,
+    base_probability: Probability,
+    path_rules: PathRules,
+    ratings: RatingsFile,
+    top_rated: TopRatedPercentage,
+) -> FileAssessments:
+    """A matching path rule's probability replaces `base_probability` for sampling."""
+    draws = tuple(draw_for_file_change(change) for change in changes.root)
+    file_ratings = tuple(ratings.rating_for(change) for change in changes.root)
+    file_rules = tuple(path_rules.rule_for(change.path()) for change in changes.root)
+    file_base_probabilities = tuple(
+        base_probability if rule is None else rule.probability for rule in file_rules
     )
-    draw = draw_for_file_change(change)
-    if rating is not None and draw.root < rating.probability.root:
-        verdict = Verdict.NEEDS_REVIEW
-    elif draw.root < base_probability.root:
-        verdict = Verdict.SAMPLED
-    else:
-        verdict = Verdict.NO_REVIEW
-    return FileAssessment(
-        change=change,
-        base_probability=base_probability,
-        path_rule=path_rule,
-        rating=rating,
-        probability=base_probability
-        if rating is None
-        else Probability(max(base_probability.root, rating.probability.root)),
-        draw=draw,
-        verdict=verdict,
+    ranked = sorted(
+        (
+            (index, rating)
+            for index, rating in enumerate(file_ratings)
+            if rating is not None
+        ),
+        key=lambda rated: (-rated[1].probability.root, draws[rated[0]].root),
+    )
+    # The percentage of the changed files, rounded up.
+    picked_count = -(-top_rated.root * len(changes.root) // 100)
+    picked = {index for index, _ in ranked[:picked_count]}
+    return FileAssessments(
+        tuple(
+            FileAssessment(
+                change=change,
+                base_probability=file_base,
+                path_rule=rule,
+                rating=rating,
+                draw=draw,
+                verdict=Verdict.NEEDS_REVIEW
+                if index in picked
+                else Verdict.SAMPLED
+                if draw.root < file_base.root
+                else Verdict.NO_REVIEW,
+            )
+            for index, (change, rule, file_base, rating, draw) in enumerate(
+                zip(
+                    changes.root,
+                    file_rules,
+                    file_base_probabilities,
+                    file_ratings,
+                    draws,
+                    strict=True,
+                )
+            )
+        )
     )

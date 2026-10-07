@@ -17,6 +17,7 @@ from codetaster.domain.application_services.check_committed_changes import (
     check_committed_changes,
 )
 from codetaster.domain.domain_model.review.sampling import Verdict
+from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 from codetaster.infrastructure.committed_changes.git_committed_changes import (
     GitCommittedChanges,
 )
@@ -34,6 +35,17 @@ class OutputFormat(StrEnum):
 def check_changes(
     checkout: CheckoutArgument,
     base: BaseOption = None,
+    top_rated: Annotated[
+        TopRatedPercentage | None,
+        typer.Option(
+            "--top-rated-percentage",
+            parser=lambda value: TopRatedPercentage(int(value)),
+            metavar="PERCENT",
+            help="The percentage, from 0 to 100, of changed files with the highest "
+            "AI ratings that need review, instead of \\[review] top_rated_percentage.",
+            show_default=False,
+        ),
+    ] = None,
     output_format: Annotated[
         OutputFormat, typer.Option("--format", help="How to print the result.")
     ] = OutputFormat.JSON,
@@ -48,13 +60,17 @@ def check_changes(
     """Decide which files changed since the merge base with the base need review.
 
     Files are rated from \\[review] ratings_path, if it exists and is valid; an
-    invalid one is reported and leaves every file unrated. Only committed
+    invalid one is reported and leaves every file unrated. The highest-rated
+    files, --top-rated-percentage of all changed files, need review; other files
+    are sampled at \\[review] base_probability. Only committed
     changes count. Exits 0 whatever the verdict, unless
     --fail-on-needs-review is given.
     """
     checkout = resolve_checkout(checkout)
     match check_committed_changes(
-        CheckRequest(checkout=checkout, base_override=base),
+        CheckRequest(
+            checkout=checkout, base_override=base, top_rated_override=top_rated
+        ),
         load_checkout_configuration(checkout),
         GitCommittedChanges(),
         LocalRatingsFileStore(),

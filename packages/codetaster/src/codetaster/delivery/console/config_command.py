@@ -74,6 +74,7 @@ def echo_configuration(configuration: Configuration) -> None:
     else:
         typer.echo(f"  base_branch = {review.base_branch}")
         typer.echo(f"  base_probability = {review.base_probability.root}")
+        typer.echo(f"  top_rated_percentage = {review.top_rated_percentage.root}")
         for rule in review.path_rules.root:
             typer.echo(f"  path_rules: {rule.pattern.root} = {rule.probability.root}")
     typer.echo("Secrets:")

@@ -10,6 +10,7 @@ from codetaster.domain.domain_model.review.changes import (
 )
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings_template import RatingsTemplate
+from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 from codetaster.domain.domain_services.branch_change import (
     BranchChangeError,
     read_branch_change,
@@ -36,6 +37,7 @@ class RatingsTemplateResult(BaseModel):
     template: RatingsTemplate
     ratings_location: Location
     base_probability: Probability
+    top_rated_percentage: TopRatedPercentage
     working_tree: WorkingTreeState
 
     @staticmethod
@@ -44,6 +46,7 @@ class RatingsTemplateResult(BaseModel):
             template=RatingsTemplate.fake(),
             ratings_location=Location.fake(),
             base_probability=Probability.fake(),
+            top_rated_percentage=TopRatedPercentage.fake(),
             working_tree=WorkingTreeState.CLEAN,
         )
 
@@ -67,6 +70,7 @@ def create_ratings_template(
             template=RatingsTemplate.of_changes(branch.value.change.files),
             ratings_location=branch.value.ratings_location,
             base_probability=branch.value.review.base_probability,
+            top_rated_percentage=branch.value.review.top_rated_percentage,
             working_tree=branch.value.working_tree,
         )
     )

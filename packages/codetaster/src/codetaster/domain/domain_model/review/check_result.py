@@ -9,6 +9,7 @@ from codetaster.domain.domain_model.review.ratings_validation import (
     InvalidRatingsFile,
 )
 from codetaster.domain.domain_model.review.sampling import FileAssessments, Verdict
+from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 
 
 class CheckResult(BaseModel):
@@ -19,6 +20,7 @@ class CheckResult(BaseModel):
     base: RevisionName
     merge_base: CommitSha
     head: CommitSha
+    top_rated_percentage: TopRatedPercentage
     assessments: FileAssessments
     working_tree: WorkingTreeState
     ratings_problem: InvalidRatingsFile | None
@@ -30,6 +32,7 @@ class CheckResult(BaseModel):
             base=RevisionName.fake(),
             merge_base=CommitSha.fake(),
             head=CommitSha.fake(),
+            top_rated_percentage=TopRatedPercentage.fake(),
             assessments=FileAssessments.fake(),
             working_tree=WorkingTreeState.CLEAN,
             ratings_problem=None,

@@ -1,5 +1,5 @@
 /**
- * The JSON that `codetaster check --format json` prints, schema_version 2.
+ * The JSON that `codetaster check --format json` prints, schema_version 3.
  * The documented schema is the Python `CheckReport` in codetaster's check_report module.
  * New fields can appear without a version bump; they are kept on the parsed objects.
  */
@@ -17,15 +17,16 @@ export interface FileReport {
 	/** null when no AI rating matches this version of the file. */
 	readonly rating: RatingReport | null;
 	readonly unrated: boolean;
-	readonly probability: number;
 	readonly draw: number;
 }
 
 export interface CheckReport {
-	readonly schema_version: 2;
+	readonly schema_version: 3;
 	readonly needs_review: boolean;
 	readonly base: { readonly ref: string, readonly merge_base: string };
 	readonly head: { readonly commit: string };
+	/** The percentage, from 0 to 100, of changed files with the highest AI ratings that are in needs-review. */
+	readonly top_rated_percentage: number;
 	/** Why an invalid ratings file was ignored, leaving every file unrated. Absent from older codetaster versions. */
 	readonly ratings_error?: string | null;
 	readonly 'needs-review': readonly FileReport[];
@@ -60,8 +61,11 @@ export function parseCheckReport(output: string): ParsedCheckReport {
 	if (!isRecord(json)) {
 		return invalidReport('Its output is not a JSON object.');
 	}
-	if (json.schema_version !== 2) {
-		return invalidReport(`Its output has schema_version ${JSON.stringify(json.schema_version)}; this extension reads schema_version 2.`);
+	if (json.schema_version !== 3) {
+		return invalidReport(`Its output has schema_version ${JSON.stringify(json.schema_version)}; this extension reads schema_version 3.`);
+	}
+	if (typeof json.top_rated_percentage !== 'number') {
+		return invalidReport('Its output has no "top_rated_percentage".');
 	}
 	if (!isRecord(json.head) || typeof json.head.commit !== 'string') {
 		return invalidReport('Its output has no "head.commit".');

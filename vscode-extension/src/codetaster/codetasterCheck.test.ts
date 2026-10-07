@@ -3,13 +3,14 @@ import { describe, it } from 'mocha';
 import { CheckTarget, CodetasterChecks, CodetasterProcess, ProcessOutcome, runCodetasterCheck } from './codetasterCheck';
 
 const validReport = {
-	schema_version: 2,
+	schema_version: 3,
 	needs_review: true,
 	override_label_applied: false,
 	base: { ref: 'main', merge_base: 'a'.repeat(40) },
 	head: { commit: 'b'.repeat(40) },
+	top_rated_percentage: 20,
 	'needs-review': [],
-	sampled: [{ path: 'a.py', previous_path: null, change_type: 'added', base_probability: 0.1, rating: null, unrated: true, probability: 0.1, draw: 0.05, from_a_later_schema: true }],
+	sampled: [{ path: 'a.py', previous_path: null, change_type: 'added', base_probability: 0.1, rating: null, unrated: true, draw: 0.05, from_a_later_schema: true }],
 	'no-review': [],
 };
 
@@ -45,6 +46,14 @@ describe('runCodetasterCheck', () => {
 		await runCodetasterCheck(process, '/opt/bin/codetaster', '/repo', 'origin/release');
 
 		assert.deepStrictEqual(process.calls, [{ executable: '/opt/bin/codetaster', args: ['check', '/repo', '--base', 'origin/release', '--format', 'json'], cwd: '/repo' }]);
+	});
+
+	it('passes a top-rated percentage override on', async () => {
+		const process = successfulProcess();
+
+		await runCodetasterCheck(process, 'codetaster', '/repo', 'origin/main', 35);
+
+		assert.deepStrictEqual(process.calls.map(call => call.args), [['check', '/repo', '--base', 'origin/main', '--top-rated-percentage', '35', '--format', 'json']]);
 	});
 
 	it('returns the parsed report, keeping fields it does not know', async () => {
@@ -93,7 +102,7 @@ describe('runCodetasterCheck', () => {
 });
 
 function checkedOutPullRequest(target: Partial<CheckTarget> = {}): CheckTarget {
-	return { checkout: '/repo', base: 'origin/main', fileListKey: 'a.py', localHead: 'c'.repeat(40), ...target };
+	return { checkout: '/repo', base: 'origin/main', fileListKey: 'a.py', localHead: 'c'.repeat(40), topRatedPercentage: undefined, ...target };
 }
 
 describe('CodetasterChecks', () => {
@@ -153,6 +162,16 @@ describe('CodetasterChecks', () => {
 
 		await checks.checkFor(checkedOutPullRequest({ localHead: 'c'.repeat(40) }));
 		await checks.checkFor(checkedOutPullRequest({ localHead: 'd'.repeat(40) }));
+
+		assert.strictEqual(process.calls.length, 2);
+	});
+
+	it('re-runs the check when the top-rated percentage changes', async () => {
+		const process = successfulProcess();
+		const checks = new CodetasterChecks(process, () => 'codetaster');
+
+		await checks.checkFor(checkedOutPullRequest({ topRatedPercentage: undefined }));
+		await checks.checkFor(checkedOutPullRequest({ topRatedPercentage: 50 }));
 
 		assert.strictEqual(process.calls.length, 2);
 	});

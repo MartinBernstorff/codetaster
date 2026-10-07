@@ -6,24 +6,36 @@ from pydantic import ValidationError
 from codetaster.domain.domain_model.review.changes import (
     BlobSha,
     FileChange,
+    FileChanges,
     FileVersion,
     RepositoryPath,
 )
-from codetaster.domain.domain_model.review.path_rules import PathPattern, PathRule
+from codetaster.domain.domain_model.review.path_rules import (
+    PathPattern,
+    PathRule,
+    PathRules,
+)
 from codetaster.domain.domain_model.review.probability import Probability
-from codetaster.domain.domain_model.review.ratings import FileRating, RatingsFile
+from codetaster.domain.domain_model.review.ratings import (
+    FileRating,
+    RatingsFile,
+    RatingTarget,
+)
 from codetaster.domain.domain_model.review.sampling import (
     Draw,
+    FileAssessment,
     Verdict,
-    assess_file_change,
+    assess_file_changes,
     draw_for_file_change,
 )
 from codetaster.domain.domain_model.review.test_strategies import (
     blob_shas,
-    file_changes,
+    distinct_file_changes,
     probabilities,
     ratings_of,
+    top_rated_percentages,
 )
+from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 
 
 def changes_with_distinct_blobs() -> list[FileChange]:
@@ -35,6 +47,50 @@ def changes_with_distinct_blobs() -> list[FileChange]:
             ),
         )
         for index in range(1000)
+    ]
+
+
+def rating_of(change: FileChange, probability: Probability) -> FileRating:
+    target = RatingTarget.of_change(change)
+    return FileRating.fake().model_copy(
+        update={"path": target.path, "blob": target.blob, "probability": probability}
+    )
+
+
+def assessments_of(
+    changes: list[FileChange],
+    base_probability: Probability | None = None,
+    ratings: RatingsFile | None = None,
+    top_rated: TopRatedPercentage | None = None,
+    path_rules: PathRules | None = None,
+) -> tuple[FileAssessment, ...]:
+    """Without ratings or path rules, at a base probability and top-rated
+    percentage of 0."""
+    return assess_file_changes(
+        FileChanges(tuple(changes)),
+        base_probability or Probability(0),
+        path_rules or PathRules(()),
+        ratings or RatingsFile(ratings=()),
+        top_rated or TopRatedPercentage(0),
+    ).root
+
+
+def stale_ratings_of(change: FileChange) -> st.SearchStrategy[FileRating]:
+    """Ratings for `change`'s path, but for another version of the file."""
+    return ratings_of(change).flatmap(
+        lambda rating: (
+            blob_shas()
+            .filter(lambda blob: blob != rating.blob)
+            .map(lambda blob: rating.model_copy(update={"blob": blob}))
+        )
+    )
+
+
+def needs_review(assessments: tuple[FileAssessment, ...]) -> list[FileChange]:
+    return [
+        assessment.change
+        for assessment in assessments
+        if assessment.verdict is Verdict.NEEDS_REVIEW
     ]
 
 
@@ -90,21 +146,19 @@ def test_draws_fall_in_zero_to_one() -> None:
 
 
 def test_base_probability_one_always_samples() -> None:
-    verdicts = {
-        assess_file_change(change, Probability(1), None, None).verdict
-        for change in changes_with_distinct_blobs()
-    }
+    assessments = assessments_of(
+        changes_with_distinct_blobs(), base_probability=Probability(1)
+    )
 
-    assert verdicts == {Verdict.SAMPLED}
+    assert {assessment.verdict for assessment in assessments} == {Verdict.SAMPLED}
 
 
 def test_base_probability_zero_never_samples() -> None:
-    verdicts = {
-        assess_file_change(change, Probability(0), None, None).verdict
-        for change in changes_with_distinct_blobs()
-    }
+    assessments = assessments_of(
+        changes_with_distinct_blobs(), base_probability=Probability(0)
+    )
 
-    assert verdicts == {Verdict.NO_REVIEW}
+    assert {assessment.verdict for assessment in assessments} == {Verdict.NO_REVIEW}
 
 
 def test_a_draw_below_the_base_probability_is_sampled() -> None:
@@ -113,19 +167,26 @@ def test_a_draw_below_the_base_probability_is_sampled() -> None:
     above_draw = Probability(min(1, draw.root + 0.001))
     at_draw = Probability(draw.root)
 
-    assert assess_file_change(change, above_draw, None, None).verdict is Verdict.SAMPLED
-    assert assess_file_change(change, at_draw, None, None).verdict is Verdict.NO_REVIEW
+    [sampled] = assessments_of([change], base_probability=above_draw)
+    [not_sampled] = assessments_of([change], base_probability=at_draw)
+
+    assert sampled.verdict is Verdict.SAMPLED
+    assert not_sampled.verdict is Verdict.NO_REVIEW
 
 
 def test_assessment_reports_its_inputs() -> None:
     change = FileChange.fake()
     base_probability = Probability(0.25)
+    rating = rating_of(change, Probability(0.5))
 
-    assessment = assess_file_change(change, base_probability, None, None)
+    [assessment] = assessments_of(
+        [change], base_probability, RatingsFile(ratings=(rating,))
+    )
 
     assert assessment.change == change
     assert assessment.base_probability == base_probability
-    assert assessment.probability == base_probability
+    assert assessment.rating == rating
+    assert assessment.draw == draw_for_file_change(change)
 
 
 def test_draw_rejects_one() -> None:
@@ -133,88 +194,134 @@ def test_draw_rejects_one() -> None:
         _ = Draw(1)
 
 
-@given(change=file_changes(), base_probability=probabilities())
-def test_an_unrated_file_never_needs_review(
-    change: FileChange, base_probability: Probability
-) -> None:
-    assessment = assess_file_change(change, base_probability, None, None)
-
-    assert assessment.verdict is not Verdict.NEEDS_REVIEW
+def test_top_rated_percentage_above_100_is_invalid() -> None:
+    with pytest.raises(ValidationError):
+        _ = TopRatedPercentage(101)
 
 
-def test_a_draw_below_the_rating_needs_review() -> None:
-    change = FileChange.fake()
-    draw = draw_for_file_change(change)
-    rating = FileRating.fake().model_copy(
-        update={"probability": Probability(min(1, draw.root + 0.001))}
+def test_the_highest_rated_files_need_review() -> None:
+    changes = changes_with_distinct_blobs()[:10]
+    ratings = RatingsFile(
+        ratings=tuple(
+            rating_of(change, Probability(index / 10))
+            for index, change in enumerate(changes)
+        )
     )
 
-    assessment = assess_file_change(change, Probability(0), None, rating)
-
-    assert assessment.verdict is Verdict.NEEDS_REVIEW
-    assert assessment.rating == rating
-
-
-def test_a_draw_at_the_rating_falls_back_to_sampling() -> None:
-    change = FileChange.fake()
-    draw = draw_for_file_change(change)
-    rating = FileRating.fake().model_copy(
-        update={"probability": Probability(draw.root)}
+    assessments = assessments_of(
+        changes, ratings=ratings, top_rated=TopRatedPercentage(20)
     )
 
-    assessment = assess_file_change(change, Probability(1), None, rating)
-
-    assert assessment.verdict is Verdict.SAMPLED
+    assert needs_review(assessments) == changes[-2:]
 
 
-@given(change=file_changes(), base_probability=probabilities(), data=st.data())
-def test_final_probability_is_at_least_base_and_rating(
-    change: FileChange, base_probability: Probability, data: st.DataObject
-) -> None:
-    rating = data.draw(ratings_of(change))
+def test_the_number_of_top_rated_files_is_rounded_up() -> None:
+    changes = changes_with_distinct_blobs()[:3]
+    ratings = RatingsFile(
+        ratings=tuple(rating_of(change, Probability(0.5)) for change in changes)
+    )
 
-    assessment = assess_file_change(change, base_probability, None, rating)
+    assessments = assessments_of(
+        changes, ratings=ratings, top_rated=TopRatedPercentage(1)
+    )
 
-    assert assessment.probability.root >= base_probability.root
-    assert assessment.probability.root >= rating.probability.root
+    assert len(needs_review(assessments)) == 1
+
+
+def test_a_top_rated_percentage_of_zero_picks_no_file() -> None:
+    changes = changes_with_distinct_blobs()[:3]
+    ratings = RatingsFile(
+        ratings=tuple(rating_of(change, Probability(1)) for change in changes)
+    )
+
+    assessments = assessments_of(
+        changes, ratings=ratings, top_rated=TopRatedPercentage(0)
+    )
+
+    assert needs_review(assessments) == []
+
+
+def test_equal_ratings_pick_the_lower_draw() -> None:
+    changes = changes_with_distinct_blobs()[:2]
+    ratings = RatingsFile(
+        ratings=tuple(rating_of(change, Probability(0.5)) for change in changes)
+    )
+    lower_draw = min(changes, key=lambda change: draw_for_file_change(change).root)
+
+    assessments = assessments_of(
+        changes, ratings=ratings, top_rated=TopRatedPercentage(50)
+    )
+
+    assert needs_review(assessments) == [lower_draw]
 
 
 @given(
-    change=file_changes(),
+    changes=distinct_file_changes(),
     base_probability=probabilities(),
-    raised=probabilities(),
+    top_rated=top_rated_percentages(),
+)
+def test_an_unrated_file_never_needs_review(
+    changes: list[FileChange],
+    base_probability: Probability,
+    top_rated: TopRatedPercentage,
+) -> None:
+    assessments = assessments_of(changes, base_probability, top_rated=top_rated)
+
+    assert needs_review(assessments) == []
+
+
+@given(
+    changes=distinct_file_changes().filter(lambda changes: len(changes) > 0),
+    base_probability=probabilities(),
+    top_rated=top_rated_percentages(),
     data=st.data(),
 )
 def test_raising_a_rating_never_lowers_the_group(
-    change: FileChange,
+    changes: list[FileChange],
     base_probability: Probability,
-    raised: Probability,
+    top_rated: TopRatedPercentage,
     data: st.DataObject,
 ) -> None:
-    rating = data.draw(ratings_of(change))
-    higher = rating.model_copy(
-        update={"probability": Probability(max(rating.probability.root, raised.root))}
+    ratings = [data.draw(ratings_of(change)) for change in changes]
+    raised = data.draw(probabilities())
+    first = ratings[0]
+    higher = first.model_copy(
+        update={"probability": Probability(max(first.probability.root, raised.root))}
     )
 
-    before = assess_file_change(change, base_probability, None, rating).verdict
-    after = assess_file_change(change, base_probability, None, higher).verdict
+    [before, *_] = assessments_of(
+        changes, base_probability, RatingsFile(ratings=tuple(ratings)), top_rated
+    )
+    [after, *_] = assessments_of(
+        changes,
+        base_probability,
+        RatingsFile(ratings=(higher, *ratings[1:])),
+        top_rated,
+    )
 
     # Verdict lists the most urgent group first.
-    assert list(Verdict).index(after) <= list(Verdict).index(before)
+    order = list(Verdict)
+    assert order.index(after.verdict) <= order.index(before.verdict)
 
 
-@given(change=file_changes(), base_probability=probabilities(), data=st.data())
+@given(
+    changes=distinct_file_changes(),
+    base_probability=probabilities(),
+    top_rated=top_rated_percentages(),
+    data=st.data(),
+)
 def test_a_rating_for_another_blob_is_the_same_as_no_rating(
-    change: FileChange, base_probability: Probability, data: st.DataObject
+    changes: list[FileChange],
+    base_probability: Probability,
+    top_rated: TopRatedPercentage,
+    data: st.DataObject,
 ) -> None:
-    rating = data.draw(ratings_of(change))
-    other_blob = data.draw(blob_shas().filter(lambda blob: blob != rating.blob))
-    ratings = RatingsFile(ratings=(rating.model_copy(update={"blob": other_blob}),))
+    stale = [data.draw(stale_ratings_of(change)) for change in changes]
 
-    rated = assess_file_change(
-        change, base_probability, None, ratings.rating_for(change)
+    rated = assessments_of(
+        changes, base_probability, RatingsFile(ratings=tuple(stale)), top_rated
     )
-    unrated = assess_file_change(change, base_probability, None, None)
+    unrated = assessments_of(changes, base_probability, top_rated=top_rated)
 
     assert rated == unrated
 
@@ -223,18 +330,25 @@ def test_a_path_rule_replaces_the_base_probability() -> None:
     change = FileChange.fake()
     rule = PathRule(pattern=PathPattern("*"), probability=Probability(1))
 
-    assessment = assess_file_change(change, Probability(0), rule, None)
+    [assessment] = assessments_of(
+        [change], base_probability=Probability(0), path_rules=PathRules((rule,))
+    )
 
     assert assessment.verdict is Verdict.SAMPLED
     assert assessment.base_probability == rule.probability
     assert assessment.path_rule == rule
 
 
-def test_a_path_rule_of_zero_still_lets_a_rating_flag_the_file() -> None:
+def test_a_path_rule_of_zero_still_lets_a_top_rated_file_need_review() -> None:
     change = FileChange.fake()
     rule = PathRule(pattern=PathPattern("*"), probability=Probability(0))
-    rating = FileRating.fake().model_copy(update={"probability": Probability(1)})
 
-    assessment = assess_file_change(change, Probability(1), rule, rating)
+    [assessment] = assessments_of(
+        [change],
+        base_probability=Probability(1),
+        ratings=RatingsFile(ratings=(rating_of(change, Probability(1)),)),
+        top_rated=TopRatedPercentage(100),
+        path_rules=PathRules((rule,)),
+    )
 
     assert assessment.verdict is Verdict.NEEDS_REVIEW

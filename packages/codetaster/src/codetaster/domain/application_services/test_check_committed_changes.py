@@ -28,6 +28,7 @@ from codetaster.domain.domain_model.review.ratings import (
     ratings_file_location,
 )
 from codetaster.domain.domain_model.review.sampling import Verdict
+from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 
 # Domain tests use the fakes from infrastructure, which tach otherwise forbids.
 from codetaster.infrastructure.committed_changes.fake_committed_changes import (
@@ -49,9 +50,16 @@ def history_with_feature_branch(
     return history
 
 
-def configuration_with(base_probability: Probability) -> Configuration:
+def configuration_with(
+    base_probability: Probability,
+    top_rated: TopRatedPercentage | None = None,
+) -> Configuration:
+    """All rated files need review unless `top_rated` says otherwise."""
     review = ReviewSettings.fake().model_copy(
-        update={"base_probability": base_probability}
+        update={
+            "base_probability": base_probability,
+            "top_rated_percentage": top_rated or TopRatedPercentage(100),
+        }
     )
     return Configuration.fake().model_copy(update={"review": review})
 
@@ -88,7 +96,7 @@ def test_every_changed_file_is_assessed_at_the_base_probability() -> None:
     assert {
         assessment.change.change_type() for assessment in result.assessments.root
     } == {ChangeType.ADDED}
-    assert {assessment.probability for assessment in result.assessments.root} == {
+    assert {assessment.base_probability for assessment in result.assessments.root} == {
         configuration.review.base_probability
     }
 
@@ -277,3 +285,37 @@ def test_a_valid_ratings_file_is_no_problem() -> None:
     )
 
     assert result.ratings_problem is None
+
+
+def test_the_configured_top_rated_percentage_applies() -> None:
+    configuration = configuration_with(Probability(0), TopRatedPercentage(0))
+    assert configuration.review is not None
+    path = RepositoryPath.fake()
+    history = history_with_feature_branch(configuration.review.base_branch, path)
+    rating = certain_rating_at_head(history, path)
+
+    result = checked_result(
+        configuration, history, ratings_files=ratings_at(configuration, rating)
+    )
+
+    [assessment] = result.assessments.root
+    assert result.top_rated_percentage == configuration.review.top_rated_percentage
+    assert assessment.verdict is Verdict.NO_REVIEW
+
+
+def test_top_rated_override_replaces_the_configured_percentage() -> None:
+    configuration = configuration_with(Probability(0), TopRatedPercentage(0))
+    assert configuration.review is not None
+    path = RepositoryPath.fake()
+    history = history_with_feature_branch(configuration.review.base_branch, path)
+    rating = certain_rating_at_head(history, path)
+    override = TopRatedPercentage(100)
+    request = CheckRequest.fake().model_copy(update={"top_rated_override": override})
+
+    result = checked_result(
+        configuration, history, request, ratings_at(configuration, rating)
+    )
+
+    [assessment] = result.assessments.root
+    assert result.top_rated_percentage == override
+    assert assessment.verdict is Verdict.NEEDS_REVIEW

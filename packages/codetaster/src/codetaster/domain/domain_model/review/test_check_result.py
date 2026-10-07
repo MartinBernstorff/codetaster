@@ -3,20 +3,24 @@ from collections import Counter
 from hypothesis import given
 from hypothesis import strategies as st
 
-from codetaster.domain.domain_model.review.changes import FileChange
+from codetaster.domain.domain_model.review.changes import FileChange, FileChanges
 from codetaster.domain.domain_model.review.check_result import CheckResult
+from codetaster.domain.domain_model.review.path_rules import PathRules
 from codetaster.domain.domain_model.review.probability import Probability
+from codetaster.domain.domain_model.review.ratings import RatingsFile
 from codetaster.domain.domain_model.review.sampling import (
     FileAssessment,
     FileAssessments,
     Verdict,
-    assess_file_change,
+    assess_file_changes,
 )
 from codetaster.domain.domain_model.review.test_strategies import (
-    file_changes,
+    distinct_file_changes,
     probabilities,
     ratings_of,
+    top_rated_percentages,
 )
+from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 
 
 def result_with_verdicts(*verdicts: Verdict) -> CheckResult:
@@ -63,25 +67,33 @@ def test_no_changed_files_need_no_review() -> None:
 
 
 @given(
-    changes=st.lists(file_changes(), max_size=20),
+    changes=distinct_file_changes(),
     base_probability=probabilities(),
+    top_rated=top_rated_percentages(),
     data=st.data(),
 )
 def test_the_groups_partition_the_changed_files(
-    changes: list[FileChange], base_probability: Probability, data: st.DataObject
+    changes: list[FileChange],
+    base_probability: Probability,
+    top_rated: TopRatedPercentage,
+    data: st.DataObject,
 ) -> None:
+    ratings = RatingsFile(
+        ratings=tuple(
+            rating
+            for change in changes
+            if (rating := data.draw(st.one_of(st.none(), ratings_of(change))))
+            is not None
+        )
+    )
     result = CheckResult.fake().model_copy(
         update={
-            "assessments": FileAssessments(
-                tuple(
-                    assess_file_change(
-                        change,
-                        base_probability,
-                        None,
-                        data.draw(st.one_of(st.none(), ratings_of(change))),
-                    )
-                    for change in changes
-                )
+            "assessments": assess_file_changes(
+                FileChanges(tuple(changes)),
+                base_probability,
+                PathRules(()),
+                ratings,
+                top_rated,
             )
         }
     )

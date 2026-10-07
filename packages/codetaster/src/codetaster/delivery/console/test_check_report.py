@@ -86,14 +86,22 @@ def test_a_valid_ratings_file_is_no_ratings_error() -> None:
     assert report["ratings_error"] is None
 
 
-def test_schema_version_is_two() -> None:
-    expected = 2
+def test_schema_version_is_three() -> None:
+    expected = 3
 
     report = check_report_from_result(CheckResult.fake()).model_dump(
         mode="json", by_alias=True
     )
 
     assert report["schema_version"] == expected
+
+
+def test_reports_the_top_rated_percentage() -> None:
+    result = CheckResult.fake()
+
+    report = check_report_from_result(result).model_dump(mode="json", by_alias=True)
+
+    assert report["top_rated_percentage"] == result.top_rated_percentage.root
 
 
 def test_reports_each_files_decision_inputs() -> None:
@@ -107,7 +115,6 @@ def test_reports_each_files_decision_inputs() -> None:
         "path_rule": None,
         "rating": None,
         "unrated": True,
-        "probability": assessment.probability.root,
         "draw": assessment.draw.root,
     }
 
