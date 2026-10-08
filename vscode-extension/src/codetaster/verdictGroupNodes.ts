@@ -313,7 +313,8 @@ function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: P
 
 /**
  * The children of a PR file list if the PR is checked out: one node per codetaster
- * verdict group, each holding its files in the configured layout, or an error and no
+ * verdict group, each holding its files in the configured layout, with files that have
+ * unresolved review threads under needs-review, or an error and no
  * files if the check fails. Warnings precede the groups when the check ran on a
  * different commit than the PR head, or ignored an invalid ratings file. Undefined if the PR is not checked out, so the
  * caller shows upstream's file list.
@@ -346,14 +347,16 @@ export async function codetasterFileNodes(
 		reviewOrders.delete(folderRepoManager);
 		return [new CodetasterErrorNode(parent, outcome.message)];
 	}
+	const unresolvedPaths = new Set(pullRequest.reviewThreadsCache.filter(thread => !thread.isResolved).map(thread => thread.path));
+	const hasUnresolvedThreads = (file: PullRequestFileNode) => unresolvedPaths.has(file.fileName);
 	// From all files, so a viewed file hidden from the list keeps its place.
 	reviewOrders.set(folderRepoManager, {
 		folderRepoManager,
 		pullRequest,
-		files: reviewOrder(groupFilesByVerdict(outcome.report, allFiles, file => file.fileName), file => file.fileName, layout),
+		files: reviewOrder(groupFilesByVerdict(outcome.report, allFiles, file => file.fileName, hasUnresolvedThreads), file => file.fileName, layout),
 	});
 	showFileRatings(outcome.report, shownFiles);
-	const groups = groupFilesByVerdict(outcome.report, shownFiles, file => file.fileName)
+	const groups = groupFilesByVerdict(outcome.report, shownFiles, file => file.fileName, hasUnresolvedThreads)
 		.map(group => new VerdictGroupNode(parent, group, layout));
 	const warnings = [
 		headMismatchWarning(outcome.report.head.commit, pullRequestHead(allFiles)),

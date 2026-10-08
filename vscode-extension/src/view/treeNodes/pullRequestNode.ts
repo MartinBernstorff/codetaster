@@ -69,6 +69,8 @@ export class PRNode extends TreeNode implements vscode.CommentingRangeProvider2 
 		}));
 		this.resolvePRCommentController();
 		this._register(codetasterChecks.onDidRefresh(() => this.refresh(this)));
+		// codetaster: files with unresolved review threads move to needs-review.
+		this._register(this.pullRequestModel.onDidChangeReviewThreads(() => this.refresh(this)));
 	}
 
 	// #region Tree
