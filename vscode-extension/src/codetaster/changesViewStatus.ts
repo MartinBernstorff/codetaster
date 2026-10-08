@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { changesViewContent, RepositoryReviewStatus, reviewStatusWithoutPullRequest } from './reviewStatus';
+import { changesViewContent, isSameReviewStatus, RepositoryReviewStatus, reviewStatusWithoutPullRequest } from './reviewStatus';
 import { codetasterSkeletonNodes } from './verdictGroupNodes';
 import { GitApiImpl } from '../api/api1';
 import { FolderRepositoryManager, ReposManagerState } from '../github/folderRepositoryManager';
@@ -9,8 +9,13 @@ import { TreeNode, TreeNodeParent } from '../view/treeNodes/treeNode';
 /** Each repository's review status, as its review manager last reported it. */
 const reviewStatuses = new WeakMap<FolderRepositoryManager, RepositoryReviewStatus>();
 
-export function setReviewStatus(folderRepoManager: FolderRepositoryManager, status: RepositoryReviewStatus): void {
+/** Records `folderRepoManager`'s review status. Returns whether it changed, so the view needs a refresh. */
+export function updateReviewStatus(folderRepoManager: FolderRepositoryManager, status: RepositoryReviewStatus): boolean {
+	if (isSameReviewStatus(reviewStatuses.get(folderRepoManager), status)) {
+		return false;
+	}
 	reviewStatuses.set(folderRepoManager, status);
+	return true;
 }
 
 /** Why `folderRepoManager`'s branch shows no pull request: no GitHub remote, signed out, or none found. */
@@ -55,6 +60,7 @@ export function codetasterNoPullRequestNodes(parent: TreeNodeParent, git: GitApi
 		repositories: reposManager.folderManagers.map(folderRepoManager => ({
 			name: repositoryName(folderRepoManager),
 			status: reviewStatuses.get(folderRepoManager) ?? { kind: 'loading' },
+			signedIn: folderRepoManager.state !== ReposManagerState.NeedsAuthentication,
 		})),
 	});
 	switch (content.kind) {
@@ -62,4 +68,16 @@ export function codetasterNoPullRequestNodes(parent: TreeNodeParent, git: GitApi
 		case 'messages': return content.messages.map(message => new CodetasterMessageNode(parent, message.text, message.signIn));
 		case 'welcome': return [];
 	}
+}
+
+/** Refreshes the changes view when what it shows without a pull request may change. */
+export function refreshOnNoPullRequestInputs(git: GitApiImpl, reposManager: RepositoriesManager, refreshView: () => void): vscode.Disposable[] {
+	return [
+		git.onDidChangeState(refreshView),
+		git.onDidOpenRepository(refreshView),
+		git.onDidCloseRepository(refreshView),
+		reposManager.onDidChangeFolderRepositories(refreshView),
+		reposManager.onDidChangeState(refreshView),
+		vscode.workspace.onDidChangeWorkspaceFolders(refreshView),
+	];
 }

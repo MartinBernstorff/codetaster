@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { CheckReport } from './checkReport';
-import { CodetasterChecks } from './codetasterCheck';
+import { CheckOutcome, CodetasterChecks } from './codetasterCheck';
 import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
 import { headMismatchWarning } from './headMismatch';
 import { NodeCodetasterProcess } from './nodeCodetasterProcess';
@@ -21,6 +21,9 @@ import { LabelOnlyNode, TreeNode, TreeNodeParent } from '../view/treeNodes/treeN
 export const CODETASTER_SETTINGS_NAMESPACE = 'codetaster';
 export const EXECUTABLE_PATH_SETTING = 'executablePath';
 export const TOP_RATED_PERCENTAGE_SETTING = 'topRatedPercentage';
+export const OPEN_ON_STARTUP_SETTING = 'openOnStartup';
+/** Opens the view container that holds the codetaster view, `github-pull-request` in package.json. */
+const OPEN_CODETASTER_CONTAINER_COMMAND = 'workbench.view.extension.github-pull-request';
 export const REFRESH_CHECK_COMMAND = 'codetaster.refreshCheck';
 export const SET_TOP_RATED_PERCENTAGE_COMMAND = 'codetaster.setTopRatedPercentage';
 export const MARK_VIEWED_AND_OPEN_NEXT_COMMAND = 'codetaster.markViewedAndOpenNext';
@@ -156,6 +159,9 @@ function refreshOnHeadChange(repository: Repository): void {
 }
 
 export function registerCodetaster(context: vscode.ExtensionContext): void {
+	if (vscode.workspace.getConfiguration(CODETASTER_SETTINGS_NAMESPACE).get<boolean>(OPEN_ON_STARTUP_SETTING, false)) {
+		vscode.commands.executeCommand(OPEN_CODETASTER_CONTAINER_COMMAND);
+	}
 	// The ratings file is usually gitignored, so nothing else notices it change.
 	const ratingsWatcher = vscode.workspace.createFileSystemWatcher(DEFAULT_RATINGS_FILE_GLOB);
 	context.subscriptions.push(
@@ -240,6 +246,16 @@ export class CodetasterSkeletonGroupNode extends TreeNode implements vscode.Tree
 
 	override async getChildren(): Promise<TreeNode[]> {
 		return this._children ?? [];
+	}
+}
+
+/** Checks that will refresh their file list when they finish, so each does so once. */
+const checksRefreshingWhenFinished = new WeakSet<Promise<CheckOutcome>>();
+
+function refreshWhenFinished(finished: Promise<CheckOutcome>, parent: TreeNode): void {
+	if (!checksRefreshingWhenFinished.has(finished)) {
+		checksRefreshingWhenFinished.add(finished);
+		finished.then(() => parent.refresh(parent));
 	}
 }
 
@@ -337,7 +353,7 @@ function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: P
 
 /**
  * The children of a PR file list if the PR is checked out: the skeleton while the
- * check runs, then one node per codetaster
+ * PR's first check runs (later re-runs keep showing the last report), then one node per codetaster
  * verdict group, each holding its files in the configured layout, with files that have
  * unresolved review threads under needs-review, or an error and no
  * files if the check fails. Warnings precede the groups when the check ran on a
@@ -355,7 +371,7 @@ export function codetasterFileNodes(
 	layout: string | undefined,
 ): TreeNode[] | undefined {
 	const isCheckedOut = pullRequest.equals(folderRepoManager.activePullRequest);
-	const outcome = codetasterChecks.checkFor({
+	const outcome = codetasterChecks.requestCheck({
 		checkout: isCheckedOut ? folderRepoManager.repository.rootUri.fsPath : undefined,
 		base: baseRevision(folderRepoManager, pullRequest),
 		fileListKey: fileListKey(allFiles),
@@ -368,13 +384,18 @@ export function codetasterFileNodes(
 	if (!outcome) {
 		return undefined;
 	}
+	let report: CheckReport;
 	if (outcome.kind === 'running') {
-		outcome.finished.then(() => parent.refresh(parent));
-		return codetasterSkeletonNodes(parent);
-	}
-	if (outcome.kind === 'error') {
+		refreshWhenFinished(outcome.finished, parent);
+		if (!outcome.previousReport) {
+			return codetasterSkeletonNodes(parent);
+		}
+		report = outcome.previousReport;
+	} else if (outcome.kind === 'error') {
 		reviewOrders.delete(folderRepoManager);
 		return [new CodetasterErrorNode(parent, outcome.message)];
+	} else {
+		report = outcome.report;
 	}
 	const unresolvedPaths = new Set(pullRequest.reviewThreadsCache.filter(thread => !thread.isResolved).map(thread => thread.path));
 	const hasUnresolvedThreads = (file: PullRequestFileNode) => unresolvedPaths.has(file.fileName);
@@ -382,14 +403,14 @@ export function codetasterFileNodes(
 	reviewOrders.set(folderRepoManager, {
 		folderRepoManager,
 		pullRequest,
-		files: reviewOrder(groupFilesByVerdict(outcome.report, allFiles, file => file.fileName, hasUnresolvedThreads), file => file.fileName, layout),
+		files: reviewOrder(groupFilesByVerdict(report, allFiles, file => file.fileName, hasUnresolvedThreads), file => file.fileName, layout),
 	});
-	showFileRatings(outcome.report, shownFiles);
-	const groups = groupFilesByVerdict(outcome.report, shownFiles, file => file.fileName, hasUnresolvedThreads)
+	showFileRatings(report, shownFiles);
+	const groups = groupFilesByVerdict(report, shownFiles, file => file.fileName, hasUnresolvedThreads)
 		.map(group => new VerdictGroupNode(parent, group, layout));
 	const warnings = [
-		headMismatchWarning(outcome.report.head.commit, pullRequestHead(allFiles)),
-		ratingsErrorWarning(outcome.report.ratings_error),
+		headMismatchWarning(report.head.commit, pullRequestHead(allFiles)),
+		ratingsErrorWarning(report.ratings_error),
 	].filter((warning): warning is string => warning !== undefined);
 	return [...warnings.map(warning => new CodetasterWarningNode(parent, warning)), ...groups];
 }

@@ -109,6 +109,11 @@
 					"maximum": 100,
 					"markdownDescription": "The percentage, from 0 to 100, of changed files with the highest AI ratings that need review. Passed to `codetaster check` as `--top-rated-percentage`. `null` uses the project config's `[review] top_rated_percentage`."
 				},
+				"codetaster.openOnStartup": {
+					"type": "boolean",
+					"default": false,
+					"markdownDescription": "Open the codetaster view in the side bar when VS Code starts, instead of the view VS Code restores."
+				},
 				"githubPullRequests.pullRequestTitle": {
 					"deprecationMessage": "The pull request title now uses the same defaults as GitHub, and can be edited before create.",
 					"type": "string",

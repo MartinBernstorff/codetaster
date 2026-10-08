@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
-import { CheckOutcome, CheckTarget, CodetasterChecks, CodetasterProcess, ProcessOutcome, runCodetasterCheck } from './codetasterCheck';
+import { CheckState, CheckTarget, CodetasterChecks, CodetasterProcess, ProcessOutcome, runCodetasterCheck } from './codetasterCheck';
 
 const validReport = {
 	schema_version: 3,
@@ -105,39 +105,47 @@ function checkedOutPullRequest(target: Partial<CheckTarget> = {}): CheckTarget {
 	return { checkout: '/repo', base: 'origin/main', fileListKey: 'a.py', localHead: 'c'.repeat(40), topRatedPercentage: undefined, ...target };
 }
 
-/** The check's outcome, waiting for it if it is still running. */
-async function finishedCheck(checks: CodetasterChecks, target: CheckTarget): Promise<CheckOutcome | undefined> {
-	const state = checks.checkFor(target);
+/** Requests the check, and requests it again once it finishes if it was running. */
+async function finishedCheck(checks: CodetasterChecks, target: CheckTarget): Promise<CheckState | undefined> {
+	const state = checks.requestCheck(target);
 	if (state?.kind !== 'running') {
 		return state;
 	}
 	await state.finished;
-	const finished = checks.checkFor(target);
-	assert.notStrictEqual(finished?.kind, 'running');
-	return finished as CheckOutcome | undefined;
+	return checks.requestCheck(target);
 }
 
 describe('CodetasterChecks', () => {
 	it('reports a check as running until it finishes', async () => {
 		const checks = new CodetasterChecks(successfulProcess(), () => 'codetaster');
 
-		const running = checks.checkFor(checkedOutPullRequest());
+		const running = checks.requestCheck(checkedOutPullRequest());
 		assert.strictEqual(running?.kind, 'running');
 		await (running?.kind === 'running' ? running.finished : undefined);
 
-		assert.strictEqual(checks.checkFor(checkedOutPullRequest())?.kind, 'report');
+		assert.strictEqual(checks.requestCheck(checkedOutPullRequest())?.kind, 'report');
+	});
+
+	it('offers the last report while a new check of the same checkout runs', async () => {
+		const checks = new CodetasterChecks(successfulProcess(), () => 'codetaster');
+		const firstReport = await finishedCheck(checks, checkedOutPullRequest({ localHead: 'c'.repeat(40) }));
+
+		const running = checks.requestCheck(checkedOutPullRequest({ localHead: 'd'.repeat(40) }));
+
+		assert.ok(firstReport?.kind === 'report' && running?.kind === 'running');
+		assert.deepStrictEqual(running.previousReport, firstReport.report);
 	});
 
 	it('returns a failed check once it finishes, then re-runs it on the next request', async () => {
 		const process = new FakeCodetasterProcess(exitedWith(1, '', 'Error: something went wrong\n'));
 		const checks = new CodetasterChecks(process, () => 'codetaster');
 
-		const running = checks.checkFor(checkedOutPullRequest());
+		const running = checks.requestCheck(checkedOutPullRequest());
 		await (running?.kind === 'running' ? running.finished : undefined);
 
-		assert.strictEqual(checks.checkFor(checkedOutPullRequest())?.kind, 'error');
+		assert.strictEqual(checks.requestCheck(checkedOutPullRequest())?.kind, 'error');
 		assert.strictEqual(process.calls.length, 1);
-		assert.strictEqual(checks.checkFor(checkedOutPullRequest())?.kind, 'running');
+		assert.strictEqual(checks.requestCheck(checkedOutPullRequest())?.kind, 'running');
 		assert.strictEqual(process.calls.length, 2);
 	});
 
@@ -208,17 +216,6 @@ describe('CodetasterChecks', () => {
 		await finishedCheck(checks, checkedOutPullRequest({ topRatedPercentage: undefined }));
 		await finishedCheck(checks, checkedOutPullRequest({ topRatedPercentage: 50 }));
 
-		assert.strictEqual(process.calls.length, 2);
-	});
-
-	it('re-runs a check that failed, rather than reusing the error', async () => {
-		const process = new FakeCodetasterProcess(exitedWith(1, '', 'Error: something went wrong\n'));
-		const checks = new CodetasterChecks(process, () => 'codetaster');
-
-		const first = await finishedCheck(checks, checkedOutPullRequest());
-		await finishedCheck(checks, checkedOutPullRequest());
-
-		assert.strictEqual(first?.kind, 'error');
 		assert.strictEqual(process.calls.length, 2);
 	});
 

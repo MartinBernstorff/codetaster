@@ -12,16 +12,17 @@ export interface ExpandableThread {
 export class DraftThreadExpansion {
 	private readonly resolvedStateWhenDrafted = new Map<string, boolean>();
 
-	forcesExpanded(thread: ExpandableThread): boolean {
+	/** Notes whether `thread` has drafts, or has been resolved or unresolved since it had them. */
+	recordThreadDrafts(thread: ExpandableThread): void {
 		if (thread.comments.some(comment => comment.isDraft)) {
 			this.resolvedStateWhenDrafted.set(thread.id, thread.isResolved);
-			return true;
+		} else if (this.resolvedStateWhenDrafted.get(thread.id) !== thread.isResolved) {
+			this.resolvedStateWhenDrafted.delete(thread.id);
 		}
-		if (this.resolvedStateWhenDrafted.get(thread.id) === thread.isResolved) {
-			return true;
-		}
-		this.resolvedStateWhenDrafted.delete(thread.id);
-		return false;
+	}
+
+	isExpandedForDrafts(thread: ExpandableThread): boolean {
+		return this.resolvedStateWhenDrafted.has(thread.id);
 	}
 }
 

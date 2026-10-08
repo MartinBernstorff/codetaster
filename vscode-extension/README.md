@@ -10,13 +10,13 @@ Left out of the copy: `documentation/`, `.readme/`, `.github/`, `.husky/`, `azur
 
 Edits to upstream files:
 
-- `package.json`: `publisher` is `codetaster`; the `codetaster.executablePath` setting and the `codetaster.refreshCheck` command and its view title buttons. The `github-pull-request` view container is named "codetaster" with the `$(eye)` icon, its "Changes In Pull Request" view is visible without a pull request, it has welcome content for no folder, no git repository and signed out, and the "Active Pull Request" loading view is removed.
+- `package.json`: `publisher` is `codetaster`; the `codetaster.executablePath`, `codetaster.topRatedPercentage` and `codetaster.openOnStartup` settings and the `codetaster.refreshCheck` command and its view title buttons. The `github-pull-request` view container is named "codetaster" with the `$(eye)` icon, its "Changes In Pull Request" view is visible without a pull request, it has welcome content for no folder, no git repository and signed out, and the "Active Pull Request" loading view is removed.
 - `package.nls.json`: `displayName`, the container name and the welcome content.
 - `src/constants.ts`: `EXTENSION_ID`.
 - `src/extension.ts`: calls `registerCodetaster`; `github.api.preloadPullRequest` focuses the changes view instead of the removed loading view.
 - `src/github/utils.ts`: `getCommentCollapsibleState` expands threads with draft comments (see `draftThreadExpansion`).
-- `src/view/prChangesTreeDataProvider.ts`: without a pull request, shows `codetasterNoPullRequestNodes`, and refreshes when git, its repositories or the workspace folders change.
-- `src/view/reviewManager.ts`: reports why the branch shows no pull request with `setReviewStatus`.
+- `src/view/prChangesTreeDataProvider.ts`: without a pull request, shows `codetasterNoPullRequestNodes`, and refreshes on `refreshOnNoPullRequestInputs`.
+- `src/view/reviewManager.ts`: reports why the branch shows no pull request with `updateReviewStatus`.
 - `src/view/treeNodes/filesCategoryNode.ts`, `src/view/treeNodes/pullRequestNode.ts`: use `codetasterFileNodes` for the checked-out PR's file list, falling back to upstream's list otherwise, and refresh on `codetasterChecks.onDidRefresh`. `pullRequestNode.ts` also refreshes on `onDidChangeReviewThreads`.
 - `src/view/treeNodes/repositoryChangesNode.ts`: passes the `FolderRepositoryManager` to `FilesCategoryNode`.
 - `webpack.config.js`: `child_process` is empty in the web extension host.
@@ -29,7 +29,7 @@ When the checked-out PR's file list loads, the extension runs `codetaster check 
 
 ## Sidebar
 
-The codetaster container is always in the activity bar. While a repository looks for its branch's pull request, and while the check runs, the view shows the three groups with a "Loading…" placeholder each. Without a pull request, it says why: no folder, no git repository, no GitHub remote, signed out (with a sign-in button), no open pull request for the branch, or the pull request is closed or merged.
+The codetaster container is always in the activity bar. While a repository looks for its branch's pull request, and while a PR's first check runs, the view shows the three groups with a "Loading…" placeholder each. Later re-runs of the check, e.g. after a local commit, keep showing the last report until they finish. Without a pull request, the view says why: no folder, no git repository, no GitHub remote, signed out (with a sign-in button), no open pull request for the branch, the branch is ignored, the pull request could not be loaded, or it is closed or merged. `codetaster.openOnStartup` (default off) opens the container when VS Code starts.
 
 ## Draft comments
 

@@ -47,7 +47,7 @@ import { PullRequestGitHelper, PullRequestMetadata } from '../github/pullRequest
 import { IResolvedPullRequestModel, PullRequestModel } from '../github/pullRequestModel';
 import { GitFileChangeNode, gitFileChangeNodeFilter, RemoteFileChangeNode } from './treeNodes/fileChangeNode';
 import { WebviewViewCoordinator } from './webviewViewCoordinator';
-import { reviewStatusWithoutPullRequestFor, setReviewStatus } from '../codetaster/changesViewStatus';
+import { reviewStatusWithoutPullRequestFor, updateReviewStatus } from '../codetaster/changesViewStatus';
 import { RepositoryReviewStatus } from '../codetaster/reviewStatus';
 
 export class ReviewManager extends Disposable {
@@ -639,14 +639,13 @@ export class ReviewManager extends Disposable {
 		const branch = this._repository.state.HEAD;
 		if (this._cachedBranchName !== branch.name) {
 			// codetaster: show the skeleton while looking for the new branch's pull request.
-			setReviewStatus(this._folderRepoManager, { kind: 'loading' });
-			this.changesInPrDataProvider.refresh();
+			await this.reportNoPullRequest({ kind: 'loading' });
 		}
 		const ignoreBranches = vscode.workspace.getConfiguration(PR_SETTINGS_NAMESPACE).get<string[]>(IGNORE_PR_BRANCHES);
 		const remoteName = branch.remote ?? branch.upstream?.remote;
 		if (ignoreBranches?.find(value => value === branch.name) && ((remoteName === 'origin') || !(await this._folderRepoManager.gitHubRepositories.find(repo => repo.remote.remoteName === remoteName)?.getMetadata())?.fork)) {
 			Logger.appendLine(`Branch ${branch.name} is ignored in ${IGNORE_PR_BRANCHES}.`, this.id);
-			await this.reportNoPullRequest();
+			await this.reportNoPullRequest({ kind: 'branchIgnored', branch: branch.name ?? '' });
 			await this.clear(true);
 			return;
 		}
@@ -694,7 +693,7 @@ export class ReviewManager extends Disposable {
 		let pr = await this.resolvePullRequest(matchingPullRequestMetadata, justCheckedOutSamePr);
 		if (!pr) {
 			Logger.appendLine(`Unable to resolve PR #${matchingPullRequestMetadata.prNumber}`, this.id);
-			await this.reportNoPullRequest();
+			await this.reportNoPullRequest({ kind: 'pullRequestUnavailable', number: matchingPullRequestMetadata.prNumber });
 			return;
 		}
 		Logger.appendLine(`Resolved PR #${matchingPullRequestMetadata.prNumber}, state is ${pr.state}`, this.id);
@@ -1491,8 +1490,9 @@ export class ReviewManager extends Disposable {
 
 	/** codetaster: tells the changes view why it shows no pull request for this repository. */
 	private async reportNoPullRequest(status?: RepositoryReviewStatus): Promise<void> {
-		setReviewStatus(this._folderRepoManager, status ?? await reviewStatusWithoutPullRequestFor(this._folderRepoManager));
-		this.changesInPrDataProvider.refresh();
+		if (updateReviewStatus(this._folderRepoManager, status ?? await reviewStatusWithoutPullRequestFor(this._folderRepoManager))) {
+			this.changesInPrDataProvider.refresh();
+		}
 	}
 
 	private async updateFocusedViewMode(): Promise<void> {

@@ -181,7 +181,8 @@ export function getCommentCollapsibleState(thread: IReviewThread, expand?: boole
 	const isFromCurrent = (currentUser && (thread.comments[thread.comments.length - 1].user?.login === currentUser));
 	const isJustSuggestion = thread.comments.length === 1 && thread.comments[0].body.startsWith('```suggestion') && thread.comments[0].body.endsWith('```');
 
-	if (draftThreadExpansion.forcesExpanded(thread)) {
+	draftThreadExpansion.recordThreadDrafts(thread);
+	if (draftThreadExpansion.isExpandedForDrafts(thread)) {
 		return vscode.CommentThreadCollapsibleState.Expanded;
 	}
 

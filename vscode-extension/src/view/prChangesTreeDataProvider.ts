@@ -19,7 +19,7 @@ import { GitFileChangeNode } from './treeNodes/fileChangeNode';
 import { RepositoryChangesNode } from './treeNodes/repositoryChangesNode';
 import { BaseTreeNode, TreeNode } from './treeNodes/treeNode';
 import { TreeUtils } from './treeNodes/treeUtils';
-import { codetasterNoPullRequestNodes } from '../codetaster/changesViewStatus';
+import { codetasterNoPullRequestNodes, refreshOnNoPullRequestInputs } from '../codetaster/changesViewStatus';
 
 export class PullRequestChangesTreeDataProvider extends Disposable implements vscode.TreeDataProvider<TreeNode>, BaseTreeNode {
 	private _onDidChangeTreeData = new vscode.EventEmitter<TreeNode | void>();
@@ -60,12 +60,7 @@ export class PullRequestChangesTreeDataProvider extends Disposable implements vs
 
 		this._register(this._view.onDidChangeCheckboxState(e => TreeUtils.processCheckboxUpdates(e, this._view.selection)));
 
-		// codetaster: what the view shows without a pull request depends on these.
-		this._register(this._git.onDidChangeState(() => this.refresh()));
-		this._register(this._git.onDidOpenRepository(() => this.refresh()));
-		this._register(this._git.onDidCloseRepository(() => this.refresh()));
-		this._register(this._reposManager.onDidChangeFolderRepositories(() => this.refresh()));
-		this._register(vscode.workspace.onDidChangeWorkspaceFolders(() => this.refresh()));
+		refreshOnNoPullRequestInputs(this._git, this._reposManager, () => this.refresh()).forEach(listener => this._register(listener));
 	}
 
 	refresh(treeNode?: TreeNode) {

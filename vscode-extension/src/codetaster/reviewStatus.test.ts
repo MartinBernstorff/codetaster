@@ -7,7 +7,7 @@ function workspace(overrides: Partial<ChangesViewWorkspace> = {}): ChangesViewWo
 }
 
 function repository(status: RepositoryReviewStatus, name = 'codetaster') {
-	return { name, status };
+	return { name, status, signedIn: status.kind !== 'signedOut' };
 }
 
 describe('changesViewContent', () => {
@@ -36,6 +36,11 @@ describe('changesViewContent', () => {
 		assert.deepStrictEqual(changesViewContent(workspace({ repositories: [repository({ kind: 'signedOut' })] })), { kind: 'welcome' });
 	});
 
+	it('shows the skeleton once a signed-out repository signs in', () => {
+		const repositories = [{ ...repository({ kind: 'signedOut' }), signedIn: true }];
+		assert.deepStrictEqual(changesViewContent(workspace({ repositories })), { kind: 'skeleton' });
+	});
+
 	it('says why there is nothing to review', () => {
 		const cases: [RepositoryReviewStatus, string][] = [
 			[{ kind: 'noGitHubRemote' }, 'No GitHub remote for this repository.'],
@@ -43,6 +48,8 @@ describe('changesViewContent', () => {
 			[{ kind: 'noPullRequest', branch: undefined }, 'No open pull request for this branch.'],
 			[{ kind: 'pullRequestClosed', number: 7 }, 'Pull request #7 is closed.'],
 			[{ kind: 'pullRequestMerged', number: 7 }, 'Pull request #7 is merged.'],
+			[{ kind: 'branchIgnored', branch: 'main' }, 'Branch main is in githubPullRequests.ignoredPullRequestBranches.'],
+			[{ kind: 'pullRequestUnavailable', number: 7 }, 'Could not load pull request #7.'],
 		];
 		for (const [status, text] of cases) {
 			assert.deepStrictEqual(
