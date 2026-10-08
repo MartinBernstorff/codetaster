@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
 import { CheckReport, FileReport } from './checkReport';
-import { groupFilesByVerdict } from './verdictGroups';
+import { groupFilesByVerdict, skeletonGroupLabels } from './verdictGroups';
 
 interface FakeFile {
 	readonly fileName: string;
@@ -99,5 +99,11 @@ describe('groupFilesByVerdict', () => {
 
 		assert.strictEqual(grouped.length, files.length);
 		assert.deepStrictEqual(new Set(grouped), new Set(files));
+	});
+});
+
+describe('skeletonGroupLabels', () => {
+	it('names the three check groups, most urgent first, without counts', () => {
+		assert.deepStrictEqual(skeletonGroupLabels(), ['Needs review', 'Sampled', 'No review']);
 	});
 });

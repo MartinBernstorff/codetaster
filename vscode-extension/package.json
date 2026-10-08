@@ -109,6 +109,11 @@
 					"maximum": 100,
 					"markdownDescription": "The percentage, from 0 to 100, of changed files with the highest AI ratings that need review. Passed to `codetaster check` as `--top-rated-percentage`. `null` uses the project config's `[review] top_rated_percentage`."
 				},
+				"codetaster.openOnStartup": {
+					"type": "boolean",
+					"default": false,
+					"markdownDescription": "Open the codetaster view in the side bar when VS Code starts, instead of the view VS Code restores."
+				},
 				"githubPullRequests.pullRequestTitle": {
 					"deprecationMessage": "The pull request title now uses the same defaults as GitHub, and can be edited before create.",
 					"type": "string",
@@ -927,8 +932,8 @@
 				},
 				{
 					"id": "github-pull-request",
-					"title": "%view.github.pull.request.name%",
-					"icon": "$(git-pull-request)"
+					"title": "%view.codetaster.name%",
+					"icon": "$(eye)"
 				}
 			]
 		},
@@ -998,7 +1003,7 @@
 				{
 					"id": "prStatus:github",
 					"name": "%view.pr.status.github.name%",
-					"when": "github:inReviewMode && !github:createPullRequest && !github:revertPullRequest",
+					"when": "!github:createPullRequest && !github:revertPullRequest",
 					"icon": "$(diff-multiple)",
 					"visibility": "visible",
 					"initialSize": 3
@@ -1010,12 +1015,6 @@
 					"when": "github:inReviewMode && github:focusedReview && !github:createPullRequest && !github:revertPullRequest && github:activePRCount <= 1",
 					"icon": "$(code-review)",
 					"initialSize": 2
-				},
-				{
-					"id": "github:activePullRequest:welcome",
-					"name": "%view.github.active.pull.request.welcome.name%",
-					"when": "!github:stateValidated && github:focusedReview",
-					"icon": "$(git-pull-request)"
 				}
 			]
 		},
@@ -2081,9 +2080,19 @@
 				"contents": "%welcome.pr.github.parentRepo.contents%"
 			},
 			{
-				"view": "github:activePullRequest:welcome",
-				"when": "!github:stateValidated",
-				"contents": "%welcome.github.activePullRequest.contents%"
+				"view": "prStatus:github",
+				"when": "workspaceFolderCount == 0",
+				"contents": "%welcome.codetaster.noFolder.contents%"
+			},
+			{
+				"view": "prStatus:github",
+				"when": "git.state == initialized && gitOpenRepositoryCount == 0 && workspaceFolderCount > 0",
+				"contents": "%welcome.codetaster.noRepo.contents%"
+			},
+			{
+				"view": "prStatus:github",
+				"when": "ReposManagerStateContext == NeedsAuthentication && gitOpenRepositoryCount > 0",
+				"contents": "%welcome.codetaster.login.contents%"
 			},
 			{
 				"view": "notifications:github",

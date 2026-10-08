@@ -103,7 +103,7 @@ export class PRNode extends TreeNode implements vscode.CommentingRangeProvider2 
 			const result: TreeNode[] = [];
 			const layout = vscode.workspace.getConfiguration(PR_SETTINGS_NAMESPACE).get<string>(FILE_LIST_LAYOUT);
 			// codetaster: group the checked-out PR's files by the codetaster check's verdict.
-			const codetasterNodes = await codetasterFileNodes(this, this._folderReposManager, this.pullRequestModel, this._fileChanges, this._fileChanges, layout);
+			const codetasterNodes = codetasterFileNodes(this, this._folderReposManager, this.pullRequestModel, this._fileChanges, this._fileChanges, layout);
 			if (codetasterNodes) {
 				result.push(...codetasterNodes);
 			} else if (layout === 'tree') {

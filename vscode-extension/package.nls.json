@@ -200,7 +200,7 @@
 	"githubIssues.issueAvatarDisplay.generic": "Show an issues icon regardless of state",
 	"githubIssues.alwaysPromptForNewIssueRepo.description": "Enabling will always prompt which repository to create an issue in instead of basing off the current open file.",
 	"view.github.pull.requests.name": "GitHub",
-	"view.github.pull.request.name": "GitHub Pull Request",
+	"view.codetaster.name": "codetaster",
 	"view.github.login.name": "Login",
 	"view.pr.github.name": "Pull Requests",
 	"view.pr.github.accessibilityHelpContent": {
@@ -217,7 +217,6 @@
 	"view.github.compare.changesCommits.name": "Commits",
 	"view.pr.status.github.name": "Changes In Pull Request",
 	"view.github.active.pull.request.name": "Review Pull Request",
-	"view.github.active.pull.request.welcome.name": "Active Pull Request",
 	"command.pull.request.category": "GitHub Pull Requests",
 	"command.pr.create.title": "Create Pull Request",
 	"command.pr.pick.title": "Checkout Pull Request",
@@ -439,7 +438,15 @@
 	"welcome.issues.github.uninitialized.contents": "Loading...",
 	"welcome.issues.github.noFolder.contents": "You have not yet opened a folder.",
 	"welcome.issues.github.noRepo.contents": "No git repositories found",
-	"welcome.github.activePullRequest.contents": "Loading...",
+	"welcome.codetaster.noFolder.contents": "Open a folder to review a pull request.",
+	"welcome.codetaster.noRepo.contents": "No git repository in this workspace.",
+	"welcome.codetaster.login.contents": {
+		"message": "Sign in to GitHub to find this branch's pull request.\n[Sign in](command:pr.signin)",
+		"comment": [
+			"Do not translate what's inside of (...). It is link syntax.",
+			"{Locked='](command:pr.signin)'}"
+		]
+	},
 	"languageModelTools.github-pull-request_issue_fetch.displayName": "Get a GitHub Issue or pull request",
 	"languageModelTools.github-pull-request_issue_fetch.description": "Get the details of a GitHub issue or pull request.",
 	"languageModelTools.github-pull-request_issue_summarize.displayName": "Summarize a GitHub Issue or pull request",

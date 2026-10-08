@@ -52,3 +52,8 @@ export function groupFilesByVerdict<File>(
 	const notChecked = filesByVerdict.get('not-checked');
 	return notChecked ? [verdictGroup('not-checked', notChecked, report), ...groups] : groups;
 }
+
+/** The labels of the three check groups, most urgent first, shown while the check runs. */
+export function skeletonGroupLabels(): string[] {
+	return FILE_LIST_KEYS.map(key => GROUP_NAMES[key]);
+}

@@ -19,6 +19,7 @@ import { GitFileChangeNode } from './treeNodes/fileChangeNode';
 import { RepositoryChangesNode } from './treeNodes/repositoryChangesNode';
 import { BaseTreeNode, TreeNode } from './treeNodes/treeNode';
 import { TreeUtils } from './treeNodes/treeUtils';
+import { codetasterNoPullRequestNodes, refreshOnNoPullRequestInputs } from '../codetaster/changesViewStatus';
 
 export class PullRequestChangesTreeDataProvider extends Disposable implements vscode.TreeDataProvider<TreeNode>, BaseTreeNode {
 	private _onDidChangeTreeData = new vscode.EventEmitter<TreeNode | void>();
@@ -58,6 +59,8 @@ export class PullRequestChangesTreeDataProvider extends Disposable implements vs
 		);
 
 		this._register(this._view.onDidChangeCheckboxState(e => TreeUtils.processCheckboxUpdates(e, this._view.selection)));
+
+		refreshOnNoPullRequestInputs(this._git, this._reposManager, () => this.refresh()).forEach(listener => this._register(listener));
 	}
 
 	refresh(treeNode?: TreeNode) {
@@ -200,6 +203,9 @@ export class PullRequestChangesTreeDataProvider extends Disposable implements vs
 				for (const item of sortedValues) {
 					this._children.push(item);
 				}
+			} else {
+				// codetaster: the skeleton while looking for a pull request, then why there is none.
+				this._children = codetasterNoPullRequestNodes(this, this._git, this._reposManager);
 			}
 			return this._children;
 		} else {

@@ -339,7 +339,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<GitApi
 	const showPRController = new ShowPullRequest();
 	vscode.commands.registerCommand('github.api.preloadPullRequest', async (shouldShow: boolean) => {
 		await vscode.commands.executeCommand('setContext', FOCUS_REVIEW_MODE, true);
-		await commands.focusView('github:activePullRequest:welcome');
+		await commands.focusView('prStatus:github');
 		showPRController.shouldShow = shouldShow;
 	});
 	registerCodetaster(context);

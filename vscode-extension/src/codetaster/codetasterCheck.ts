@@ -62,6 +62,23 @@ export interface CheckTarget {
 	readonly topRatedPercentage: number | undefined;
 }
 
+/** A check that has not finished yet, or its outcome. */
+export type CheckState =
+	| {
+		readonly kind: 'running',
+		readonly finished: Promise<CheckOutcome>,
+		/** The last report for the same PR at another local HEAD, or before a refresh, to show until the check finishes. */
+		readonly previousReport: CheckReport | undefined,
+	}
+	| CheckOutcome;
+
+interface CachedCheck {
+	readonly finished: Promise<CheckOutcome>;
+	outcome?: CheckOutcome;
+	/** Whether the check failed and the failure has been returned, so the next request re-runs it. */
+	errorReturned: boolean;
+}
+
 /**
  * The check results the PR file views group by. Only a checked-out PR is checked.
  * A check re-runs only when the checkout, its HEAD commit, the base, the top-rated
@@ -69,7 +86,8 @@ export interface CheckTarget {
  * don't each start a process.
  */
 export class CodetasterChecks {
-	private readonly checks = new Map<string, Promise<CheckOutcome>>();
+	private readonly checks = new Map<string, CachedCheck>();
+	private readonly lastReports = new Map<string, CheckReport>();
 	private readonly refreshListeners = new Set<() => void>();
 
 	constructor(
@@ -77,26 +95,37 @@ export class CodetasterChecks {
 		private readonly executable: () => string,
 	) { }
 
-	/** The PR's check, or undefined if the PR is not checked out. */
-	checkFor(target: CheckTarget): Promise<CheckOutcome> | undefined {
+	/**
+	 * The PR's check, starting it if needed, or undefined if the PR is not checked out.
+	 * A failed check is returned once after it finishes, and re-run on the next request.
+	 */
+	requestCheck(target: CheckTarget): CheckState | undefined {
 		const { checkout, base, fileListKey, localHead, topRatedPercentage } = target;
 		if (checkout === undefined) {
 			return undefined;
 		}
-		const cacheKey = JSON.stringify([checkout, base, fileListKey, localHead ?? null, topRatedPercentage ?? null]);
+		const pullRequestKey = JSON.stringify([checkout, base, fileListKey, topRatedPercentage ?? null]);
+		const cacheKey = JSON.stringify([pullRequestKey, localHead ?? null]);
 		let check = this.checks.get(cacheKey);
-		if (!check) {
-			const started = runCodetasterCheck(this.process, this.executable(), checkout, base, topRatedPercentage);
+		if (!check || check.errorReturned) {
+			const started: CachedCheck = {
+				finished: runCodetasterCheck(this.process, this.executable(), checkout, base, topRatedPercentage).then(outcome => {
+					started.outcome = outcome;
+					if (outcome.kind === 'report') {
+						this.lastReports.set(pullRequestKey, outcome.report);
+					}
+					return outcome;
+				}),
+				errorReturned: false,
+			};
 			check = started;
 			this.checks.set(cacheKey, started);
-			// Errors are not cached, so the next tree refresh retries.
-			started.then(outcome => {
-				if (outcome.kind === 'error' && this.checks.get(cacheKey) === started) {
-					this.checks.delete(cacheKey);
-				}
-			});
 		}
-		return check;
+		if (!check.outcome) {
+			return { kind: 'running', finished: check.finished, previousReport: this.lastReports.get(pullRequestKey) };
+		}
+		check.errorReturned = check.outcome.kind === 'error';
+		return check.outcome;
 	}
 
 	refresh(): void {
