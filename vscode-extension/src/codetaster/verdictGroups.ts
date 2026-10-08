@@ -26,14 +26,16 @@ function verdictGroup<File>(verdict: GroupVerdict, files: readonly File[], repor
 
 /**
  * Splits the PR's files into the check's three groups, most urgent first. The three
- * groups are always present. PR files the check did not list (e.g. when the local
- * checkout is not at the PR's head) go in a group before the others, present only when
- * non-empty, so no file is hidden. Files the check lists but the PR does not are ignored.
+ * groups are always present. Files with unresolved review threads need review,
+ * whatever the check says. Other PR files the check did not list (e.g. when the local checkout is
+ * not at the PR's head) go in a group before the others, present only when non-empty,
+ * so no file is hidden. Files the check lists but the PR does not are ignored.
  */
 export function groupFilesByVerdict<File>(
 	report: CheckReport,
 	files: readonly File[],
 	pathOf: (file: File) => string,
+	hasUnresolvedThreads: (file: File) => boolean,
 ): VerdictGroup<File>[] {
 	const verdictByPath = new Map<string, FileListKey>();
 	for (const key of FILE_LIST_KEYS) {
@@ -43,7 +45,7 @@ export function groupFilesByVerdict<File>(
 	}
 	const filesByVerdict = new Map<GroupVerdict, File[]>();
 	for (const file of files) {
-		const verdict = verdictByPath.get(pathOf(file)) ?? 'not-checked';
+		const verdict = hasUnresolvedThreads(file) ? 'needs-review' : verdictByPath.get(pathOf(file)) ?? 'not-checked';
 		filesByVerdict.set(verdict, [...(filesByVerdict.get(verdict) ?? []), file]);
 	}
 	const groups = FILE_LIST_KEYS.map(key => verdictGroup(key, filesByVerdict.get(key) ?? [], report));

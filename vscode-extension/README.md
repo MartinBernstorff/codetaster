@@ -14,7 +14,7 @@ Edits to upstream files:
 - `package.nls.json`: `displayName`.
 - `src/constants.ts`: `EXTENSION_ID`.
 - `src/extension.ts`: calls `registerCodetaster`.
-- `src/view/treeNodes/filesCategoryNode.ts`, `src/view/treeNodes/pullRequestNode.ts`: use `codetasterFileNodes` for the checked-out PR's file list, falling back to upstream's list otherwise, and refresh on `codetasterChecks.onDidRefresh`.
+- `src/view/treeNodes/filesCategoryNode.ts`, `src/view/treeNodes/pullRequestNode.ts`: use `codetasterFileNodes` for the checked-out PR's file list, falling back to upstream's list otherwise, and refresh on `codetasterChecks.onDidRefresh`. `pullRequestNode.ts` also refreshes on `onDidChangeReviewThreads`.
 - `src/view/treeNodes/repositoryChangesNode.ts`: passes the `FolderRepositoryManager` to `FilesCategoryNode`.
 - `webpack.config.js`: `child_process` is empty in the web extension host.
 
@@ -22,7 +22,7 @@ Sync with upstream only when needed. Put codetaster changes in new files under `
 
 ## codetaster grouping
 
-When the checked-out PR's file list loads, the extension runs `codetaster check <checkout> --base <PR base> --format json` in the local checkout and shows the files under "Needs review (n)", "Sampled (n)" and "No review (n)". The base is the remote-tracking branch of the PR's base branch, or the branch name if no remote points at the base repository. PR files the check does not list appear first, under "Not in codetaster check (n)". Other PRs show upstream's file list, and codetaster does not run for them. If the check fails, the view shows the error and no files, and the next refresh retries it. If the ratings file is invalid, a warning above the groups says so and every file is unrated. The check re-runs when the PR's head or file list changes, the local HEAD commit changes, a `.codetaster/ratings.json` file changes (the default `[review] ratings_path`; a custom path is not watched), or on "codetaster: Refresh Check". `codetaster.executablePath` sets the executable (default: `codetaster` on PATH).
+When the checked-out PR's file list loads, the extension runs `codetaster check <checkout> --base <PR base> --format json` in the local checkout and shows the files under "Needs review (n)", "Sampled (n)" and "No review (n)". The base is the remote-tracking branch of the PR's base branch, or the branch name if no remote points at the base repository. Files with an unresolved GitHub review thread are under "Needs review", whatever the check says. Other PR files the check does not list appear first, under "Not in codetaster check (n)". Other PRs show upstream's file list, and codetaster does not run for them. If the check fails, the view shows the error and no files, and the next refresh retries it. If the ratings file is invalid, a warning above the groups says so and every file is unrated. The check re-runs when the PR's head or file list changes, the local HEAD commit changes, a `.codetaster/ratings.json` file changes (the default `[review] ratings_path`; a custom path is not watched), or on "codetaster: Refresh Check". `codetaster.executablePath` sets the executable (default: `codetaster` on PATH).
 
 ## Tasks
 

@@ -28,8 +28,8 @@ function filesNamed(...names: string[]): FakeFile[] {
 	return names.map(fileName => ({ fileName }));
 }
 
-function groupFakeFiles(report: CheckReport, files: FakeFile[]) {
-	return groupFilesByVerdict(report, files, file => file.fileName);
+function groupFakeFiles(report: CheckReport, files: FakeFile[], filesWithUnresolvedThreads: FakeFile[] = []) {
+	return groupFilesByVerdict(report, files, file => file.fileName, file => filesWithUnresolvedThreads.includes(file));
 }
 
 describe('groupFilesByVerdict', () => {
@@ -78,6 +78,17 @@ describe('groupFilesByVerdict', () => {
 		assert.deepStrictEqual(groups.map(group => group.verdict), ['not-checked', 'needs-review', 'sampled', 'no-review']);
 		assert.strictEqual(groups[0].label, 'Not in codetaster check (1)');
 		assert.deepStrictEqual(groups[0].files, [missing]);
+	});
+
+	it('puts files with unresolved review threads in needs-review, whatever the check says', () => {
+		const report = fakeCheckReport({ needsReview: ['a.py'], sampled: ['b.py'], noReview: ['c.py'] });
+		const [a, b, c, missing] = filesNamed('a.py', 'b.py', 'c.py', 'missing.py');
+
+		const groups = groupFakeFiles(report, [a, b, c, missing], [a, c, missing]);
+
+		assert.deepStrictEqual(groups.map(group => [group.verdict, group.files]), [
+			['needs-review', [a, c, missing]], ['sampled', [b]], ['no-review', []],
+		]);
 	});
 
 	it('partitions the PR files: every file is in exactly one group', () => {
