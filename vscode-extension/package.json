@@ -56,7 +56,7 @@
 		"vscode.github-authentication"
 	],
 	"activationEvents": [
-		"onStartupFinished",
+		"*",
 		"onFileSystem:newIssue",
 		"onFileSystem:pr",
 		"onFileSystem:githubpr",
