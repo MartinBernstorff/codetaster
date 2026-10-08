@@ -45,6 +45,7 @@ import { PullRequestModel } from './pullRequestModel';
 import { RemoteInfo } from '../../common/types';
 import { Repository } from '../api/api';
 import { GitApiImpl } from '../api/api1';
+import { draftThreadExpansion } from '../codetaster/draftThreadExpansion';
 import { AuthProvider, GitHubServerType } from '../common/authentication';
 import { COPILOT_ACCOUNTS, IComment, IReviewThread, SubjectType } from '../common/comment';
 import { COPILOT_REVIEWER, COPILOT_SWE_AGENT } from '../common/copilot';
@@ -179,6 +180,10 @@ export function getCommentCollapsibleState(thread: IReviewThread, expand?: boole
 	const config = vscode.workspace.getConfiguration(PR_SETTINGS_NAMESPACE)?.get(COMMENT_EXPAND_STATE_SETTING);
 	const isFromCurrent = (currentUser && (thread.comments[thread.comments.length - 1].user?.login === currentUser));
 	const isJustSuggestion = thread.comments.length === 1 && thread.comments[0].body.startsWith('```suggestion') && thread.comments[0].body.endsWith('```');
+
+	if (draftThreadExpansion.forcesExpanded(thread)) {
+		return vscode.CommentThreadCollapsibleState.Expanded;
+	}
 
 	// When collapsePreexisting is set, keep newly added comments expanded
 	if (config === COMMENT_EXPAND_STATE_COLLAPSE_PREEXISTING_VALUE && isNewlyAdded && !isJustSuggestion) {

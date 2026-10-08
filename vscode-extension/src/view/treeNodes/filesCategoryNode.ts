@@ -92,7 +92,7 @@ export class FilesCategoryNode extends TreeNode implements vscode.TreeItem {
 		}
 
 		// codetaster: group the checked-out PR's files by the codetaster check's verdict.
-		const codetasterNodes = await codetasterFileNodes(this, this._folderRepoManager, this._pullRequestModel, this._reviewModel.localFileChanges, filesToShow, layout);
+		const codetasterNodes = codetasterFileNodes(this, this._folderRepoManager, this._pullRequestModel, this._reviewModel.localFileChanges, filesToShow, layout);
 		if (codetasterNodes) {
 			this._children = codetasterNodes;
 			return codetasterNodes;

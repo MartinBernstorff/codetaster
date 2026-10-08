@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
-import { CheckTarget, CodetasterChecks, CodetasterProcess, ProcessOutcome, runCodetasterCheck } from './codetasterCheck';
+import { CheckOutcome, CheckTarget, CodetasterChecks, CodetasterProcess, ProcessOutcome, runCodetasterCheck } from './codetasterCheck';
 
 const validReport = {
 	schema_version: 3,
@@ -105,12 +105,47 @@ function checkedOutPullRequest(target: Partial<CheckTarget> = {}): CheckTarget {
 	return { checkout: '/repo', base: 'origin/main', fileListKey: 'a.py', localHead: 'c'.repeat(40), topRatedPercentage: undefined, ...target };
 }
 
+/** The check's outcome, waiting for it if it is still running. */
+async function finishedCheck(checks: CodetasterChecks, target: CheckTarget): Promise<CheckOutcome | undefined> {
+	const state = checks.checkFor(target);
+	if (state?.kind !== 'running') {
+		return state;
+	}
+	await state.finished;
+	const finished = checks.checkFor(target);
+	assert.notStrictEqual(finished?.kind, 'running');
+	return finished as CheckOutcome | undefined;
+}
+
 describe('CodetasterChecks', () => {
+	it('reports a check as running until it finishes', async () => {
+		const checks = new CodetasterChecks(successfulProcess(), () => 'codetaster');
+
+		const running = checks.checkFor(checkedOutPullRequest());
+		assert.strictEqual(running?.kind, 'running');
+		await (running?.kind === 'running' ? running.finished : undefined);
+
+		assert.strictEqual(checks.checkFor(checkedOutPullRequest())?.kind, 'report');
+	});
+
+	it('returns a failed check once it finishes, then re-runs it on the next request', async () => {
+		const process = new FakeCodetasterProcess(exitedWith(1, '', 'Error: something went wrong\n'));
+		const checks = new CodetasterChecks(process, () => 'codetaster');
+
+		const running = checks.checkFor(checkedOutPullRequest());
+		await (running?.kind === 'running' ? running.finished : undefined);
+
+		assert.strictEqual(checks.checkFor(checkedOutPullRequest())?.kind, 'error');
+		assert.strictEqual(process.calls.length, 1);
+		assert.strictEqual(checks.checkFor(checkedOutPullRequest())?.kind, 'running');
+		assert.strictEqual(process.calls.length, 2);
+	});
+
 	it('checks a checked-out PR against its own base', async () => {
 		const process = successfulProcess();
 		const checks = new CodetasterChecks(process, () => 'codetaster');
 
-		const outcome = await checks.checkFor(checkedOutPullRequest({ base: 'origin/release' }));
+		const outcome = await finishedCheck(checks, checkedOutPullRequest({ base: 'origin/release' }));
 
 		assert.strictEqual(outcome?.kind, 'report');
 		assert.deepStrictEqual(process.calls.map(call => call.args), [['check', '/repo', '--base', 'origin/release', '--format', 'json']]);
@@ -120,7 +155,7 @@ describe('CodetasterChecks', () => {
 		const process = successfulProcess();
 		const checks = new CodetasterChecks(process, () => 'codetaster');
 
-		const outcome = await checks.checkFor(checkedOutPullRequest({ checkout: undefined }));
+		const outcome = await finishedCheck(checks, checkedOutPullRequest({ checkout: undefined }));
 
 		assert.strictEqual(outcome, undefined);
 		assert.strictEqual(process.calls.length, 0);
@@ -130,8 +165,8 @@ describe('CodetasterChecks', () => {
 		const process = successfulProcess();
 		const checks = new CodetasterChecks(process, () => 'codetaster');
 
-		await checks.checkFor(checkedOutPullRequest({ base: 'origin/main' }));
-		await checks.checkFor(checkedOutPullRequest({ base: 'origin/release' }));
+		await finishedCheck(checks, checkedOutPullRequest({ base: 'origin/main' }));
+		await finishedCheck(checks, checkedOutPullRequest({ base: 'origin/release' }));
 
 		assert.strictEqual(process.calls.length, 2);
 	});
@@ -140,8 +175,8 @@ describe('CodetasterChecks', () => {
 		const process = successfulProcess();
 		const checks = new CodetasterChecks(process, () => 'codetaster');
 
-		await checks.checkFor(checkedOutPullRequest());
-		await checks.checkFor(checkedOutPullRequest());
+		await finishedCheck(checks, checkedOutPullRequest());
+		await finishedCheck(checks, checkedOutPullRequest());
 
 		assert.strictEqual(process.calls.length, 1);
 	});
@@ -150,8 +185,8 @@ describe('CodetasterChecks', () => {
 		const process = successfulProcess();
 		const checks = new CodetasterChecks(process, () => 'codetaster');
 
-		await checks.checkFor(checkedOutPullRequest());
-		await checks.checkFor(checkedOutPullRequest({ fileListKey: 'a.py,b.py' }));
+		await finishedCheck(checks, checkedOutPullRequest());
+		await finishedCheck(checks, checkedOutPullRequest({ fileListKey: 'a.py,b.py' }));
 
 		assert.strictEqual(process.calls.length, 2);
 	});
@@ -160,8 +195,8 @@ describe('CodetasterChecks', () => {
 		const process = successfulProcess();
 		const checks = new CodetasterChecks(process, () => 'codetaster');
 
-		await checks.checkFor(checkedOutPullRequest({ localHead: 'c'.repeat(40) }));
-		await checks.checkFor(checkedOutPullRequest({ localHead: 'd'.repeat(40) }));
+		await finishedCheck(checks, checkedOutPullRequest({ localHead: 'c'.repeat(40) }));
+		await finishedCheck(checks, checkedOutPullRequest({ localHead: 'd'.repeat(40) }));
 
 		assert.strictEqual(process.calls.length, 2);
 	});
@@ -170,8 +205,8 @@ describe('CodetasterChecks', () => {
 		const process = successfulProcess();
 		const checks = new CodetasterChecks(process, () => 'codetaster');
 
-		await checks.checkFor(checkedOutPullRequest({ topRatedPercentage: undefined }));
-		await checks.checkFor(checkedOutPullRequest({ topRatedPercentage: 50 }));
+		await finishedCheck(checks, checkedOutPullRequest({ topRatedPercentage: undefined }));
+		await finishedCheck(checks, checkedOutPullRequest({ topRatedPercentage: 50 }));
 
 		assert.strictEqual(process.calls.length, 2);
 	});
@@ -180,8 +215,8 @@ describe('CodetasterChecks', () => {
 		const process = new FakeCodetasterProcess(exitedWith(1, '', 'Error: something went wrong\n'));
 		const checks = new CodetasterChecks(process, () => 'codetaster');
 
-		const first = await checks.checkFor(checkedOutPullRequest());
-		await checks.checkFor(checkedOutPullRequest());
+		const first = await finishedCheck(checks, checkedOutPullRequest());
+		await finishedCheck(checks, checkedOutPullRequest());
 
 		assert.strictEqual(first?.kind, 'error');
 		assert.strictEqual(process.calls.length, 2);
@@ -193,9 +228,9 @@ describe('CodetasterChecks', () => {
 		let refreshes = 0;
 		checks.onDidRefresh(() => refreshes++);
 
-		await checks.checkFor(checkedOutPullRequest());
+		await finishedCheck(checks, checkedOutPullRequest());
 		checks.refresh();
-		await checks.checkFor(checkedOutPullRequest());
+		await finishedCheck(checks, checkedOutPullRequest());
 
 		assert.strictEqual(process.calls.length, 2);
 		assert.strictEqual(refreshes, 1);

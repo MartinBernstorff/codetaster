@@ -6,7 +6,7 @@ import { headMismatchWarning } from './headMismatch';
 import { NodeCodetasterProcess } from './nodeCodetasterProcess';
 import { ratingsErrorWarning } from './ratingsError';
 import { nextFileToReview, OrderedFile, reviewOrder } from './reviewOrder';
-import { groupFilesByVerdict, VerdictGroup } from './verdictGroups';
+import { groupFilesByVerdict, skeletonGroupLabels, VerdictGroup } from './verdictGroups';
 import type { Repository } from '../api/api';
 import { ViewedState } from '../common/comment';
 import { findLocalRepoRemoteFromGitHubRef } from '../common/githubRef';
@@ -16,7 +16,7 @@ import { FolderRepositoryManager } from '../github/folderRepositoryManager';
 import { PullRequestModel } from '../github/pullRequestModel';
 import { DirectoryTreeNode } from '../view/treeNodes/directoryTreeNode';
 import { FileChangeNode, GitFileChangeNode, InMemFileChangeNode, RemoteFileChangeNode } from '../view/treeNodes/fileChangeNode';
-import { TreeNode, TreeNodeParent } from '../view/treeNodes/treeNode';
+import { LabelOnlyNode, TreeNode, TreeNodeParent } from '../view/treeNodes/treeNode';
 
 export const CODETASTER_SETTINGS_NAMESPACE = 'codetaster';
 export const EXECUTABLE_PATH_SETTING = 'executablePath';
@@ -224,6 +224,30 @@ export class VerdictGroupNode extends TreeNode implements vscode.TreeItem {
 	}
 }
 
+/** A verdict group whose files are not known yet, with a placeholder child. */
+export class CodetasterSkeletonGroupNode extends TreeNode implements vscode.TreeItem {
+	public readonly collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+
+	constructor(parent: TreeNodeParent, label: string) {
+		super(parent);
+		this.label = label;
+		this._children = [new LabelOnlyNode(this, 'Loading…')];
+	}
+
+	getTreeItem(): vscode.TreeItem {
+		return this;
+	}
+
+	override async getChildren(): Promise<TreeNode[]> {
+		return this._children ?? [];
+	}
+}
+
+/** The verdict groups as they look before the check's results arrive. */
+export function codetasterSkeletonNodes(parent: TreeNodeParent): TreeNode[] {
+	return skeletonGroupLabels().map(label => new CodetasterSkeletonGroupNode(parent, label));
+}
+
 export class CodetasterErrorNode extends TreeNode implements vscode.TreeItem {
 	public readonly iconPath = new vscode.ThemeIcon('error', new vscode.ThemeColor('errorForeground'));
 	public readonly tooltip: string;
@@ -312,7 +336,8 @@ function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: P
 }
 
 /**
- * The children of a PR file list if the PR is checked out: one node per codetaster
+ * The children of a PR file list if the PR is checked out: the skeleton while the
+ * check runs, then one node per codetaster
  * verdict group, each holding its files in the configured layout, with files that have
  * unresolved review threads under needs-review, or an error and no
  * files if the check fails. Warnings precede the groups when the check ran on a
@@ -321,16 +346,16 @@ function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: P
  * `allFiles` is the PR's whole file list, which decides when the check re-runs;
  * `shownFiles` are the ones to show, e.g. without viewed files.
  */
-export async function codetasterFileNodes(
+export function codetasterFileNodes(
 	parent: TreeNode,
 	folderRepoManager: FolderRepositoryManager,
 	pullRequest: PullRequestModel,
 	allFiles: readonly PullRequestFileNode[],
 	shownFiles: readonly PullRequestFileNode[],
 	layout: string | undefined,
-): Promise<TreeNode[] | undefined> {
+): TreeNode[] | undefined {
 	const isCheckedOut = pullRequest.equals(folderRepoManager.activePullRequest);
-	const outcome = await codetasterChecks.checkFor({
+	const outcome = codetasterChecks.checkFor({
 		checkout: isCheckedOut ? folderRepoManager.repository.rootUri.fsPath : undefined,
 		base: baseRevision(folderRepoManager, pullRequest),
 		fileListKey: fileListKey(allFiles),
@@ -342,6 +367,10 @@ export async function codetasterFileNodes(
 	}
 	if (!outcome) {
 		return undefined;
+	}
+	if (outcome.kind === 'running') {
+		outcome.finished.then(() => parent.refresh(parent));
+		return codetasterSkeletonNodes(parent);
 	}
 	if (outcome.kind === 'error') {
 		reviewOrders.delete(folderRepoManager);
