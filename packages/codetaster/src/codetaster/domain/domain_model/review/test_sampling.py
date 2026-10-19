@@ -21,7 +21,7 @@ from codetaster.domain.domain_model.review.path_rules import (
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import (
     FileRating,
-    RatingsFile,
+    FileRatings,
     RatingTarget,
 )
 from codetaster.domain.domain_model.review.sampling import (
@@ -62,7 +62,7 @@ def rating_of(change: FileChange, probability: Probability) -> FileRating:
 def assessments_of(
     changes: list[FileChange],
     base_probability: Probability | None = None,
-    ratings: RatingsFile | None = None,
+    ratings: FileRatings | None = None,
     threshold: NeedsReviewThreshold | None = None,
     path_rules: PathRules | None = None,
 ) -> tuple[FileAssessment, ...]:
@@ -72,7 +72,7 @@ def assessments_of(
         FileChanges(tuple(changes)),
         base_probability or Probability(0),
         path_rules or PathRules(()),
-        ratings or RatingsFile(ratings=()),
+        ratings or FileRatings(()),
         threshold or NeedsReviewThreshold(1),
     ).root
 
@@ -181,9 +181,7 @@ def test_assessment_reports_its_inputs() -> None:
     base_probability = Probability(0.25)
     rating = rating_of(change, Probability(0.5))
 
-    [assessment] = assessments_of(
-        [change], base_probability, RatingsFile(ratings=(rating,))
-    )
+    [assessment] = assessments_of([change], base_probability, FileRatings((rating,)))
 
     assert assessment.change == change
     assert assessment.base_probability == base_probability
@@ -203,8 +201,8 @@ def test_needs_review_threshold_above_one_is_invalid() -> None:
 
 def test_files_rated_at_or_above_the_threshold_need_review() -> None:
     changes = changes_with_distinct_blobs()[:10]
-    ratings = RatingsFile(
-        ratings=tuple(
+    ratings = FileRatings(
+        tuple(
             rating_of(change, Probability(index / 10))
             for index, change in enumerate(changes)
         )
@@ -223,7 +221,7 @@ def test_a_file_below_the_threshold_can_still_be_sampled() -> None:
     [assessment] = assessments_of(
         [change],
         base_probability=Probability(1),
-        ratings=RatingsFile(ratings=(rating_of(change, Probability(0.4)),)),
+        ratings=FileRatings((rating_of(change, Probability(0.4)),)),
         threshold=NeedsReviewThreshold(0.5),
     )
 
@@ -267,13 +265,13 @@ def test_raising_a_rating_never_lowers_the_group(
     [before, *_] = assessments_of(
         changes,
         base_probability,
-        RatingsFile(ratings=tuple(ratings)),
+        FileRatings(tuple(ratings)),
         threshold,
     )
     [after, *_] = assessments_of(
         changes,
         base_probability,
-        RatingsFile(ratings=(higher, *ratings[1:])),
+        FileRatings((higher, *ratings[1:])),
         threshold,
     )
 
@@ -297,7 +295,7 @@ def test_a_rating_for_another_blob_is_the_same_as_no_rating(
     stale = [data.draw(stale_ratings_of(change)) for change in changes]
 
     rated = assessments_of(
-        changes, base_probability, RatingsFile(ratings=tuple(stale)), threshold
+        changes, base_probability, FileRatings(tuple(stale)), threshold
     )
     unrated = assessments_of(changes, base_probability, threshold=threshold)
 
@@ -326,7 +324,7 @@ def test_a_path_rule_of_zero_still_lets_a_file_above_the_threshold_need_review()
     [assessment] = assessments_of(
         [change],
         base_probability=Probability(1),
-        ratings=RatingsFile(ratings=(rating_of(change, Probability(1)),)),
+        ratings=FileRatings((rating_of(change, Probability(1)),)),
         threshold=NeedsReviewThreshold(1),
         path_rules=PathRules((rule,)),
     )

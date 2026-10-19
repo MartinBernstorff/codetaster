@@ -22,13 +22,18 @@ from codetaster.domain.application_services.validate_ratings_file import (
 from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.review.changes import RevisionName
 from codetaster.domain.domain_model.review.ratings_validation import (
+    CategoryProblem,
+    DuplicateCategory,
     DuplicateRating,
+    FileRatingProblem,
     InvalidRatingsFile,
     MissingRatingsFile,
     RatingProblem,
     StaleRating,
+    UndeclaredCategory,
     UnknownRating,
     UnratedFile,
+    UnusedCategory,
 )
 from codetaster.infrastructure.committed_changes.git_committed_changes import (
     GitCommittedChanges,
@@ -69,7 +74,8 @@ def validate_ratings(
     checkout: CheckoutArgument,
     base: BaseOption = None,
 ) -> None:
-    """Check the ratings file rates every changed file once, and nothing else.
+    """Check the ratings file rates every changed file once and nothing else, and
+    describes every category it uses once.
 
     Exits 1 and lists every problem if it does not.
     """
@@ -111,10 +117,18 @@ class RatingProblemDescription(RootModel[str]):
 def describe_rating_problem(
     problem: RatingProblem, checkout: CheckoutPath, base: RevisionName | None
 ) -> RatingProblemDescription:
-    """What is wrong, and how a coding agent can fix it.
+    """What is wrong, and how a coding agent can fix it."""
+    match problem:
+        case UndeclaredCategory() | UnusedCategory() | DuplicateCategory():
+            return describe_category_problem(problem)
+        case _:
+            return describe_file_rating_problem(problem, checkout, base)
 
-    File versions are shown as they are written in the ratings file.
-    """
+
+def describe_file_rating_problem(
+    problem: FileRatingProblem, checkout: CheckoutPath, base: RevisionName | None
+) -> RatingProblemDescription:
+    """File versions are shown as they are written in the ratings file."""
     match problem:
         case MissingRatingsFile(location=location):
             template = ratings_template_command_line(checkout, base)
@@ -145,6 +159,25 @@ def describe_rating_problem(
         case DuplicateRating(target=target):
             return RatingProblemDescription(
                 f"{target.model_dump_json()} has more than one rating. Keep one."
+            )
+
+
+def describe_category_problem(problem: CategoryProblem) -> RatingProblemDescription:
+    match problem:
+        case UndeclaredCategory(category=category):
+            return RatingProblemDescription(
+                f"Ratings use the category {category.model_dump_json()}, which is "
+                "not in `categories`. Add it there with a description."
+            )
+        case UnusedCategory(category=category):
+            return RatingProblemDescription(
+                f"No rating uses the category {category.model_dump_json()}. "
+                "Remove it from `categories`, or put files in it."
+            )
+        case DuplicateCategory(category=category):
+            return RatingProblemDescription(
+                f"`categories` lists {category.model_dump_json()} more than once. "
+                "Keep one."
             )
 
 

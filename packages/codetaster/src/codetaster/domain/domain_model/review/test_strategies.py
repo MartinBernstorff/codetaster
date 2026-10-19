@@ -1,4 +1,6 @@
-"""Hypothesis strategies for review models, shared by the tests in this folder."""
+"""Hypothesis strategies and helpers for review models, shared by the tests."""
+
+import json
 
 from hypothesis import strategies as st
 
@@ -13,10 +15,17 @@ from codetaster.domain.domain_model.review.needs_review_threshold import (
 )
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import (
+    CategoryDescription,
+    DescribedCategory,
     FileRating,
+    FileRatings,
+    PullRequestSummary,
     RatingCategory,
+    RatingsFile,
+    RatingsFileContent,
     RatingTarget,
 )
+from codetaster.domain.domain_model.review.ratings_template import RatingsTemplate
 
 
 def blob_shas() -> st.SearchStrategy[BlobSha]:
@@ -67,3 +76,28 @@ def ratings_of(change: FileChange) -> st.SearchStrategy[FileRating]:
         probability=probabilities(),
         category=st.builds(RatingCategory, st.text(min_size=1)),
     )
+
+
+def ratings_file_of(*ratings: FileRating) -> RatingsFile:
+    """A ratings file that describes exactly the categories `ratings` use."""
+    return RatingsFile(
+        summary=PullRequestSummary.fake(),
+        categories=tuple(
+            DescribedCategory(name=category, description=CategoryDescription.fake())
+            for category in dict.fromkeys(rating.category for rating in ratings)
+        ),
+        ratings=FileRatings(ratings),
+    )
+
+
+def fill_template(
+    template: RatingsTemplate, ratings: list[FileRating]
+) -> RatingsFileContent:
+    """`template` filled in with `ratings`, one per entry, as an agent would."""
+    filled = ratings_file_of(*ratings).model_dump(mode="json")
+    filled["ratings"] = [
+        entry.model_dump(mode="json")
+        | {"probability": rating.probability.root, "category": rating.category.root}
+        for entry, rating in zip(template.ratings, ratings, strict=True)
+    ]
+    return RatingsFileContent(json.dumps(filled))

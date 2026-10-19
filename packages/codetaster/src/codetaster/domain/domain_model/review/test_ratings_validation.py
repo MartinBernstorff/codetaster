@@ -1,5 +1,3 @@
-import json
-
 from hypothesis import given
 from hypothesis import strategies as st
 from safe_result import Ok
@@ -13,23 +11,28 @@ from codetaster.domain.domain_model.review.changes import (
     RepositoryPath,
 )
 from codetaster.domain.domain_model.review.ratings import (
+    DescribedCategory,
     FileRating,
-    RatingsFile,
-    RatingsFileContent,
+    RatingCategory,
     RatingTarget,
     parse_ratings_file,
 )
 from codetaster.domain.domain_model.review.ratings_template import RatingsTemplate
 from codetaster.domain.domain_model.review.ratings_validation import (
+    DuplicateCategory,
     DuplicateRating,
     RatingProblems,
     StaleRating,
+    UndeclaredCategory,
     UnknownRating,
     UnratedFile,
+    UnusedCategory,
     find_rating_problems,
 )
 from codetaster.domain.domain_model.review.test_strategies import (
     file_changes,
+    fill_template,
+    ratings_file_of,
     ratings_of,
 )
 
@@ -49,7 +52,7 @@ def test_a_rating_for_every_changed_file_has_no_problems() -> None:
 
     problems = find_rating_problems(
         FileChanges((change,)),
-        RatingsFile(ratings=(rating_for(RatingTarget.of_change(change)),)),
+        ratings_file_of(rating_for(RatingTarget.of_change(change))),
     )
 
     assert problems == RatingProblems(())
@@ -59,7 +62,7 @@ def test_a_changed_file_without_a_rating_is_unrated() -> None:
     target = RatingTarget.of_change(FileChange.fake())
 
     problems = find_rating_problems(
-        FileChanges((FileChange.fake(),)), RatingsFile(ratings=())
+        FileChanges((FileChange.fake(),)), ratings_file_of()
     )
 
     assert problems == RatingProblems((UnratedFile(target=target),))
@@ -73,7 +76,7 @@ def test_a_rating_for_an_older_blob_is_stale() -> None:
 
     problems = find_rating_problems(
         FileChanges((added(path, current_blob),)),
-        RatingsFile(ratings=(rating_for(old),)),
+        ratings_file_of(rating_for(old)),
     )
 
     assert problems == RatingProblems((StaleRating(rating=old, current=current),))
@@ -85,11 +88,8 @@ def test_a_rating_for_an_unchanged_file_is_unknown() -> None:
 
     problems = find_rating_problems(
         FileChanges((change,)),
-        RatingsFile(
-            ratings=(
-                rating_for(RatingTarget.of_change(change)),
-                rating_for(unknown),
-            )
+        ratings_file_of(
+            rating_for(RatingTarget.of_change(change)), rating_for(unknown)
         ),
     )
 
@@ -102,7 +102,7 @@ def test_two_ratings_for_the_same_file_are_duplicates() -> None:
 
     problems = find_rating_problems(
         FileChanges((change,)),
-        RatingsFile(ratings=(rating_for(target), rating_for(target))),
+        ratings_file_of(rating_for(target), rating_for(target)),
     )
 
     assert problems == RatingProblems((DuplicateRating(target=target),))
@@ -114,20 +114,46 @@ def test_any_fill_of_the_template_has_no_problems(
 ) -> None:
     file_changes_ = FileChanges(tuple(changes))
     template = RatingsTemplate.of_changes(file_changes_)
-    filled = {
-        "ratings": [
-            entry.model_dump(mode="json")
-            | {"probability": rating.probability.root, "category": rating.category.root}
-            for entry, rating in zip(
-                template.ratings,
-                (data.draw(ratings_of(change)) for change in changes),
-                strict=True,
-            )
-        ]
-    }
-    parsed = parse_ratings_file(RatingsFileContent(json.dumps(filled)), Location.fake())
+    filled = fill_template(
+        template, [data.draw(ratings_of(change)) for change in changes]
+    )
+    parsed = parse_ratings_file(filled, Location.fake())
     assert isinstance(parsed, Ok)
 
     problems = find_rating_problems(file_changes_, parsed.value)
 
     assert problems == RatingProblems(())
+
+
+def test_a_category_that_is_not_described_is_undeclared() -> None:
+    change = FileChange.fake()
+    rating = rating_for(RatingTarget.of_change(change))
+    ratings = ratings_file_of(rating).model_copy(update={"categories": ()})
+
+    problems = find_rating_problems(FileChanges((change,)), ratings)
+
+    assert problems == RatingProblems((UndeclaredCategory(category=rating.category),))
+
+
+def test_a_described_category_without_files_is_unused() -> None:
+    change = FileChange.fake()
+    unused = DescribedCategory.fake().model_copy(
+        update={"name": RatingCategory("Unused")}
+    )
+    ratings = ratings_file_of(rating_for(RatingTarget.of_change(change)))
+    ratings = ratings.model_copy(update={"categories": (*ratings.categories, unused)})
+
+    problems = find_rating_problems(FileChanges((change,)), ratings)
+
+    assert problems == RatingProblems((UnusedCategory(category=unused.name),))
+
+
+def test_a_category_described_twice_is_a_duplicate() -> None:
+    change = FileChange.fake()
+    ratings = ratings_file_of(rating_for(RatingTarget.of_change(change)))
+    ratings = ratings.model_copy(update={"categories": ratings.categories * 2})
+    [category] = {category.name for category in ratings.categories}
+
+    problems = find_rating_problems(FileChanges((change,)), ratings)
+
+    assert problems == RatingProblems((DuplicateCategory(category=category),))

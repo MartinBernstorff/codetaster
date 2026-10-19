@@ -15,6 +15,7 @@ from codetaster.domain.domain_model.review.ratings import (
 from codetaster.domain.domain_model.review.ratings_template import RatingsTemplate
 from codetaster.domain.domain_model.review.test_strategies import (
     file_changes,
+    fill_template,
     ratings_of,
 )
 
@@ -36,6 +37,20 @@ def test_leaves_probability_and_category_blank() -> None:
     assert entry["category"] is None
 
 
+def test_leaves_the_summary_blank() -> None:
+    template = RatingsTemplate.of_changes(FileChanges.fake())
+
+    assert json.loads(template.model_dump_json())["summary"] is None
+
+
+def test_shows_one_blank_category() -> None:
+    template = RatingsTemplate.of_changes(FileChanges.fake())
+
+    assert json.loads(template.model_dump_json())["categories"] == [
+        {"name": None, "description": None}
+    ]
+
+
 def test_does_not_parse_as_a_ratings_file_until_filled() -> None:
     template = RatingsTemplate.of_changes(FileChanges.fake())
 
@@ -51,23 +66,15 @@ def test_any_fill_parses_as_a_ratings_file(
     data: st.DataObject, changes: list[FileChange]
 ) -> None:
     template = RatingsTemplate.of_changes(FileChanges(tuple(changes)))
-    filled = {
-        "ratings": [
-            entry.model_dump(mode="json")
-            | {"probability": rating.probability.root, "category": rating.category.root}
-            for entry, rating in zip(
-                template.ratings,
-                (data.draw(ratings_of(change)) for change in changes),
-                strict=True,
-            )
-        ]
-    }
+    filled = fill_template(
+        template, [data.draw(ratings_of(change)) for change in changes]
+    )
 
-    result = parse_ratings_file(RatingsFileContent(json.dumps(filled)), Location.fake())
+    result = parse_ratings_file(filled, Location.fake())
 
     match result:
         case Ok(RatingsFile(ratings=ratings)):
-            assert [rating.target() for rating in ratings] == [
+            assert [rating.target() for rating in ratings.root] == [
                 entry.target() for entry in template.ratings
             ]
         case _:

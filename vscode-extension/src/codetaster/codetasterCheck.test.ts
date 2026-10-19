@@ -99,6 +99,23 @@ describe('runCodetasterCheck', () => {
 
 		assert.match(message, /"sampled"/);
 	});
+
+	it('returns the overview of the summary and category descriptions', async () => {
+		const overview = { summary: 'Retries payments.', categories: [{ name: 'Retry', description: 'Retries on timeout.' }] };
+		const process = new FakeCodetasterProcess(exitedWith(0, JSON.stringify({ ...validReport, overview })));
+
+		const outcome = await runCodetasterCheck(process, 'codetaster', '/repo', 'origin/main');
+
+		assert.deepStrictEqual(outcome.kind === 'report' && outcome.report.overview, overview);
+	});
+
+	it('rejects an overview whose categories have no descriptions', async () => {
+		const overview = { summary: 'Retries payments.', categories: [{ name: 'Retry' }] };
+
+		const message = await errorMessageFrom(new FakeCodetasterProcess(exitedWith(0, JSON.stringify({ ...validReport, overview }))));
+
+		assert.match(message, /"overview"/);
+	});
 });
 
 function checkedOutPullRequest(target: Partial<CheckTarget> = {}): CheckTarget {

@@ -9,7 +9,10 @@ from codetaster.domain.domain_model.review.needs_review_threshold import (
     NeedsReviewThreshold,
 )
 from codetaster.domain.domain_model.review.path_rules import PathRule
-from codetaster.domain.domain_model.review.ratings import FileRating
+from codetaster.domain.domain_model.review.ratings import (
+    FileRating,
+    PullRequestOverview,
+)
 from codetaster.domain.domain_model.review.ratings_validation import (
     InvalidRatingsFile,
 )
@@ -87,6 +90,23 @@ def test_a_valid_ratings_file_is_no_ratings_error() -> None:
     report = check_report_from_result(result).model_dump(mode="json", by_alias=True)
 
     assert report["ratings_error"] is None
+
+
+def test_reports_the_overview() -> None:
+    overview = PullRequestOverview.fake()
+    result = CheckResult.fake().model_copy(update={"overview": overview})
+
+    report = check_report_from_result(result).model_dump(mode="json", by_alias=True)
+
+    assert report["overview"] == overview.model_dump(mode="json")
+
+
+def test_no_ratings_file_is_no_overview() -> None:
+    result = CheckResult.fake().model_copy(update={"overview": None})
+
+    report = check_report_from_result(result).model_dump(mode="json", by_alias=True)
+
+    assert report["overview"] is None
 
 
 def test_schema_version_is_four() -> None:
