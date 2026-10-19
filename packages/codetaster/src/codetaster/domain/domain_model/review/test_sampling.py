@@ -10,6 +10,9 @@ from codetaster.domain.domain_model.review.changes import (
     FileVersion,
     RepositoryPath,
 )
+from codetaster.domain.domain_model.review.needs_review_threshold import (
+    NeedsReviewThreshold,
+)
 from codetaster.domain.domain_model.review.path_rules import (
     PathPattern,
     PathRule,
@@ -31,11 +34,10 @@ from codetaster.domain.domain_model.review.sampling import (
 from codetaster.domain.domain_model.review.test_strategies import (
     blob_shas,
     distinct_file_changes,
+    needs_review_thresholds,
     probabilities,
     ratings_of,
-    top_rated_percentages,
 )
-from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 
 
 def changes_with_distinct_blobs() -> list[FileChange]:
@@ -61,17 +63,17 @@ def assessments_of(
     changes: list[FileChange],
     base_probability: Probability | None = None,
     ratings: RatingsFile | None = None,
-    top_rated: TopRatedPercentage | None = None,
+    threshold: NeedsReviewThreshold | None = None,
     path_rules: PathRules | None = None,
 ) -> tuple[FileAssessment, ...]:
-    """Without ratings or path rules, at a base probability and top-rated
-    percentage of 0."""
+    """Without ratings or path rules, at a base probability of 0 and a
+    needs-review threshold of 1."""
     return assess_file_changes(
         FileChanges(tuple(changes)),
         base_probability or Probability(0),
         path_rules or PathRules(()),
         ratings or RatingsFile(ratings=()),
-        top_rated or TopRatedPercentage(0),
+        threshold or NeedsReviewThreshold(1),
     ).root
 
 
@@ -194,12 +196,12 @@ def test_draw_rejects_one() -> None:
         _ = Draw(1)
 
 
-def test_top_rated_percentage_above_100_is_invalid() -> None:
+def test_needs_review_threshold_above_one_is_invalid() -> None:
     with pytest.raises(ValidationError):
-        _ = TopRatedPercentage(101)
+        _ = NeedsReviewThreshold(1.1)
 
 
-def test_the_highest_rated_files_need_review() -> None:
+def test_files_rated_at_or_above_the_threshold_need_review() -> None:
     changes = changes_with_distinct_blobs()[:10]
     ratings = RatingsFile(
         ratings=tuple(
@@ -209,63 +211,36 @@ def test_the_highest_rated_files_need_review() -> None:
     )
 
     assessments = assessments_of(
-        changes, ratings=ratings, top_rated=TopRatedPercentage(20)
+        changes, ratings=ratings, threshold=NeedsReviewThreshold(0.7)
     )
 
-    assert needs_review(assessments) == changes[-2:]
+    assert needs_review(assessments) == changes[7:]
 
 
-def test_the_number_of_top_rated_files_is_rounded_up() -> None:
-    changes = changes_with_distinct_blobs()[:3]
-    ratings = RatingsFile(
-        ratings=tuple(rating_of(change, Probability(0.5)) for change in changes)
+def test_a_file_below_the_threshold_can_still_be_sampled() -> None:
+    change = FileChange.fake()
+
+    [assessment] = assessments_of(
+        [change],
+        base_probability=Probability(1),
+        ratings=RatingsFile(ratings=(rating_of(change, Probability(0.4)),)),
+        threshold=NeedsReviewThreshold(0.5),
     )
 
-    assessments = assessments_of(
-        changes, ratings=ratings, top_rated=TopRatedPercentage(1)
-    )
-
-    assert len(needs_review(assessments)) == 1
-
-
-def test_a_top_rated_percentage_of_zero_picks_no_file() -> None:
-    changes = changes_with_distinct_blobs()[:3]
-    ratings = RatingsFile(
-        ratings=tuple(rating_of(change, Probability(1)) for change in changes)
-    )
-
-    assessments = assessments_of(
-        changes, ratings=ratings, top_rated=TopRatedPercentage(0)
-    )
-
-    assert needs_review(assessments) == []
-
-
-def test_equal_ratings_pick_the_lower_draw() -> None:
-    changes = changes_with_distinct_blobs()[:2]
-    ratings = RatingsFile(
-        ratings=tuple(rating_of(change, Probability(0.5)) for change in changes)
-    )
-    lower_draw = min(changes, key=lambda change: draw_for_file_change(change).root)
-
-    assessments = assessments_of(
-        changes, ratings=ratings, top_rated=TopRatedPercentage(50)
-    )
-
-    assert needs_review(assessments) == [lower_draw]
+    assert assessment.verdict is Verdict.SAMPLED
 
 
 @given(
     changes=distinct_file_changes(),
     base_probability=probabilities(),
-    top_rated=top_rated_percentages(),
+    threshold=needs_review_thresholds(),
 )
 def test_an_unrated_file_never_needs_review(
     changes: list[FileChange],
     base_probability: Probability,
-    top_rated: TopRatedPercentage,
+    threshold: NeedsReviewThreshold,
 ) -> None:
-    assessments = assessments_of(changes, base_probability, top_rated=top_rated)
+    assessments = assessments_of(changes, base_probability, threshold=threshold)
 
     assert needs_review(assessments) == []
 
@@ -273,13 +248,13 @@ def test_an_unrated_file_never_needs_review(
 @given(
     changes=distinct_file_changes().filter(lambda changes: len(changes) > 0),
     base_probability=probabilities(),
-    top_rated=top_rated_percentages(),
+    threshold=needs_review_thresholds(),
     data=st.data(),
 )
 def test_raising_a_rating_never_lowers_the_group(
     changes: list[FileChange],
     base_probability: Probability,
-    top_rated: TopRatedPercentage,
+    threshold: NeedsReviewThreshold,
     data: st.DataObject,
 ) -> None:
     ratings = [data.draw(ratings_of(change)) for change in changes]
@@ -290,13 +265,16 @@ def test_raising_a_rating_never_lowers_the_group(
     )
 
     [before, *_] = assessments_of(
-        changes, base_probability, RatingsFile(ratings=tuple(ratings)), top_rated
+        changes,
+        base_probability,
+        RatingsFile(ratings=tuple(ratings)),
+        threshold,
     )
     [after, *_] = assessments_of(
         changes,
         base_probability,
         RatingsFile(ratings=(higher, *ratings[1:])),
-        top_rated,
+        threshold,
     )
 
     # Verdict lists the most urgent group first.
@@ -307,21 +285,21 @@ def test_raising_a_rating_never_lowers_the_group(
 @given(
     changes=distinct_file_changes(),
     base_probability=probabilities(),
-    top_rated=top_rated_percentages(),
+    threshold=needs_review_thresholds(),
     data=st.data(),
 )
 def test_a_rating_for_another_blob_is_the_same_as_no_rating(
     changes: list[FileChange],
     base_probability: Probability,
-    top_rated: TopRatedPercentage,
+    threshold: NeedsReviewThreshold,
     data: st.DataObject,
 ) -> None:
     stale = [data.draw(stale_ratings_of(change)) for change in changes]
 
     rated = assessments_of(
-        changes, base_probability, RatingsFile(ratings=tuple(stale)), top_rated
+        changes, base_probability, RatingsFile(ratings=tuple(stale)), threshold
     )
-    unrated = assessments_of(changes, base_probability, top_rated=top_rated)
+    unrated = assessments_of(changes, base_probability, threshold=threshold)
 
     assert rated == unrated
 
@@ -339,7 +317,9 @@ def test_a_path_rule_replaces_the_base_probability() -> None:
     assert assessment.path_rule == rule
 
 
-def test_a_path_rule_of_zero_still_lets_a_top_rated_file_need_review() -> None:
+def test_a_path_rule_of_zero_still_lets_a_file_above_the_threshold_need_review() -> (
+    None
+):
     change = FileChange.fake()
     rule = PathRule(pattern=PathPattern("*"), probability=Probability(0))
 
@@ -347,7 +327,7 @@ def test_a_path_rule_of_zero_still_lets_a_top_rated_file_need_review() -> None:
         [change],
         base_probability=Probability(1),
         ratings=RatingsFile(ratings=(rating_of(change, Probability(1)),)),
-        top_rated=TopRatedPercentage(100),
+        threshold=NeedsReviewThreshold(1),
         path_rules=PathRules((rule,)),
     )
 

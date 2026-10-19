@@ -12,6 +12,7 @@ from codetaster.delivery.console.test_repositories import (
     Repository,
     TomlText,
 )
+from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import RatingCategory
 
 
@@ -88,8 +89,10 @@ def test_a_path_rule_samples_a_matching_file(tmp_path: Path) -> None:
     assert file["path_rule"]["pattern"] == pattern
 
 
-def write_feature_rating(repository: Repository, category: RatingCategory) -> None:
-    """Rate feature.py, the file the feature branch adds, at 1."""
+def write_feature_rating(
+    repository: Repository, category: RatingCategory, probability: Probability
+) -> None:
+    """Rate feature.py, the file the feature branch adds, at `probability`."""
     # The blob SHA of feature.py, which is empty.
     empty_blob = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
     ratings = repository.root / ".codetaster" / "ratings.json"
@@ -101,7 +104,7 @@ def write_feature_rating(repository: Repository, category: RatingCategory) -> No
                     {
                         "path": "feature.py",
                         "blob": empty_blob,
-                        "probability": 1,
+                        "probability": probability.root,
                         "category": category.root,
                     }
                 ]
@@ -120,7 +123,7 @@ def unsampled_repository(tmp_path: Path) -> Repository:
 
 def test_a_rated_file_needs_review(unsampled_repository: Repository) -> None:
     category = RatingCategory.fake()
-    write_feature_rating(unsampled_repository, category)
+    write_feature_rating(unsampled_repository, category, Probability(1))
 
     result = run_check(unsampled_repository, CliOptions.fake())
 
@@ -129,24 +132,26 @@ def test_a_rated_file_needs_review(unsampled_repository: Repository) -> None:
     assert file["rating"]["category"] == category.root
 
 
-def test_top_rated_percentage_overrides_the_configured_one(
+def test_needs_review_threshold_overrides_the_configured_one(
     unsampled_repository: Repository,
 ) -> None:
-    write_feature_rating(unsampled_repository, RatingCategory.fake())
-    percentage = 0
+    rating = Probability(0.5)
+    write_feature_rating(unsampled_repository, RatingCategory.fake(), rating)
 
     result = run_check(
-        unsampled_repository, CliOptions(("--top-rated-percentage", str(percentage)))
+        unsampled_repository,
+        CliOptions(("--needs-review-threshold", str(rating.root))),
     )
 
     assert result.exit_code == 0
     report = json.loads(result.stdout)
-    assert report["top_rated_percentage"] == percentage
-    assert report["needs-review"] == []
+    assert report["needs_review_threshold"] == rating.root
+    [file] = report["needs-review"]
+    assert file["path"] == "feature.py"
 
 
-def test_a_top_rated_percentage_above_100_is_an_error(repository: Repository) -> None:
-    result = run_check(repository, CliOptions(("--top-rated-percentage", "101")))
+def test_a_needs_review_threshold_above_1_is_an_error(repository: Repository) -> None:
+    result = run_check(repository, CliOptions(("--needs-review-threshold", "1.5")))
 
     assert result.exit_code != 0
 

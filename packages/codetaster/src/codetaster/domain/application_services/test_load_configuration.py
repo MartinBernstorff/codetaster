@@ -295,6 +295,7 @@ def review_section(settings: ReviewSettings) -> FileContent:
         "[review]\n"
         f'base_branch = "{settings.base_branch}"\n'
         f"base_probability = {settings.base_probability.root}\n"
+        f"needs_review_threshold = {settings.needs_review_threshold.root}\n"
     )
 
 

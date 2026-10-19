@@ -5,6 +5,9 @@ from codetaster.domain.domain_model.review.changes import (
     RepositoryPath,
 )
 from codetaster.domain.domain_model.review.check_result import CheckResult
+from codetaster.domain.domain_model.review.needs_review_threshold import (
+    NeedsReviewThreshold,
+)
 from codetaster.domain.domain_model.review.path_rules import PathRule
 from codetaster.domain.domain_model.review.ratings import FileRating
 from codetaster.domain.domain_model.review.ratings_validation import (
@@ -86,8 +89,8 @@ def test_a_valid_ratings_file_is_no_ratings_error() -> None:
     assert report["ratings_error"] is None
 
 
-def test_schema_version_is_three() -> None:
-    expected = 3
+def test_schema_version_is_four() -> None:
+    expected = 4
 
     report = check_report_from_result(CheckResult.fake()).model_dump(
         mode="json", by_alias=True
@@ -96,12 +99,13 @@ def test_schema_version_is_three() -> None:
     assert report["schema_version"] == expected
 
 
-def test_reports_the_top_rated_percentage() -> None:
-    result = CheckResult.fake()
+def test_reports_the_needs_review_threshold() -> None:
+    threshold = NeedsReviewThreshold.fake()
+    result = CheckResult.fake().model_copy(update={"needs_review_threshold": threshold})
 
     report = check_report_from_result(result).model_dump(mode="json", by_alias=True)
 
-    assert report["top_rated_percentage"] == result.top_rated_percentage.root
+    assert report["needs_review_threshold"] == threshold.root
 
 
 def test_reports_each_files_decision_inputs() -> None:

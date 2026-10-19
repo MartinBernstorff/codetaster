@@ -8,13 +8,15 @@ from codetaster.domain.domain_model.review.changes import (
     FileVersion,
     RepositoryPath,
 )
+from codetaster.domain.domain_model.review.needs_review_threshold import (
+    NeedsReviewThreshold,
+)
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import (
     FileRating,
     RatingCategory,
     RatingTarget,
 )
-from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 
 
 def blob_shas() -> st.SearchStrategy[BlobSha]:
@@ -47,8 +49,8 @@ def distinct_file_changes() -> st.SearchStrategy[list[FileChange]]:
     )
 
 
-def top_rated_percentages() -> st.SearchStrategy[TopRatedPercentage]:
-    return st.builds(TopRatedPercentage, st.integers(min_value=0, max_value=100))
+def needs_review_thresholds() -> st.SearchStrategy[NeedsReviewThreshold]:
+    return st.builds(NeedsReviewThreshold, st.floats(min_value=0, max_value=1))
 
 
 def probabilities() -> st.SearchStrategy[Probability]:

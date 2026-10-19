@@ -11,6 +11,9 @@ from codetaster.domain.domain_model.review.changes import (
     RevisionName,
 )
 from codetaster.domain.domain_model.review.check_result import CheckResult
+from codetaster.domain.domain_model.review.needs_review_threshold import (
+    NeedsReviewThreshold,
+)
 from codetaster.domain.domain_model.review.path_rules import PathPattern, PathRule
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import FileRating, RatingCategory
@@ -22,7 +25,6 @@ from codetaster.domain.domain_model.review.sampling import (
     FileAssessment,
     Verdict,
 )
-from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 
 
 class SchemaVersion(RootModel[int]):
@@ -32,7 +34,7 @@ class SchemaVersion(RootModel[int]):
 
     @staticmethod
     def fake() -> SchemaVersion:
-        return SchemaVersion(3)
+        return SchemaVersion(4)
 
 
 class ReportFlag(RootModel[bool]):
@@ -138,8 +140,7 @@ class FileReport(BaseModel):
     )
     draw: Draw = Field(
         description="From 0 inclusive to 1 exclusive. A file not in needs-review "
-        "is sampled if draw < base_probability. Of equally rated files, the lower "
-        "draw is picked for needs-review first. SHA-256 over the JSON array [before_path, "
+        "is sampled if draw < base_probability. SHA-256 over the JSON array [before_path, "
         "before_blob, after_path, after_blob], null for a missing side, with the "
         "first 53 bits divided by 2^53. It changes only when the file's change does."
     )
@@ -153,8 +154,9 @@ class CheckReport(BaseModel):
     """Which changed files need human review, in three groups. Every changed file
     is in exactly one group. Files are ordered by path.
 
-    Schema version 3 picks needs-review by rank, adds `top_rated_percentage` and
-    drops each file's `probability`. In version 2, a file was in needs-review if
+    Schema version 4 picks needs-review by `needs_review_threshold`, replacing
+    `top_rated_percentage`. Version 3 picked needs-review by rank, added
+    `top_rated_percentage` and dropped each file's `probability`. In version 2, a file was in needs-review if
     its draw was below its rating. Schema version 2 added `sampled`. In version 1,
     `needs-review` held the files that are now `sampled`. The ratings file at [review] ratings_path is never
     listed.
@@ -175,10 +177,10 @@ class CheckReport(BaseModel):
     )
     base: BaseReport
     head: HeadReport
-    top_rated_percentage: TopRatedPercentage = Field(
-        description="The percentage, from 0 to 100, of changed files that need "
-        "review: --top-rated-percentage if given, else [review] "
-        "top_rated_percentage."
+    needs_review_threshold: NeedsReviewThreshold = Field(
+        description="The AI rating, from 0 to 1, at or above which a file needs "
+        "review: --needs-review-threshold if given, else [review] "
+        "needs_review_threshold."
     )
     ratings_error: RatingsErrorMessage | None = Field(
         description="Why the ratings file at [review] ratings_path was ignored, "
@@ -186,9 +188,8 @@ class CheckReport(BaseModel):
     )
     needs_review_files: tuple[FileReport, ...] = Field(
         serialization_alias="needs-review",
-        description="The rated files with the highest ratings, "
-        "top_rated_percentage of all changed files rounded up. Unrated files are "
-        "never here, so there are fewer if too few files are rated.",
+        description="The rated files whose rating is at or above "
+        "needs_review_threshold. Unrated files are never here.",
     )
     sampled_files: tuple[FileReport, ...] = Field(
         serialization_alias="sampled",
@@ -213,13 +214,13 @@ def check_report_from_result(result: CheckResult) -> CheckReport:
         )
 
     return CheckReport(
-        schema_version=SchemaVersion(3),
+        schema_version=SchemaVersion(4),
         needs_review=ReportFlag(root=result.verdict() is not Verdict.NO_REVIEW),
         # Nothing applies an override label yet.
         override_label_applied=ReportFlag(root=False),
         base=BaseReport(ref=result.base, merge_base=result.merge_base),
         head=HeadReport(commit=result.head),
-        top_rated_percentage=result.top_rated_percentage,
+        needs_review_threshold=result.needs_review_threshold,
         ratings_error=None
         if result.ratings_problem is None
         else ratings_error_message(result.ratings_problem),

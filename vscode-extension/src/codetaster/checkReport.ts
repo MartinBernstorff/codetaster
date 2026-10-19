@@ -1,5 +1,5 @@
 /**
- * The JSON that `codetaster check --format json` prints, schema_version 3.
+ * The JSON that `codetaster check --format json` prints, schema_version 4.
  * The documented schema is the Python `CheckReport` in codetaster's check_report module.
  * New fields can appear without a version bump; they are kept on the parsed objects.
  */
@@ -22,12 +22,12 @@ export interface FileReport {
 }
 
 export interface CheckReport {
-	readonly schema_version: 3;
+	readonly schema_version: 4;
 	readonly needs_review: boolean;
 	readonly base: { readonly ref: string, readonly merge_base: string };
 	readonly head: { readonly commit: string };
-	/** The percentage, from 0 to 100, of changed files with the highest AI ratings that are in needs-review. */
-	readonly top_rated_percentage: number;
+	/** The AI rating, from 0 to 1, at or above which a file is in needs-review. */
+	readonly needs_review_threshold: number;
 	/** Why an invalid ratings file was ignored, leaving every file unrated. Absent from older codetaster versions. */
 	readonly ratings_error?: string | null;
 	readonly 'needs-review': readonly FileReport[];
@@ -62,11 +62,11 @@ export function parseCheckReport(output: string): ParsedCheckReport {
 	if (!isRecord(json)) {
 		return invalidReport('Its output is not a JSON object.');
 	}
-	if (json.schema_version !== 3) {
-		return invalidReport(`Its output has schema_version ${JSON.stringify(json.schema_version)}; this extension reads schema_version 3.`);
+	if (json.schema_version !== 4) {
+		return invalidReport(`Its output has schema_version ${JSON.stringify(json.schema_version)}; this extension reads schema_version 4.`);
 	}
-	if (typeof json.top_rated_percentage !== 'number') {
-		return invalidReport('Its output has no "top_rated_percentage".');
+	if (typeof json.needs_review_threshold !== 'number') {
+		return invalidReport('Its output has no "needs_review_threshold".');
 	}
 	if (!isRecord(json.head) || typeof json.head.commit !== 'string') {
 		return invalidReport('Its output has no "head.commit".');

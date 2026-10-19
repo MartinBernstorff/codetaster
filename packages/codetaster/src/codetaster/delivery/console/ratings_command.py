@@ -72,21 +72,22 @@ def echo_rating_instructions(
     result: RatingsTemplateResult, checkout: CheckoutPath, base: RevisionName | None
 ) -> None:
     base_probability = result.base_probability.root
-    top_rated = result.top_rated_percentage.root
+    threshold = result.needs_review_threshold.root
     location = result.ratings_location
     validate = ratings_command_line(RatingsSubcommand.VALIDATE, checkout, base)
     typer.echo(f"""\
 Rate how likely each file changed on this branch is to need human review.
 
-The files with the highest ratings, {top_rated}%, need review. Every other file is sampled for review with the base probability, {base_probability}.
+Files rated {threshold} or higher need review. Every other file is sampled for review with the base probability, {base_probability}.
 
 Fill in every entry of the JSON template below:
 - "probability": from 0 to 1, how likely the change to this file is to need
-  human review. Rate risky, subtle or hard-to-undo changes high, and mechanical (renames/refactors) low.
+  human review. Rate risky, hard-to-undo, or documentation changes high.
+  Rate mechanical changes (renames/refactors) low.
 - "category": which part of the PR this file belongs to. Divide the PR into
   meaningful categories, e.g. one per feature, refactor or move, and give every
-  file that serves the same purpose the same category. The reviewer sees
-  categories sorted alphabetically, so choose the review order with a number
+  file that serves the same purpose the same category. Tests should be grouped with their features.
+  The reviewer sees categories sorted alphabetically, so choose the review order with a number
   prefix: `1.` for the most important changes, `2.` for less important ones,
   and so on. Start with logic changes, then refactors, moves etc.
 - Leave "path" and "blob" as they are.

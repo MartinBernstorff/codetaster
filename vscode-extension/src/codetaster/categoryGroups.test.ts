@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
-import { CategoryGroup, groupFilesByCategory, needsReviewShareDescription } from './categoryGroups';
+import { CategoryGroup, groupFilesByCategory, needsReviewRuleDescription } from './categoryGroups';
 import { CheckReport, FileReport } from './checkReport';
 
 interface FakeFile {
@@ -21,11 +21,11 @@ type FakeVerdictFiles = Record<string, string | undefined>;
 function fakeCheckReport(verdicts: { needsReview?: FakeVerdictFiles, sampled?: FakeVerdictFiles, noReview?: FakeVerdictFiles }): CheckReport {
 	const fileReports = (files: FakeVerdictFiles = {}) => Object.entries(files).map(([path, category]) => fakeFileReport(path, category));
 	return {
-		schema_version: 3,
+		schema_version: 4,
 		needs_review: false,
 		base: { ref: 'main', merge_base: 'a'.repeat(40) },
 		head: { commit: 'b'.repeat(40) },
-		top_rated_percentage: 20,
+		needs_review_threshold: 0.6,
 		'needs-review': fileReports(verdicts.needsReview),
 		sampled: fileReports(verdicts.sampled),
 		'no-review': fileReports(verdicts.noReview),
@@ -121,8 +121,8 @@ describe('groupFilesByCategory', () => {
 	});
 });
 
-describe('needsReviewShareDescription', () => {
-	it('says which share of the files needs review', () => {
-		assert.strictEqual(needsReviewShareDescription(fakeCheckReport({})), 'needs review = top 20%');
+describe('needsReviewRuleDescription', () => {
+	it('says which rating a file needs review at', () => {
+		assert.strictEqual(needsReviewRuleDescription(fakeCheckReport({})), 'needs review = rating ≥ 0.6');
 	});
 });
