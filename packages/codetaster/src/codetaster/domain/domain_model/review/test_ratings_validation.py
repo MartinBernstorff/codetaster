@@ -117,7 +117,7 @@ def test_any_fill_of_the_template_has_no_problems(
     filled = {
         "ratings": [
             entry.model_dump(mode="json")
-            | {"probability": rating.probability.root, "reason": rating.reason.root}
+            | {"probability": rating.probability.root, "category": rating.category.root}
             for entry, rating in zip(
                 template.ratings,
                 (data.draw(ratings_of(change)) for change in changes),

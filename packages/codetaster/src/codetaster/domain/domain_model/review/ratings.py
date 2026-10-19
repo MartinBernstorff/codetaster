@@ -8,7 +8,7 @@ The ratings file is JSON:
           "path": "src/module.py",
           "blob": "<after-blob SHA, or null for a deleted file>",
           "probability": 0.8,
-          "reason": "One sentence on why."
+          "category": "1. Retry failed payments"
         }
       ]
     }
@@ -33,8 +33,11 @@ from codetaster.domain.domain_model.review.changes import (
 from codetaster.domain.domain_model.review.probability import Probability
 
 
-class RatingReason(RootModel[Annotated[str, Field(min_length=1)]]):
-    """One sentence on why a file has its rating."""
+class RatingCategory(RootModel[Annotated[str, Field(min_length=1)]]):
+    """Which part of the PR a file belongs to, e.g. a feature, refactor or move.
+
+    Each file has exactly one category.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -43,8 +46,8 @@ class RatingReason(RootModel[Annotated[str, Field(min_length=1)]]):
         return self.root
 
     @staticmethod
-    def fake() -> RatingReason:
-        return RatingReason("It changes how payments are retried.")
+    def fake() -> RatingCategory:
+        return RatingCategory("1. Retry failed payments")
 
 
 class RatingTarget(BaseModel):
@@ -86,7 +89,10 @@ class FileRating(BaseModel):
     probability: Probability = Field(
         description="From 0 to 1, how likely the file is to need human review."
     )
-    reason: RatingReason = Field(description="One sentence on why.")
+    category: RatingCategory = Field(
+        description="Which part of the PR the file belongs to, e.g. a feature, "
+        "refactor or move."
+    )
 
     @staticmethod
     def fake() -> FileRating:
@@ -95,7 +101,7 @@ class FileRating(BaseModel):
             path=target.path,
             blob=target.blob,
             probability=Probability.fake(),
-            reason=RatingReason.fake(),
+            category=RatingCategory.fake(),
         )
 
     def target(self) -> RatingTarget:

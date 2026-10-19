@@ -13,7 +13,7 @@ from codetaster.domain.domain_model.review.changes import (
 from codetaster.domain.domain_model.review.check_result import CheckResult
 from codetaster.domain.domain_model.review.path_rules import PathPattern, PathRule
 from codetaster.domain.domain_model.review.probability import Probability
-from codetaster.domain.domain_model.review.ratings import FileRating, RatingReason
+from codetaster.domain.domain_model.review.ratings import FileRating, RatingCategory
 from codetaster.domain.domain_model.review.ratings_validation import (
     InvalidRatingsFile,
 )
@@ -86,7 +86,10 @@ class RatingReport(BaseModel):
     probability: Probability = Field(
         description="The AI's probability, from 0 to 1, that this file needs review."
     )
-    reason: RatingReason = Field(description="The AI's one-sentence reason.")
+    category: RatingCategory = Field(
+        description="Which part of the PR the AI put this file in, e.g. a feature, "
+        "refactor or move."
+    )
 
     @staticmethod
     def fake() -> RatingReport:
@@ -255,4 +258,4 @@ def path_rule_report_from_rule(rule: PathRule) -> PathRuleReport:
 
 
 def rating_report_from_rating(rating: FileRating) -> RatingReport:
-    return RatingReport(probability=rating.probability, reason=rating.reason)
+    return RatingReport(probability=rating.probability, category=rating.category)

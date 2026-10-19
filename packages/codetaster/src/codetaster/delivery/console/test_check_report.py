@@ -124,10 +124,13 @@ def test_reports_each_files_decision_inputs() -> None:
     assert file == expected
 
 
-def test_reports_a_rated_files_rating_and_reason() -> None:
+def test_reports_a_rated_files_rating_and_category() -> None:
     rating = FileRating.fake()
     assessment = FileAssessment.fake().model_copy(update={"rating": rating})
-    expected = {"probability": rating.probability.root, "reason": rating.reason.root}
+    expected = {
+        "probability": rating.probability.root,
+        "category": rating.category.root,
+    }
 
     report = check_report_from_result(result_with(assessment)).model_dump(
         mode="json", by_alias=True

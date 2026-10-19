@@ -6,7 +6,8 @@
 
 export interface RatingReport {
 	readonly probability: number;
-	readonly reason: string;
+	/** The category the file is grouped under in the file list. */
+	readonly category: string;
 }
 
 export interface FileReport {

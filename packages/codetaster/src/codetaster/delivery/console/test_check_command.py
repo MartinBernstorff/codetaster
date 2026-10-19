@@ -12,7 +12,7 @@ from codetaster.delivery.console.test_repositories import (
     Repository,
     TomlText,
 )
-from codetaster.domain.domain_model.review.ratings import RatingReason
+from codetaster.domain.domain_model.review.ratings import RatingCategory
 
 
 def run_check(repository: Repository, options: CliOptions) -> Result:
@@ -88,7 +88,7 @@ def test_a_path_rule_samples_a_matching_file(tmp_path: Path) -> None:
     assert file["path_rule"]["pattern"] == pattern
 
 
-def write_feature_rating(repository: Repository, reason: RatingReason) -> None:
+def write_feature_rating(repository: Repository, category: RatingCategory) -> None:
     """Rate feature.py, the file the feature branch adds, at 1."""
     # The blob SHA of feature.py, which is empty.
     empty_blob = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
@@ -102,7 +102,7 @@ def write_feature_rating(repository: Repository, reason: RatingReason) -> None:
                         "path": "feature.py",
                         "blob": empty_blob,
                         "probability": 1,
-                        "reason": reason.root,
+                        "category": category.root,
                     }
                 ]
             }
@@ -119,20 +119,20 @@ def unsampled_repository(tmp_path: Path) -> Repository:
 
 
 def test_a_rated_file_needs_review(unsampled_repository: Repository) -> None:
-    reason = RatingReason("It is the feature.")
-    write_feature_rating(unsampled_repository, reason)
+    category = RatingCategory("1. The feature")
+    write_feature_rating(unsampled_repository, category)
 
     result = run_check(unsampled_repository, CliOptions.fake())
 
     assert result.exit_code == 0
     [file] = json.loads(result.stdout)["needs-review"]
-    assert file["rating"]["reason"] == reason.root
+    assert file["rating"]["category"] == category.root
 
 
 def test_top_rated_percentage_overrides_the_configured_one(
     unsampled_repository: Repository,
 ) -> None:
-    write_feature_rating(unsampled_repository, RatingReason.fake())
+    write_feature_rating(unsampled_repository, RatingCategory.fake())
     percentage = 0
 
     result = run_check(

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { CategoryGroup, checkDescription, FileVerdict, groupFilesByCategory } from './categoryGroups';
 import { CheckReport } from './checkReport';
 import { CheckOutcome, CodetasterChecks } from './codetasterCheck';
 import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
@@ -6,7 +7,7 @@ import { headMismatchWarning } from './headMismatch';
 import { NodeCodetasterProcess } from './nodeCodetasterProcess';
 import { ratingsErrorWarning } from './ratingsError';
 import { nextFileToReview, OrderedFile, reviewOrder } from './reviewOrder';
-import { groupFilesByVerdict, skeletonGroupLabels, VerdictGroup } from './verdictGroups';
+import { verdictBadge } from './verdictBadges';
 import type { Repository } from '../api/api';
 import { ViewedState } from '../common/comment';
 import { findLocalRepoRemoteFromGitHubRef } from '../common/githubRef';
@@ -16,7 +17,7 @@ import { FolderRepositoryManager } from '../github/folderRepositoryManager';
 import { PullRequestModel } from '../github/pullRequestModel';
 import { DirectoryTreeNode } from '../view/treeNodes/directoryTreeNode';
 import { FileChangeNode, GitFileChangeNode, InMemFileChangeNode, RemoteFileChangeNode } from '../view/treeNodes/fileChangeNode';
-import { LabelOnlyNode, TreeNode, TreeNodeParent } from '../view/treeNodes/treeNode';
+import { TreeNode, TreeNodeParent } from '../view/treeNodes/treeNode';
 
 export const CODETASTER_SETTINGS_NAMESPACE = 'codetaster';
 export const EXECUTABLE_PATH_SETTING = 'executablePath';
@@ -136,6 +137,44 @@ async function setTopRatedPercentage(): Promise<void> {
 	);
 }
 
+/**
+ * Decorates each file in a codetaster file list with its verdict, keyed by the file
+ * node's resource URI. Each list's files are kept apart, so a list can be cleared alone.
+ */
+class VerdictDecorationProvider implements vscode.FileDecorationProvider {
+	private readonly verdictsByList = new Map<string, ReadonlyMap<string, FileVerdict>>();
+	private readonly changeEmitter = new vscode.EventEmitter<undefined>();
+	readonly onDidChangeFileDecorations = this.changeEmitter.event;
+
+	/** Sets the verdicts of the files in the list `listKey`, by resource URI, or clears them if undefined. */
+	setVerdicts(listKey: string, verdicts: ReadonlyMap<string, FileVerdict> | undefined): void {
+		const current = this.verdictsByList.get(listKey);
+		if (JSON.stringify([...current ?? []]) === JSON.stringify([...verdicts ?? []])) {
+			return;
+		}
+		if (verdicts) {
+			this.verdictsByList.set(listKey, verdicts);
+		} else {
+			this.verdictsByList.delete(listKey);
+		}
+		this.changeEmitter.fire(undefined);
+	}
+
+	provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
+		const key = uri.toString();
+		for (const verdicts of this.verdictsByList.values()) {
+			const verdict = verdicts.get(key);
+			if (verdict) {
+				const { badge, tooltip, color } = verdictBadge(verdict);
+				return { badge, tooltip, color: color ? new vscode.ThemeColor(color) : undefined, propagate: false };
+			}
+		}
+		return undefined;
+	}
+}
+
+const verdictDecorations = new VerdictDecorationProvider();
+
 /** Where codetaster keeps the ratings file unless `[review] ratings_path` says otherwise. */
 const DEFAULT_RATINGS_FILE_GLOB = '**/.codetaster/ratings.json';
 
@@ -170,6 +209,7 @@ export function registerCodetaster(context: vscode.ExtensionContext): void {
 		ratingsWatcher.onDidChange(() => codetasterChecks.refresh()),
 		ratingsWatcher.onDidDelete(() => codetasterChecks.refresh()),
 		{ dispose: () => disposeAll(headListeners) },
+		vscode.window.registerFileDecorationProvider(verdictDecorations),
 		vscode.commands.registerCommand(REFRESH_CHECK_COMMAND, () => codetasterChecks.refresh()),
 		vscode.commands.registerCommand(SET_TOP_RATED_PERCENTAGE_COMMAND, setTopRatedPercentage),
 		vscode.commands.registerCommand(MARK_VIEWED_AND_OPEN_NEXT_COMMAND, markViewedAndOpenNext),
@@ -200,15 +240,15 @@ function fileListNodes(parent: TreeNode, files: readonly PullRequestFileNode[], 
 	return sorted;
 }
 
-export class VerdictGroupNode extends TreeNode implements vscode.TreeItem {
+export class CategoryGroupNode extends TreeNode implements vscode.TreeItem {
 	public collapsibleState: vscode.TreeItemCollapsibleState;
 	public readonly contextValue: string;
 
-	constructor(parent: TreeNodeParent, group: VerdictGroup<PullRequestFileNode>, layout: string | undefined) {
+	constructor(parent: TreeNodeParent, group: CategoryGroup<PullRequestFileNode>, layout: string | undefined) {
 		super(parent);
 		this.label = group.label;
-		this.contextValue = `codetaster:verdictGroup:${group.verdict}`;
-		this._children = fileListNodes(this, group.files, layout);
+		this.contextValue = `codetaster:categoryGroup:${group.kind}`;
+		this._children = fileListNodes(this, group.files.map(entry => entry.file), layout);
 		this.collapsibleState = !group.files.length
 			? vscode.TreeItemCollapsibleState.None
 			: group.collapsed
@@ -230,22 +270,17 @@ export class VerdictGroupNode extends TreeNode implements vscode.TreeItem {
 	}
 }
 
-/** A verdict group whose files are not known yet, with a placeholder child. */
-export class CodetasterSkeletonGroupNode extends TreeNode implements vscode.TreeItem {
-	public readonly collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+/** Stands in for the file list while it is not known yet. */
+export class CodetasterPlaceholderNode extends TreeNode implements vscode.TreeItem {
+	public readonly iconPath = new vscode.ThemeIcon('loading~spin');
 
 	constructor(parent: TreeNodeParent, label: string) {
 		super(parent);
 		this.label = label;
-		this._children = [new LabelOnlyNode(this, 'Loading…')];
 	}
 
 	getTreeItem(): vscode.TreeItem {
 		return this;
-	}
-
-	override async getChildren(): Promise<TreeNode[]> {
-		return this._children ?? [];
 	}
 }
 
@@ -259,10 +294,6 @@ function refreshWhenFinished(finished: Promise<CheckOutcome>, parent: TreeNode):
 	}
 }
 
-/** The verdict groups as they look before the check's results arrive. */
-export function codetasterSkeletonNodes(parent: TreeNodeParent): TreeNode[] {
-	return skeletonGroupLabels().map(label => new CodetasterSkeletonGroupNode(parent, label));
-}
 
 export class CodetasterErrorNode extends TreeNode implements vscode.TreeItem {
 	public readonly iconPath = new vscode.ThemeIcon('error', new vscode.ThemeColor('errorForeground'));
@@ -302,7 +333,7 @@ function directoryOf(fileName: string): string {
 }
 
 /**
- * Shows each file's codetaster probability and AI reason on hover, and marks unrated
+ * Shows each file's codetaster probability on hover, and marks unrated
  * files in their description. Nodes can be reused across check runs, so this starts
  * from upstream's values each time.
  */
@@ -345,6 +376,19 @@ function fileListKey(files: readonly PullRequestFileNode[]): string {
 	return JSON.stringify([pullRequestHead(files) ?? '', files.map(file => file.fileName).sort()]);
 }
 
+/** Identifies a PR's file list among the lists the verdict decorations cover. */
+function decoratedListKey(folderRepoManager: FolderRepositoryManager, pullRequest: PullRequestModel): string {
+	return JSON.stringify([folderRepoManager.repository.rootUri.toString(), pullRequest.number]);
+}
+
+/** Shows `description` on `node`, refreshing it if that changes what it shows. */
+function describeNode(node: TreeNode | undefined, description: string | undefined): void {
+	if (node && node.description !== description) {
+		node.description = description;
+		node.refresh(node);
+	}
+}
+
 /** The PR's base branch as the checkout knows it: the remote-tracking branch, if a remote points at the base repository. */
 function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: PullRequestModel): string {
 	const remote = findLocalRepoRemoteFromGitHubRef(folderRepoManager.repository, pullRequest.base);
@@ -352,15 +396,16 @@ function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: P
 }
 
 /**
- * The children of a PR file list if the PR is checked out: the skeleton while the
- * PR's first check runs (later re-runs keep showing the last report), then one node per codetaster
- * verdict group, each holding its files in the configured layout, with files that have
- * unresolved review threads under needs-review, or an error and no
- * files if the check fails. Warnings precede the groups when the check ran on a
- * different commit than the PR head, or ignored an invalid ratings file. Undefined if the PR is not checked out, so the
- * caller shows upstream's file list.
+ * The children of a PR file list if the PR is checked out: a placeholder while the
+ * PR's first check runs (later re-runs keep showing the last report), then one node per
+ * category of the files' AI ratings, each holding its files in the configured layout,
+ * or an error and no files if the check fails. Each file is decorated with its verdict.
+ * Warnings precede the groups when the check ran on a different commit than the PR
+ * head, or ignored an invalid ratings file. Undefined if the PR is not checked out, so
+ * the caller shows upstream's file list.
  * `allFiles` is the PR's whole file list, which decides when the check re-runs;
  * `shownFiles` are the ones to show, e.g. without viewed files.
+ * `describedNode`, if given, shows the share of files in needs-review as its description.
  */
 export function codetasterFileNodes(
 	parent: TreeNode,
@@ -369,6 +414,7 @@ export function codetasterFileNodes(
 	allFiles: readonly PullRequestFileNode[],
 	shownFiles: readonly PullRequestFileNode[],
 	layout: string | undefined,
+	describedNode?: TreeNode,
 ): TreeNode[] | undefined {
 	const isCheckedOut = pullRequest.equals(folderRepoManager.activePullRequest);
 	const outcome = codetasterChecks.requestCheck({
@@ -381,33 +427,41 @@ export function codetasterFileNodes(
 	if (isCheckedOut) {
 		refreshOnHeadChange(folderRepoManager.repository);
 	}
+	const listKey = decoratedListKey(folderRepoManager, pullRequest);
 	if (!outcome) {
+		verdictDecorations.setVerdicts(listKey, undefined);
+		describeNode(describedNode, undefined);
 		return undefined;
 	}
 	let report: CheckReport;
 	if (outcome.kind === 'running') {
 		refreshWhenFinished(outcome.finished, parent);
 		if (!outcome.previousReport) {
-			return codetasterSkeletonNodes(parent);
+			describeNode(describedNode, undefined);
+			return [new CodetasterPlaceholderNode(parent, 'Running codetaster check…')];
 		}
 		report = outcome.previousReport;
 	} else if (outcome.kind === 'error') {
 		reviewOrders.delete(folderRepoManager);
+		verdictDecorations.setVerdicts(listKey, undefined);
+		describeNode(describedNode, undefined);
 		return [new CodetasterErrorNode(parent, outcome.message)];
 	} else {
 		report = outcome.report;
 	}
-	const unresolvedPaths = new Set(pullRequest.reviewThreadsCache.filter(thread => !thread.isResolved).map(thread => thread.path));
-	const hasUnresolvedThreads = (file: PullRequestFileNode) => unresolvedPaths.has(file.fileName);
 	// From all files, so a viewed file hidden from the list keeps its place.
+	const allGroups = groupFilesByCategory(report, allFiles, file => file.fileName);
 	reviewOrders.set(folderRepoManager, {
 		folderRepoManager,
 		pullRequest,
-		files: reviewOrder(groupFilesByVerdict(report, allFiles, file => file.fileName, hasUnresolvedThreads), file => file.fileName, layout),
+		files: reviewOrder(allGroups, file => file.fileName, layout),
 	});
+	verdictDecorations.setVerdicts(listKey, new Map(allGroups.flatMap(group => group.files)
+		.map(({ file, verdict }) => [file.resourceUri.toString(), verdict] as const)));
+	describeNode(describedNode, checkDescription(report));
 	showFileRatings(report, shownFiles);
-	const groups = groupFilesByVerdict(report, shownFiles, file => file.fileName, hasUnresolvedThreads)
-		.map(group => new VerdictGroupNode(parent, group, layout));
+	const groups = groupFilesByCategory(report, shownFiles, file => file.fileName)
+		.map(group => new CategoryGroupNode(parent, group, layout));
 	const warnings = [
 		headMismatchWarning(report.head.commit, pullRequestHead(allFiles)),
 		ratingsErrorWarning(report.ratings_error),

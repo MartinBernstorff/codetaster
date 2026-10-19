@@ -1,6 +1,6 @@
 # GitHub Pull Requests (codetaster)
 
-A fork of [microsoft/vscode-pull-request-github](https://github.com/microsoft/vscode-pull-request-github) (MIT, see `LICENSE`) that groups a pull request's changed files by codetaster's review verdict. Its extension ID is `codetaster.vscode-pull-request-github`, so disable the upstream extension while using it.
+A fork of [microsoft/vscode-pull-request-github](https://github.com/microsoft/vscode-pull-request-github) (MIT, see `LICENSE`) that groups a pull request's changed files by the categories of codetaster's AI ratings and marks each with its review verdict. Its extension ID is `codetaster.vscode-pull-request-github`, so disable the upstream extension while using it.
 
 ## Upstream
 
@@ -17,7 +17,7 @@ Edits to upstream files:
 - `src/github/utils.ts`: `getCommentCollapsibleState` expands threads with draft comments (see `draftThreadExpansion`).
 - `src/view/prChangesTreeDataProvider.ts`: without a pull request, shows `codetasterNoPullRequestNodes`, and refreshes on `refreshOnNoPullRequestInputs`.
 - `src/view/reviewManager.ts`: reports why the branch shows no pull request with `updateReviewStatus`.
-- `src/view/treeNodes/filesCategoryNode.ts`, `src/view/treeNodes/pullRequestNode.ts`: use `codetasterFileNodes` for the checked-out PR's file list, falling back to upstream's list otherwise, and refresh on `codetasterChecks.onDidRefresh`. `pullRequestNode.ts` also refreshes on `onDidChangeReviewThreads`.
+- `src/view/treeNodes/filesCategoryNode.ts`, `src/view/treeNodes/pullRequestNode.ts`: use `codetasterFileNodes` for the checked-out PR's file list, falling back to upstream's list otherwise, and refresh on `codetasterChecks.onDidRefresh`. `filesCategoryNode.ts` also passes itself to show the needs-review share as its description.
 - `src/view/treeNodes/repositoryChangesNode.ts`: passes the `FolderRepositoryManager` to `FilesCategoryNode`.
 - `webpack.config.js`: `child_process` is empty in the web extension host.
 
@@ -25,11 +25,11 @@ Sync with upstream only when needed. Put codetaster changes in new files under `
 
 ## codetaster grouping
 
-When the checked-out PR's file list loads, the extension runs `codetaster check <checkout> --base <PR base> --format json` in the local checkout and shows the files under "Needs review (n)", "Sampled (n)" and "No review (n)". The base is the remote-tracking branch of the PR's base branch, or the branch name if no remote points at the base repository. Files with an unresolved GitHub review thread are under "Needs review", whatever the check says. Other PR files the check does not list appear first, under "Not in codetaster check (n)". Other PRs show upstream's file list, and codetaster does not run for them. If the check fails, the view shows the error and no files, and the next refresh retries it. If the ratings file is invalid, a warning above the groups says so and every file is unrated. The check re-runs when the PR's head or file list changes, the local HEAD commit changes, a `.codetaster/ratings.json` file changes (the default `[review] ratings_path`; a custom path is not watched), or on "codetaster: Refresh Check". `codetaster.executablePath` sets the executable (default: `codetaster` on PATH).
+When the checked-out PR's file list loads, the extension runs `codetaster check <checkout> --base <PR base> --format json` in the local checkout and groups the files by the category of their AI rating, as "<category> (n)", sorted by name with numbers compared by value. The base is the remote-tracking branch of the PR's base branch, or the branch name if no remote points at the base repository. Each file is badged with its verdict: a green `N` for needs review, a yellow `S` for sampled, and no badge with a greyed-out name for no review. A category whose files all need no review starts collapsed. The "Files" node's description gives the share of files in needs review, e.g. "needs review = top 20%". Files the check lists without a rating appear last, under "Unrated (n)". Other PR files the check does not list appear first, under "Not in codetaster check (n)", badged `?`. Other PRs show upstream's file list, and codetaster does not run for them. If the check fails, the view shows the error and no files, and the next refresh retries it. If the ratings file is invalid, a warning above the groups says so and every file is unrated. The check re-runs when the PR's head or file list changes, the local HEAD commit changes, a `.codetaster/ratings.json` file changes (the default `[review] ratings_path`; a custom path is not watched), or on "codetaster: Refresh Check". `codetaster.executablePath` sets the executable (default: `codetaster` on PATH).
 
 ## Sidebar
 
-The codetaster container is always in the activity bar. While a repository looks for its branch's pull request, and while a PR's first check runs, the view shows the three groups with a "Loading…" placeholder each. Later re-runs of the check, e.g. after a local commit, keep showing the last report until they finish. Without a pull request, the view says why: no folder, no git repository, no GitHub remote, signed out (with a sign-in button), no open pull request for the branch, the branch is ignored, the pull request could not be loaded, or it is closed or merged. `codetaster.openOnStartup` (default off) opens the container when VS Code starts.
+The codetaster container is always in the activity bar. While a repository looks for its branch's pull request, and while a PR's first check runs, the view shows a single placeholder. Later re-runs of the check, e.g. after a local commit, keep showing the last report until they finish. Without a pull request, the view says why: no folder, no git repository, no GitHub remote, signed out (with a sign-in button), no open pull request for the branch, the branch is ignored, the pull request could not be loaded, or it is closed or merged. `codetaster.openOnStartup` (default off) opens the container when VS Code starts.
 
 ## Draft comments
 

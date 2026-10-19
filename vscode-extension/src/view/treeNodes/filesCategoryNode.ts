@@ -12,7 +12,7 @@ import { PullRequestModel } from '../../github/pullRequestModel';
 import { ReviewModel } from '../reviewModel';
 import { DirectoryTreeNode } from './directoryTreeNode';
 import { LabelOnlyNode, TreeNode, TreeNodeParent } from './treeNode';
-import { codetasterChecks, codetasterFileNodes } from '../../codetaster/verdictGroupNodes';
+import { codetasterChecks, codetasterFileNodes } from '../../codetaster/categoryGroupNodes';
 import { FolderRepositoryManager } from '../../github/folderRepositoryManager';
 
 export class FilesCategoryNode extends TreeNode implements vscode.TreeItem {
@@ -91,8 +91,8 @@ export class FilesCategoryNode extends TreeNode implements vscode.TreeItem {
 			return [new LabelOnlyNode(this, vscode.l10n.t('All files viewed'))];
 		}
 
-		// codetaster: group the checked-out PR's files by the codetaster check's verdict.
-		const codetasterNodes = codetasterFileNodes(this, this._folderRepoManager, this._pullRequestModel, this._reviewModel.localFileChanges, filesToShow, layout);
+		// codetaster: group the checked-out PR's files by the categories of their AI ratings.
+		const codetasterNodes = codetasterFileNodes(this, this._folderRepoManager, this._pullRequestModel, this._reviewModel.localFileChanges, filesToShow, layout, this);
 		if (codetasterNodes) {
 			this._children = codetasterNodes;
 			return codetasterNodes;

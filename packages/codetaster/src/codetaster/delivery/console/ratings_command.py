@@ -83,6 +83,12 @@ The files with the highest ratings, {top_rated}%, need review. Every other file 
 Fill in every entry of the JSON template below:
 - "probability": from 0 to 1, how likely the change to this file is to need
   human review. Rate risky, subtle or hard-to-undo changes high, and mechanical (renames/refactors) low.
+- "category": which part of the PR this file belongs to. Divide the PR into
+  meaningful categories, e.g. one per feature, refactor or move, and give every
+  file that serves the same purpose the same category. The reviewer sees
+  categories sorted alphabetically, so choose the review order with a number
+  prefix: `1.` for the most important changes, `2.` for less important ones,
+  and so on. Start with logic changes, then refactors, moves etc.
 - Leave "path" and "blob" as they are.
 
 Write the filled-in JSON to {location.root}

@@ -19,26 +19,26 @@ describe('changesViewContent', () => {
 		assert.deepStrictEqual(changesViewContent(workspace({ openRepositoryCount: 0 })), { kind: 'welcome' });
 	});
 
-	it('shows the skeleton while git is still looking for repositories', () => {
-		assert.deepStrictEqual(changesViewContent(workspace({ gitInitialized: false, openRepositoryCount: 0 })), { kind: 'skeleton' });
+	it('shows the placeholder while git is still looking for repositories', () => {
+		assert.deepStrictEqual(changesViewContent(workspace({ gitInitialized: false, openRepositoryCount: 0 })), { kind: 'placeholder' });
 	});
 
-	it('shows the skeleton while a repository is not yet set up', () => {
-		assert.deepStrictEqual(changesViewContent(workspace()), { kind: 'skeleton' });
+	it('shows the placeholder while a repository is not yet set up', () => {
+		assert.deepStrictEqual(changesViewContent(workspace()), { kind: 'placeholder' });
 	});
 
-	it('shows the skeleton while any repository is still looking for its pull request', () => {
+	it('shows the placeholder while any repository is still looking for its pull request', () => {
 		const repositories = [repository({ kind: 'noPullRequest', branch: 'main' }, 'a'), repository({ kind: 'loading' }, 'b')];
-		assert.deepStrictEqual(changesViewContent(workspace({ openRepositoryCount: 2, repositories })), { kind: 'skeleton' });
+		assert.deepStrictEqual(changesViewContent(workspace({ openRepositoryCount: 2, repositories })), { kind: 'placeholder' });
 	});
 
 	it('leaves signing in to the welcome message when every repository needs it', () => {
 		assert.deepStrictEqual(changesViewContent(workspace({ repositories: [repository({ kind: 'signedOut' })] })), { kind: 'welcome' });
 	});
 
-	it('shows the skeleton once a signed-out repository signs in', () => {
+	it('shows the placeholder once a signed-out repository signs in', () => {
 		const repositories = [{ ...repository({ kind: 'signedOut' }), signedIn: true }];
-		assert.deepStrictEqual(changesViewContent(workspace({ repositories })), { kind: 'skeleton' });
+		assert.deepStrictEqual(changesViewContent(workspace({ repositories })), { kind: 'placeholder' });
 	});
 
 	it('says why there is nothing to review', () => {

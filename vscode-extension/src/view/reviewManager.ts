@@ -638,7 +638,7 @@ export class ReviewManager extends Disposable {
 
 		const branch = this._repository.state.HEAD;
 		if (this._cachedBranchName !== branch.name) {
-			// codetaster: show the skeleton while looking for the new branch's pull request.
+			// codetaster: show a placeholder while looking for the new branch's pull request.
 			await this.reportNoPullRequest({ kind: 'loading' });
 		}
 		const ignoreBranches = vscode.workspace.getConfiguration(PR_SETTINGS_NAMESPACE).get<string[]>(IGNORE_PR_BRANCHES);

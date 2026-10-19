@@ -11,7 +11,7 @@ from codetaster.domain.domain_model.review.changes import (
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import (
     FileRating,
-    RatingReason,
+    RatingCategory,
     RatingTarget,
 )
 from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
@@ -63,5 +63,5 @@ def ratings_of(change: FileChange) -> st.SearchStrategy[FileRating]:
         path=st.just(target.path),
         blob=st.just(target.blob),
         probability=probabilities(),
-        reason=st.builds(RatingReason, st.text(min_size=1)),
+        category=st.builds(RatingCategory, st.text(min_size=1)),
     )
