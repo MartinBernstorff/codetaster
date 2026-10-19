@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CategoryGroup, FileVerdict, groupFilesByCategory, needsReviewShareDescription } from './categoryGroups';
+import { CategoryGroup, groupFilesByCategory, needsReviewShareDescription } from './categoryGroups';
 import { CheckReport } from './checkReport';
 import { CheckOutcome, CodetasterChecks } from './codetasterCheck';
 import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
@@ -7,7 +7,7 @@ import { headMismatchWarning } from './headMismatch';
 import { NodeCodetasterProcess } from './nodeCodetasterProcess';
 import { ratingsErrorWarning } from './ratingsError';
 import { nextFileToReview, OrderedFile, reviewOrder } from './reviewOrder';
-import { verdictBadge } from './verdictBadges';
+import { verdictIconPath } from './verdictIcons';
 import type { Repository } from '../api/api';
 import { ViewedState } from '../common/comment';
 import { findLocalRepoRemoteFromGitHubRef } from '../common/githubRef';
@@ -137,44 +137,6 @@ async function setTopRatedPercentage(): Promise<void> {
 	);
 }
 
-/**
- * Decorates each file in a codetaster file list with its verdict, keyed by the file
- * node's resource URI. Each list's files are kept apart, so a list can be cleared alone.
- */
-class VerdictDecorationProvider implements vscode.FileDecorationProvider {
-	private readonly verdictsByList = new Map<string, ReadonlyMap<string, FileVerdict>>();
-	private readonly changeEmitter = new vscode.EventEmitter<undefined>();
-	readonly onDidChangeFileDecorations = this.changeEmitter.event;
-
-	/** Sets the verdicts of the files in the list `listKey`, by resource URI, or clears them if undefined. */
-	setVerdicts(listKey: string, verdicts: ReadonlyMap<string, FileVerdict> | undefined): void {
-		const current = this.verdictsByList.get(listKey);
-		if (JSON.stringify([...current ?? []]) === JSON.stringify([...verdicts ?? []])) {
-			return;
-		}
-		if (verdicts) {
-			this.verdictsByList.set(listKey, verdicts);
-		} else {
-			this.verdictsByList.delete(listKey);
-		}
-		this.changeEmitter.fire(undefined);
-	}
-
-	provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
-		const key = uri.toString();
-		for (const verdicts of this.verdictsByList.values()) {
-			const verdict = verdicts.get(key);
-			if (verdict) {
-				const { badge, tooltip, color } = verdictBadge(verdict);
-				return { badge, tooltip, color: color ? new vscode.ThemeColor(color) : undefined, propagate: false };
-			}
-		}
-		return undefined;
-	}
-}
-
-const verdictDecorations = new VerdictDecorationProvider();
-
 /** Where codetaster keeps the ratings file unless `[review] ratings_path` says otherwise. */
 const DEFAULT_RATINGS_FILE_GLOB = '**/.codetaster/ratings.json';
 
@@ -209,7 +171,6 @@ export function registerCodetaster(context: vscode.ExtensionContext): void {
 		ratingsWatcher.onDidChange(() => codetasterChecks.refresh()),
 		ratingsWatcher.onDidDelete(() => codetasterChecks.refresh()),
 		{ dispose: () => disposeAll(headListeners) },
-		vscode.window.registerFileDecorationProvider(verdictDecorations),
 		vscode.commands.registerCommand(REFRESH_CHECK_COMMAND, () => codetasterChecks.refresh()),
 		vscode.commands.registerCommand(SET_TOP_RATED_PERCENTAGE_COMMAND, setTopRatedPercentage),
 		vscode.commands.registerCommand(MARK_VIEWED_AND_OPEN_NEXT_COMMAND, markViewedAndOpenNext),
@@ -313,15 +274,16 @@ export class CodetasterErrorNode extends TreeNode implements vscode.TreeItem {
 interface UpstreamFileNodeItem {
 	readonly tooltip: string;
 	readonly description: string | boolean | undefined;
+	readonly iconPath: PullRequestFileNode['iconPath'];
 }
 
-/** Each file node's tooltip and description as upstream set them, before codetaster's. */
+/** Each file node's tooltip, description and icon as upstream set them, before codetaster's. */
 const upstreamFileNodeItems = new WeakMap<PullRequestFileNode, UpstreamFileNodeItem>();
 
 function upstreamFileNodeItem(file: PullRequestFileNode): UpstreamFileNodeItem {
 	let item = upstreamFileNodeItems.get(file);
 	if (!item) {
-		item = { tooltip: file.tooltip, description: file.description };
+		item = { tooltip: file.tooltip, description: file.description, iconPath: file.iconPath };
 		upstreamFileNodeItems.set(file, item);
 	}
 	return item;
@@ -332,24 +294,37 @@ function directoryOf(fileName: string): string {
 	return separator === -1 ? '' : fileName.slice(0, separator);
 }
 
+/** Shows `tooltip` on `file`. Upstream's `tooltip` is a getter; an own property shadows it without editing upstream. */
+function setFileTooltip(file: PullRequestFileNode, tooltip: string): void {
+	Object.defineProperty(file, 'tooltip', { value: tooltip, configurable: true, enumerable: true, writable: true });
+}
+
 /**
- * Shows each file's codetaster probability on hover, and marks unrated
- * files in their description. Nodes can be reused across check runs, so this starts
- * from upstream's values each time.
+ * Shows each file's verdict as its icon, its verdict and codetaster probability on
+ * hover, and marks unrated files in their description. Nodes can be reused across
+ * check runs, so this starts from upstream's values each time.
  */
-function showFileRatings(report: CheckReport, files: readonly PullRequestFileNode[]): void {
+function showFileRatings(report: CheckReport, groups: readonly CategoryGroup<PullRequestFileNode>[]): void {
 	const reports = fileReportsByPath(report);
-	for (const file of files) {
+	for (const { file, verdict } of groups.flatMap(group => group.files)) {
 		const upstream = upstreamFileNodeItem(file);
 		const fileReport = reports.get(file.fileName);
-		// Upstream's `tooltip` is a getter; an own property shadows it without editing upstream.
-		Object.defineProperty(file, 'tooltip', {
-			value: fileHover(upstream.tooltip, fileReport),
-			configurable: true,
-			enumerable: true,
-			writable: true,
-		});
+		setFileTooltip(file, fileHover(upstream.tooltip, verdict, fileReport));
 		file.description = fileDescription(upstream.description, directoryOf(file.fileName), fileReport);
+		file.iconPath = verdictIconPath(verdict, upstream.iconPath, ({ id, color }) => new vscode.ThemeIcon(id, color ? new vscode.ThemeColor(color) : undefined));
+	}
+}
+
+/** Restores upstream's tooltip, description and icon on files codetaster changed, for upstream's file list. */
+function showUpstreamFileItems(files: readonly PullRequestFileNode[]): void {
+	for (const file of files) {
+		const upstream = upstreamFileNodeItems.get(file);
+		if (upstream) {
+			// Uncovers upstream's `tooltip` getter.
+			Reflect.deleteProperty(file, 'tooltip');
+			file.description = upstream.description;
+			file.iconPath = upstream.iconPath;
+		}
 	}
 }
 
@@ -376,11 +351,6 @@ function fileListKey(files: readonly PullRequestFileNode[]): string {
 	return JSON.stringify([pullRequestHead(files) ?? '', files.map(file => file.fileName).sort()]);
 }
 
-/** Identifies a PR's file list among the lists the verdict decorations cover. */
-function decoratedListKey(folderRepoManager: FolderRepositoryManager, pullRequest: PullRequestModel): string {
-	return JSON.stringify([folderRepoManager.repository.rootUri.toString(), pullRequest.number]);
-}
-
 /** Shows `description` on `node`, refreshing it if that changes what it shows. */
 function describeNode(node: TreeNode | undefined, description: string | undefined): void {
 	if (node && node.description !== description) {
@@ -399,7 +369,7 @@ function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: P
  * The children of a PR file list if the PR is checked out: a placeholder while the
  * PR's first check runs (later re-runs keep showing the last report), then one node per
  * category of the files' AI ratings, each holding its files in the configured layout,
- * or an error and no files if the check fails. Each file is decorated with its verdict.
+ * or an error and no files if the check fails. Each file's icon shows its verdict.
  * Warnings precede the groups when the check ran on a different commit than the PR
  * head, or ignored an invalid ratings file. Undefined if the PR is not checked out, so
  * the caller shows upstream's file list.
@@ -427,9 +397,8 @@ export function codetasterFileNodes(
 	if (isCheckedOut) {
 		refreshOnHeadChange(folderRepoManager.repository);
 	}
-	const listKey = decoratedListKey(folderRepoManager, pullRequest);
 	if (!outcome) {
-		verdictDecorations.setVerdicts(listKey, undefined);
+		showUpstreamFileItems(shownFiles);
 		describeNode(describedNode, undefined);
 		return undefined;
 	}
@@ -443,7 +412,6 @@ export function codetasterFileNodes(
 		report = outcome.previousReport;
 	} else if (outcome.kind === 'error') {
 		reviewOrders.delete(folderRepoManager);
-		verdictDecorations.setVerdicts(listKey, undefined);
 		describeNode(describedNode, undefined);
 		return [new CodetasterErrorNode(parent, outcome.message)];
 	} else {
@@ -456,12 +424,10 @@ export function codetasterFileNodes(
 		pullRequest,
 		files: reviewOrder(allGroups, file => file.fileName, layout),
 	});
-	verdictDecorations.setVerdicts(listKey, new Map(allGroups.flatMap(group => group.files)
-		.map(({ file, verdict }) => [file.resourceUri.toString(), verdict] as const)));
 	describeNode(describedNode, needsReviewShareDescription(report));
-	showFileRatings(report, shownFiles);
-	const groups = groupFilesByCategory(report, shownFiles, file => file.fileName)
-		.map(group => new CategoryGroupNode(parent, group, layout));
+	const shownGroups = groupFilesByCategory(report, shownFiles, file => file.fileName);
+	showFileRatings(report, shownGroups);
+	const groups = shownGroups.map(group => new CategoryGroupNode(parent, group, layout));
 	const warnings = [
 		headMismatchWarning(report.head.commit, pullRequestHead(allFiles)),
 		ratingsErrorWarning(report.ratings_error),
