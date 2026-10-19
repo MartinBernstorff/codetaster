@@ -12,7 +12,7 @@ describe('verdictBadge', () => {
 	});
 
 	it('greys out no-review files without a badge', () => {
-		assert.deepStrictEqual(verdictBadge('no-review'), { color: 'disabledForeground' });
+		assert.deepStrictEqual(verdictBadge('no-review'), { tooltip: 'No review', color: 'disabledForeground' });
 	});
 
 	it('marks files not in the check with a ?', () => {

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CategoryGroup, checkDescription, FileVerdict, groupFilesByCategory } from './categoryGroups';
+import { CategoryGroup, needsReviewShareDescription, FileVerdict, groupFilesByCategory } from './categoryGroups';
 import { CheckReport } from './checkReport';
 import { CheckOutcome, CodetasterChecks } from './codetasterCheck';
 import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
@@ -458,7 +458,7 @@ export function codetasterFileNodes(
 	});
 	verdictDecorations.setVerdicts(listKey, new Map(allGroups.flatMap(group => group.files)
 		.map(({ file, verdict }) => [file.resourceUri.toString(), verdict] as const)));
-	describeNode(describedNode, checkDescription(report));
+	describeNode(describedNode, needsReviewShareDescription(report));
 	showFileRatings(report, shownFiles);
 	const groups = groupFilesByCategory(report, shownFiles, file => file.fileName)
 		.map(group => new CategoryGroupNode(parent, group, layout));

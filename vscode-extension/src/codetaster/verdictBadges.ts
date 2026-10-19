@@ -11,7 +11,7 @@ export function verdictBadge(verdict: FileVerdict): VerdictBadge {
 	switch (verdict) {
 		case 'needs-review': return { badge: 'N', tooltip: 'Needs review', color: 'charts.green' };
 		case 'sampled': return { badge: 'S', tooltip: 'Sampled', color: 'charts.yellow' };
-		case 'no-review': return { color: 'disabledForeground' };
+		case 'no-review': return { tooltip: 'No review', color: 'disabledForeground' };
 		case 'not-checked': return { badge: '?', tooltip: 'Not in codetaster check' };
 	}
 }

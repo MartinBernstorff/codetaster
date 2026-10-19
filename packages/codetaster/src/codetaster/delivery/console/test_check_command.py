@@ -119,7 +119,7 @@ def unsampled_repository(tmp_path: Path) -> Repository:
 
 
 def test_a_rated_file_needs_review(unsampled_repository: Repository) -> None:
-    category = RatingCategory("1. The feature")
+    category = RatingCategory.fake()
     write_feature_rating(unsampled_repository, category)
 
     result = run_check(unsampled_repository, CliOptions.fake())

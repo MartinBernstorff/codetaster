@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
-import { CategoryGroup, checkDescription, groupFilesByCategory } from './categoryGroups';
+import { CategoryGroup, needsReviewShareDescription, groupFilesByCategory } from './categoryGroups';
 import { CheckReport, FileReport } from './checkReport';
 
 interface FakeFile {
@@ -121,8 +121,8 @@ describe('groupFilesByCategory', () => {
 	});
 });
 
-describe('checkDescription', () => {
+describe('needsReviewShareDescription', () => {
 	it('says which share of the files needs review', () => {
-		assert.strictEqual(checkDescription(fakeCheckReport({})), 'needs review = top 20%');
+		assert.strictEqual(needsReviewShareDescription(fakeCheckReport({})), 'needs review = top 20%');
 	});
 });
