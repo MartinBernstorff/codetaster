@@ -34,7 +34,7 @@ from codetaster.domain.domain_model.review.probability import Probability
 
 
 class RatingCategory(RootModel[Annotated[str, Field(min_length=1)]]):
-    """Which part of the PR a file belongs to, e.g. a feature, refactor or move.
+    """Which part of the PR a file belongs to.
 
     Each file has exactly one category.
     """

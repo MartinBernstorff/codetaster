@@ -87,8 +87,7 @@ class RatingReport(BaseModel):
         description="The AI's probability, from 0 to 1, that this file needs review."
     )
     category: RatingCategory = Field(
-        description="Which part of the PR the AI put this file in, e.g. a feature, "
-        "refactor or move."
+        description="Which part of the PR the AI put this file in.",
     )
 
     @staticmethod
