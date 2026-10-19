@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
-import { CategoryGroup, needsReviewShareDescription, groupFilesByCategory } from './categoryGroups';
+import { CategoryGroup, groupFilesByCategory, needsReviewShareDescription } from './categoryGroups';
 import { CheckReport, FileReport } from './checkReport';
 
 interface FakeFile {

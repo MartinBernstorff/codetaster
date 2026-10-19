@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CategoryGroup, needsReviewShareDescription, FileVerdict, groupFilesByCategory } from './categoryGroups';
+import { CategoryGroup, FileVerdict, groupFilesByCategory, needsReviewShareDescription } from './categoryGroups';
 import { CheckReport } from './checkReport';
 import { CheckOutcome, CodetasterChecks } from './codetasterCheck';
 import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
