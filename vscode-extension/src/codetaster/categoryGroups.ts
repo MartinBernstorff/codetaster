@@ -24,7 +24,7 @@ export interface CategoryGroup<File> {
 const GROUP_TOOLTIPS: Record<CategoryGroupKind, string | undefined> = {
 	'not-checked': 'Files in the PR that codetaster check did not assess, e.g. the ratings file, or files changed since the commit the check ran on.',
 	category: undefined,
-	unrated: 'Changed files with no rating for their current version. Run `codetaster ratings validate` to see why.',
+	unrated: 'Changed files with no rating for their current version. Run "codetaster ratings validate" to see why.',
 };
 
 function categoryGroup<File>(kind: CategoryGroupKind, name: string, files: readonly GroupedFile<File>[]): CategoryGroup<File> {

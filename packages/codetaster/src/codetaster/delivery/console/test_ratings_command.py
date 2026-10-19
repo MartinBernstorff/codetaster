@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import JsonValue
 from typer.testing import CliRunner, Result
 
 from codetaster.delivery.console.app import app
@@ -38,11 +39,7 @@ def test_prints_a_template_entry_for_the_changed_file(
 ) -> None:
     # The blob SHA of feature.py, which is empty.
     empty_blob = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
-
-    result = run_template(repository, CliOptions.fake())
-
-    assert result.exit_code == 0
-    assert json.loads(result.stdout) == {
+    expected_template: JsonValue = {
         "summary": None,
         "categories": [{"name": None, "description": None}],
         "ratings": [
@@ -54,6 +51,11 @@ def test_prints_a_template_entry_for_the_changed_file(
             }
         ],
     }
+
+    result = run_template(repository, CliOptions.fake())
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == expected_template
 
 
 def test_unknown_base_exits_non_zero(tmp_path: Path) -> None:

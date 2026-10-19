@@ -46,9 +46,9 @@ def test_leaves_the_summary_blank() -> None:
 def test_shows_one_blank_category() -> None:
     template = RatingsTemplate.of_changes(FileChanges.fake())
 
-    assert json.loads(template.model_dump_json())["categories"] == [
-        {"name": None, "description": None}
-    ]
+    blank_category: dict[str, None] = {"name": None, "description": None}
+
+    assert json.loads(template.model_dump_json())["categories"] == [blank_category]
 
 
 def test_does_not_parse_as_a_ratings_file_until_filled() -> None:
