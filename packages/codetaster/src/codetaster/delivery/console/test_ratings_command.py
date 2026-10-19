@@ -1,4 +1,4 @@
-"""The printed instructions and template. Building the template is tested in the domain."""
+"""The printed template. Building the template is tested in the domain."""
 
 import json
 from pathlib import Path
@@ -41,7 +41,7 @@ def test_prints_a_template_entry_for_the_changed_file(
     result = run_template(repository, CliOptions.fake())
 
     assert result.exit_code == 0
-    assert json.loads(result.stdout[result.stdout.index("\n{\n") :]) == {
+    assert json.loads(result.stdout) == {
         "ratings": [
             {
                 "path": "feature.py",
@@ -51,57 +51,6 @@ def test_prints_a_template_entry_for_the_changed_file(
             }
         ]
     }
-
-
-def test_instructions_name_the_ratings_file_and_the_validate_command(
-    repository: Repository,
-) -> None:
-    ratings_path = ".codetaster/ratings.json"
-    validate = f"codetaster ratings validate {repository.root.resolve()}"
-
-    result = run_template(repository, CliOptions.fake())
-
-    assert ratings_path in result.stdout
-    assert validate in result.stdout
-
-
-def test_instructions_ask_for_a_category_with_a_number_prefix(
-    repository: Repository,
-) -> None:
-    category_bullet = '- "category": which part of the PR this file belongs to.'
-    number_prefix = "prefix: `1.` for the most important changes"
-
-    result = run_template(repository, CliOptions.fake())
-
-    assert category_bullet in result.stdout
-    assert number_prefix in result.stdout
-
-
-def test_instructions_give_the_base_probability(tmp_path: Path) -> None:
-    base_probability = "0.25"
-    repository = Repository(
-        tmp_path,
-        TomlText(
-            f'[review]\nbase_branch = "main"\nbase_probability = {base_probability}\n'
-        ),
-    )
-
-    result = run_template(repository, CliOptions.fake())
-
-    assert base_probability in result.stdout
-
-
-def test_base_option_is_passed_on_to_validate(tmp_path: Path) -> None:
-    repository = Repository(
-        tmp_path,
-        TomlText('[review]\nbase_branch = "no-such-branch"\nbase_probability = 1\n'),
-    )
-    base = "main"
-
-    result = run_template(repository, CliOptions(("--base", base)))
-
-    assert result.exit_code == 0
-    assert f"--base {base}" in result.stdout
 
 
 def test_unknown_base_exits_non_zero(tmp_path: Path) -> None:
@@ -133,10 +82,8 @@ def run_validate(repository: Repository, options: CliOptions) -> Result:
 
 
 def printed_template(result: Result) -> RatingsTemplate:
-    """The JSON template, which follows the instructions."""
-    return RatingsTemplate.model_validate_json(
-        result.stdout[result.stdout.index("\n{\n") :]
-    )
+    """The JSON template `ratings template` printed."""
+    return RatingsTemplate.model_validate_json(result.stdout)
 
 
 def write_ratings(
@@ -252,6 +199,23 @@ def test_validate_base_option_overrides_the_configured_base(tmp_path: Path) -> N
     result = run_validate(repository, CliOptions(("--base", "main")))
 
     assert unrated in result.stderr
+
+
+def test_a_missing_ratings_file_names_the_template_command_with_the_base(
+    tmp_path: Path,
+) -> None:
+    repository = Repository(
+        tmp_path,
+        TomlText('[review]\nbase_branch = "no-such-branch"\nbase_probability = 1\n'),
+    )
+    base = "main"
+
+    result = run_validate(repository, CliOptions(("--base", base)))
+
+    assert result.exit_code == 1
+    assert (
+        f"ratings template {repository.root.resolve()} --base {base}" in result.stderr
+    )
 
 
 def test_validate_with_an_unknown_base_exits_non_zero(tmp_path: Path) -> None:
