@@ -18,7 +18,6 @@ from codetaster.domain.domain_model.review.changes import (
 from codetaster.domain.domain_model.review.errors import UnknownRevisionError
 from codetaster.domain.domain_model.review.ratings import (
     FileRating,
-    RatingsFile,
     RatingsFileContent,
     RatingTarget,
     ratings_file_location,
@@ -29,6 +28,7 @@ from codetaster.domain.domain_model.review.ratings_validation import (
     RatingProblems,
     UnratedFile,
 )
+from codetaster.domain.domain_model.review.test_strategies import ratings_file_of
 
 # Domain tests use the fakes from infrastructure, which tach otherwise forbids.
 from codetaster.infrastructure.committed_changes.fake_committed_changes import (
@@ -70,7 +70,7 @@ def ratings_store(
         ratings_file_location(
             RatingsValidationRequest.fake().checkout, configuration.review.ratings_path
         ),
-        RatingsFile(ratings=ratings),
+        ratings_file_of(*ratings),
     )
     return store
 

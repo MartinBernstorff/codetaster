@@ -5,6 +5,7 @@ import { CheckOutcome, CodetasterChecks } from './codetasterCheck';
 import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
 import { headMismatchWarning } from './headMismatch';
 import { NodeCodetasterProcess } from './nodeCodetasterProcess';
+import { registerOverviewPreview, summaryNode } from './overviewPreview';
 import { ratingsErrorWarning } from './ratingsError';
 import { nextFileToReview, OrderedFile, reviewOrder } from './reviewOrder';
 import { verdictIconPath } from './verdictIcons';
@@ -160,6 +161,7 @@ function refreshOnHeadChange(repository: Repository): void {
 }
 
 export function registerCodetaster(context: vscode.ExtensionContext): void {
+	registerOverviewPreview(context);
 	if (vscode.workspace.getConfiguration(CODETASTER_SETTINGS_NAMESPACE).get<boolean>(OPEN_ON_STARTUP_SETTING, false)) {
 		vscode.commands.executeCommand(OPEN_CODETASTER_CONTAINER_COMMAND);
 	}
@@ -204,10 +206,12 @@ function fileListNodes(parent: TreeNode, files: readonly PullRequestFileNode[], 
 export class CategoryGroupNode extends TreeNode implements vscode.TreeItem {
 	public collapsibleState: vscode.TreeItemCollapsibleState;
 	public readonly contextValue: string;
+	public readonly tooltip: string | undefined;
 
 	constructor(parent: TreeNodeParent, group: CategoryGroup<PullRequestFileNode>, layout: string | undefined) {
 		super(parent);
 		this.label = group.label;
+		this.tooltip = group.tooltip;
 		this.contextValue = `codetaster:categoryGroup:${group.kind}`;
 		this._children = fileListNodes(this, group.files.map(entry => entry.file), layout);
 		this.collapsibleState = !group.files.length
@@ -369,7 +373,9 @@ function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: P
  * The children of a PR file list if the PR is checked out: a placeholder while the
  * PR's first check runs (later re-runs keep showing the last report), then one node per
  * category of the files' AI ratings, each holding its files in the configured layout,
- * or an error and no files if the check fails. Each file's icon shows its verdict.
+ * or an error and no files if the check fails. A summary node, which opens the PR
+ * summary and category descriptions, precedes the categories when the ratings file
+ * has them. Each file's icon shows its verdict.
  * Warnings precede the groups when the check ran on a different commit than the PR
  * head, or ignored an invalid ratings file. Undefined if the PR is not checked out, so
  * the caller shows upstream's file list.
@@ -432,5 +438,8 @@ export function codetasterFileNodes(
 		headMismatchWarning(report.head.commit, pullRequestHead(allFiles)),
 		ratingsErrorWarning(report.ratings_error),
 	].filter((warning): warning is string => warning !== undefined);
-	return [...warnings.map(warning => new CodetasterWarningNode(parent, warning)), ...groups];
+	const summary = report.overview
+		? [summaryNode(parent, folderRepoManager.repository.rootUri.fsPath, pullRequest.number, report.overview)]
+		: [];
+	return [...warnings.map(warning => new CodetasterWarningNode(parent, warning)), ...summary, ...groups];
 }

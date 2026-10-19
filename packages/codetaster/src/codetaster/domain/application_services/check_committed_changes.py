@@ -8,7 +8,7 @@ from codetaster.domain.domain_model.review.check_result import CheckResult
 from codetaster.domain.domain_model.review.needs_review_threshold import (
     NeedsReviewThreshold,
 )
-from codetaster.domain.domain_model.review.ratings import RatingsFile
+from codetaster.domain.domain_model.review.ratings import FileRatings, RatingsFile
 from codetaster.domain.domain_model.review.ratings_validation import (
     InvalidRatingsFile,
 )
@@ -53,13 +53,13 @@ def check_committed_changes(
         return branch
     change = branch.value.change
     ratings = ratings_files.read_ratings(branch.value.ratings_location)
-    ratings_file = RatingsFile(ratings=())
+    ratings_file: RatingsFile | None = None
     ratings_problem = None
     if isinstance(ratings, Err):
         ratings_problem = InvalidRatingsFile(
             location=ratings.error.location, reason=ratings.error.reason
         )
-    elif ratings.value is not None:
+    else:
         ratings_file = ratings.value
     review = branch.value.review
     threshold = request.threshold_override or review.needs_review_threshold
@@ -73,10 +73,11 @@ def check_committed_changes(
                 change.files,
                 review.base_probability,
                 review.path_rules,
-                ratings_file,
+                FileRatings(()) if ratings_file is None else ratings_file.ratings,
                 threshold,
             ),
             working_tree=branch.value.working_tree,
             ratings_problem=ratings_problem,
+            overview=None if ratings_file is None else ratings_file.overview(),
         )
     )

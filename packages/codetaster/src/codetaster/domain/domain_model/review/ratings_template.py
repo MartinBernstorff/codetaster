@@ -1,7 +1,7 @@
 """A ratings file with every changed file listed and nothing rated yet.
 
-An agent fills in `probability` and `category` for each entry. Until it does, the
-template does not parse as a ratings file.
+An agent fills in the summary, the categories, and `probability` and `category`
+for each entry. Until it does, the template does not parse as a ratings file.
 """
 
 from pydantic import BaseModel, ConfigDict
@@ -36,9 +36,24 @@ class BlankRating(BaseModel):
         return RatingTarget(path=self.path, blob=self.blob)
 
 
+class BlankCategory(BaseModel):
+    """A placeholder that shows the shape of a category."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: None = None
+    description: None = None
+
+    @staticmethod
+    def fake() -> BlankCategory:
+        return BlankCategory()
+
+
 class RatingsTemplate(BaseModel):
     model_config = ConfigDict(frozen=True)
 
+    summary: None = None
+    categories: tuple[BlankCategory, ...] = (BlankCategory(),)
     ratings: tuple[BlankRating, ...]
 
     @staticmethod

@@ -13,7 +13,11 @@ from codetaster.delivery.console.test_repositories import (
     TomlText,
 )
 from codetaster.domain.domain_model.review.probability import Probability
-from codetaster.domain.domain_model.review.ratings import RatingCategory
+from codetaster.domain.domain_model.review.ratings import (
+    CategoryDescription,
+    PullRequestSummary,
+    RatingCategory,
+)
 
 
 def run_check(repository: Repository, options: CliOptions) -> Result:
@@ -100,6 +104,13 @@ def write_feature_rating(
     _ = ratings.write_text(
         json.dumps(
             {
+                "summary": PullRequestSummary.fake().root,
+                "categories": [
+                    {
+                        "name": category.root,
+                        "description": CategoryDescription.fake().root,
+                    }
+                ],
                 "ratings": [
                     {
                         "path": "feature.py",
@@ -107,7 +118,7 @@ def write_feature_rating(
                         "probability": probability.root,
                         "category": category.root,
                     }
-                ]
+                ],
             }
         )
     )
@@ -130,6 +141,22 @@ def test_a_rated_file_needs_review(unsampled_repository: Repository) -> None:
     assert result.exit_code == 0
     [file] = json.loads(result.stdout)["needs-review"]
     assert file["rating"]["category"] == category.root
+
+
+def test_reports_the_summary_and_category_descriptions(
+    unsampled_repository: Repository,
+) -> None:
+    category = RatingCategory.fake()
+    write_feature_rating(unsampled_repository, category, Probability(1))
+
+    result = run_check(unsampled_repository, CliOptions.fake())
+
+    assert json.loads(result.stdout)["overview"] == {
+        "summary": PullRequestSummary.fake().root,
+        "categories": [
+            {"name": category.root, "description": CategoryDescription.fake().root}
+        ],
+    }
 
 
 def test_needs_review_threshold_overrides_the_configured_one(

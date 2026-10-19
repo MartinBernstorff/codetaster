@@ -3,12 +3,19 @@
 The ratings file is JSON:
 
     {
+      "summary": "Markdown summary of the PR, referring to its categories",
+      "categories": [
+        {
+          "name": "Retry failed payments",
+          "description": "Markdown description of this part of the PR"
+        }
+      ],
       "ratings": [
         {
           "path": "src/module.py",
           "blob": "<after-blob SHA, or null for a deleted file>",
           "probability": 0.8,
-          "category": "1. Retry failed payments"
+          "category": "Retry failed payments"
         }
       ]
     }
@@ -47,7 +54,69 @@ class RatingCategory(RootModel[Annotated[str, Field(min_length=1)]]):
 
     @staticmethod
     def fake() -> RatingCategory:
-        return RatingCategory("1. Retry failed payments")
+        return RatingCategory("Retry failed payments")
+
+
+class PullRequestSummary(RootModel[Annotated[str, Field(min_length=1)]]):
+    """Markdown: what the PR does, referring to its categories by name."""
+
+    model_config = ConfigDict(frozen=True)
+
+    @override
+    def __str__(self) -> str:
+        return self.root
+
+    @staticmethod
+    def fake() -> PullRequestSummary:
+        return PullRequestSummary("Retries failed payments.")
+
+
+class CategoryDescription(RootModel[Annotated[str, Field(min_length=1)]]):
+    """Markdown: what a category's files change, and why."""
+
+    model_config = ConfigDict(frozen=True)
+
+    @override
+    def __str__(self) -> str:
+        return self.root
+
+    @staticmethod
+    def fake() -> CategoryDescription:
+        return CategoryDescription("Retries a payment when the provider times out.")
+
+
+class DescribedCategory(BaseModel):
+    """A category of the PR and its description."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: RatingCategory = Field(
+        description="What ratings put in `category` to place a file in it."
+    )
+    description: CategoryDescription = Field(
+        description="Markdown: what the category's files change, and why."
+    )
+
+    @staticmethod
+    def fake() -> DescribedCategory:
+        return DescribedCategory(
+            name=RatingCategory.fake(), description=CategoryDescription.fake()
+        )
+
+
+class PullRequestOverview(BaseModel):
+    """The summary of the PR, and its categories in the order to show them."""
+
+    model_config = ConfigDict(frozen=True)
+
+    summary: PullRequestSummary
+    categories: tuple[DescribedCategory, ...]
+
+    @staticmethod
+    def fake() -> PullRequestOverview:
+        return PullRequestOverview(
+            summary=PullRequestSummary.fake(), categories=(DescribedCategory.fake(),)
+        )
 
 
 class RatingTarget(BaseModel):
@@ -91,7 +160,7 @@ class FileRating(BaseModel):
     )
     category: RatingCategory = Field(
         description="Which part of the PR the file belongs to, e.g. a feature, "
-        "refactor or move."
+        "refactor or move. The name of one of `categories`."
     )
 
     @staticmethod
@@ -108,25 +177,48 @@ class FileRating(BaseModel):
         return RatingTarget(path=self.path, blob=self.blob)
 
 
-class RatingsFile(BaseModel):
-    """The ratings file's content. Ratings for files not in the change are ignored."""
+class FileRatings(RootModel[tuple[FileRating, ...]]):
+    """Ratings for files not in the change are ignored."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    ratings: tuple[FileRating, ...]
+    model_config = ConfigDict(frozen=True)
 
     @staticmethod
-    def fake() -> RatingsFile:
-        return RatingsFile(ratings=(FileRating.fake(),))
+    def fake() -> FileRatings:
+        return FileRatings((FileRating.fake(),))
 
     def rating_for(self, change: FileChange) -> FileRating | None:
         """The matching rating, or `None`. Of several matches, the highest wins."""
         target = RatingTarget.of_change(change)
         matching = sorted(
-            (rating for rating in self.ratings if rating.target() == target),
+            (rating for rating in self.root if rating.target() == target),
             key=lambda rating: rating.probability.root,
         )
         return matching[-1] if matching else None
+
+
+class RatingsFile(BaseModel):
+    """The ratings file's content."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    summary: PullRequestSummary = Field(
+        description="Markdown: what the PR does, referring to its categories by name."
+    )
+    categories: tuple[DescribedCategory, ...] = Field(
+        description="The parts of the PR, in the order a reviewer should read them."
+    )
+    ratings: FileRatings
+
+    @staticmethod
+    def fake() -> RatingsFile:
+        return RatingsFile(
+            summary=PullRequestSummary.fake(),
+            categories=(DescribedCategory.fake(),),
+            ratings=FileRatings.fake(),
+        )
+
+    def overview(self) -> PullRequestOverview:
+        return PullRequestOverview(summary=self.summary, categories=self.categories)
 
 
 class RatingsFileContent(RootModel[str]):

@@ -7,7 +7,11 @@ from pydantic import BaseModel, ConfigDict, RootModel
 from codetaster.domain.domain_model.configuration.errors import ErrorReason
 from codetaster.domain.domain_model.filesystem import Location
 from codetaster.domain.domain_model.review.changes import FileChanges
-from codetaster.domain.domain_model.review.ratings import RatingsFile, RatingTarget
+from codetaster.domain.domain_model.review.ratings import (
+    RatingCategory,
+    RatingsFile,
+    RatingTarget,
+)
 
 
 class MissingRatingsFile(BaseModel):
@@ -87,7 +91,43 @@ class DuplicateRating(BaseModel):
         return DuplicateRating(target=RatingTarget.fake())
 
 
-RatingProblem = (
+class UndeclaredCategory(BaseModel):
+    """A category that ratings use but `categories` does not describe."""
+
+    model_config = ConfigDict(frozen=True)
+
+    category: RatingCategory
+
+    @staticmethod
+    def fake() -> UndeclaredCategory:
+        return UndeclaredCategory(category=RatingCategory.fake())
+
+
+class UnusedCategory(BaseModel):
+    """A category in `categories` that no rating uses."""
+
+    model_config = ConfigDict(frozen=True)
+
+    category: RatingCategory
+
+    @staticmethod
+    def fake() -> UnusedCategory:
+        return UnusedCategory(category=RatingCategory.fake())
+
+
+class DuplicateCategory(BaseModel):
+    """More than one entry in `categories` with the same name."""
+
+    model_config = ConfigDict(frozen=True)
+
+    category: RatingCategory
+
+    @staticmethod
+    def fake() -> DuplicateCategory:
+        return DuplicateCategory(category=RatingCategory.fake())
+
+
+FileRatingProblem = (
     MissingRatingsFile
     | InvalidRatingsFile
     | UnratedFile
@@ -95,6 +135,10 @@ RatingProblem = (
     | UnknownRating
     | DuplicateRating
 )
+
+CategoryProblem = UndeclaredCategory | UnusedCategory | DuplicateCategory
+
+RatingProblem = FileRatingProblem | CategoryProblem
 
 
 class RatingProblems(RootModel[tuple[RatingProblem, ...]]):
@@ -106,7 +150,8 @@ class RatingProblems(RootModel[tuple[RatingProblem, ...]]):
 
 
 def find_rating_problems(changes: FileChanges, ratings: RatingsFile) -> RatingProblems:
-    """Compare the ratings with the changes, which should be rated exactly once each.
+    """Compare the ratings with the changes, which should be rated exactly once each,
+    and check every category is declared once and used.
 
     A changed file with a stale rating is reported as stale, not also as unrated.
     """
@@ -114,7 +159,7 @@ def find_rating_problems(changes: FileChanges, ratings: RatingsFile) -> RatingPr
         target.path: target
         for target in (RatingTarget.of_change(change) for change in changes.root)
     }
-    rated = Counter(rating.target() for rating in ratings.ratings)
+    rated = Counter(rating.target() for rating in ratings.ratings.root)
     stale = tuple(
         StaleRating(rating=target, current=current_by_path[target.path])
         for target in rated
@@ -134,4 +179,27 @@ def find_rating_problems(changes: FileChanges, ratings: RatingsFile) -> RatingPr
     duplicates = tuple(
         DuplicateRating(target=target) for target, count in rated.items() if count > 1
     )
-    return RatingProblems((*unrated, *stale, *unknown, *duplicates))
+    return RatingProblems(
+        (*unrated, *stale, *unknown, *duplicates, *find_category_problems(ratings))
+    )
+
+
+def find_category_problems(ratings: RatingsFile) -> tuple[CategoryProblem, ...]:
+    declared = Counter(category.name for category in ratings.categories)
+    used = dict.fromkeys(rating.category for rating in ratings.ratings.root)
+    undeclared = tuple(
+        UndeclaredCategory(category=category)
+        for category in used
+        if category not in declared
+    )
+    unused = tuple(
+        UnusedCategory(category=category)
+        for category in declared
+        if category not in used
+    )
+    duplicates = tuple(
+        DuplicateCategory(category=category)
+        for category, count in declared.items()
+        if count > 1
+    )
+    return (*undeclared, *unused, *duplicates)

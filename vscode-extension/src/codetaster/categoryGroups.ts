@@ -17,7 +17,15 @@ export interface CategoryGroup<File> {
 	readonly files: readonly GroupedFile<File>[];
 	/** Whether the group starts collapsed. A group whose files all need no review is, as they need no attention. */
 	readonly collapsed: boolean;
+	/** What the group holds, for the groups outside the categories. Categories are described in the overview. */
+	readonly tooltip?: string;
 }
+
+const GROUP_TOOLTIPS: Record<CategoryGroupKind, string | undefined> = {
+	'not-checked': 'Files in the PR that codetaster check did not assess, e.g. the ratings file, or files changed since the commit the check ran on.',
+	category: undefined,
+	unrated: 'Changed files with no rating for their current version. Run "codetaster ratings validate" to see why.',
+};
 
 function categoryGroup<File>(kind: CategoryGroupKind, name: string, files: readonly GroupedFile<File>[]): CategoryGroup<File> {
 	return {
@@ -25,12 +33,14 @@ function categoryGroup<File>(kind: CategoryGroupKind, name: string, files: reado
 		label: `${name} (${files.length})`,
 		files,
 		collapsed: files.every(entry => entry.verdict === 'no-review'),
+		tooltip: GROUP_TOOLTIPS[kind],
 	};
 }
 
 /**
- * Splits the PR's files by the category of their AI rating, sorted by name with
- * numbers compared by value, so "2." comes before "10.". Each file keeps the verdict
+ * Splits the PR's files by the category of their AI rating. Categories are in the
+ * order the report's overview lists them; any it does not list follow, sorted by name
+ * with numbers compared by value, so "2." comes before "10.". Each file keeps the verdict
  * the check gave it. PR files the check did not list (e.g. when the local checkout is
  * not at the PR's head) go in a group before the categories, and files the check
  * listed without a rating in a group after them, each present only when non-empty,
@@ -61,7 +71,9 @@ export function groupFilesByCategory<File>(
 			filesByCategory.set(category, [...(filesByCategory.get(category) ?? []), { file, verdict: checked.verdict }]);
 		}
 	}
-	const categories = [...filesByCategory.keys()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+	const overviewOrder = new Map((report.overview?.categories ?? []).map((category, index) => [category.name, index]));
+	const categories = [...filesByCategory.keys()].sort((a, b) =>
+		(overviewOrder.get(a) ?? Infinity) - (overviewOrder.get(b) ?? Infinity) || a.localeCompare(b, undefined, { numeric: true }));
 	return [
 		...(notChecked.length ? [categoryGroup('not-checked', 'Not in codetaster check', notChecked)] : []),
 		...categories.map(category => categoryGroup('category', category, filesByCategory.get(category)!)),

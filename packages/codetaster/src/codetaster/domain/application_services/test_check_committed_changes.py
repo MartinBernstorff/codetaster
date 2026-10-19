@@ -26,11 +26,11 @@ from codetaster.domain.domain_model.review.needs_review_threshold import (
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import (
     FileRating,
-    RatingsFile,
     RatingsFileContent,
     ratings_file_location,
 )
 from codetaster.domain.domain_model.review.sampling import Verdict
+from codetaster.domain.domain_model.review.test_strategies import ratings_file_of
 
 # Domain tests use the fakes from infrastructure, which tach otherwise forbids.
 from codetaster.infrastructure.committed_changes.fake_committed_changes import (
@@ -183,7 +183,7 @@ def ratings_at(
         ratings_file_location(
             CheckRequest.fake().checkout, configuration.review.ratings_path
         ),
-        RatingsFile(ratings=ratings),
+        ratings_file_of(*ratings),
     )
     return store
 

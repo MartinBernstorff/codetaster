@@ -11,7 +11,7 @@ from codetaster.domain.domain_model.review.needs_review_threshold import (
 )
 from codetaster.domain.domain_model.review.path_rules import PathRule, PathRules
 from codetaster.domain.domain_model.review.probability import Probability
-from codetaster.domain.domain_model.review.ratings import FileRating, RatingsFile
+from codetaster.domain.domain_model.review.ratings import FileRating, FileRatings
 
 
 class Draw(RootModel[Annotated[float, Field(ge=0, lt=1)]]):
@@ -98,7 +98,7 @@ def assess_file_changes(
     changes: FileChanges,
     base_probability: Probability,
     path_rules: PathRules,
-    ratings: RatingsFile,
+    ratings: FileRatings,
     threshold: NeedsReviewThreshold,
 ) -> FileAssessments:
     """A matching path rule's probability replaces `base_probability` for sampling."""

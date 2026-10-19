@@ -8,6 +8,7 @@ from codetaster.domain.domain_model.review.changes import (
 from codetaster.domain.domain_model.review.needs_review_threshold import (
     NeedsReviewThreshold,
 )
+from codetaster.domain.domain_model.review.ratings import PullRequestOverview
 from codetaster.domain.domain_model.review.ratings_validation import (
     InvalidRatingsFile,
 )
@@ -27,6 +28,8 @@ class CheckResult(BaseModel):
     working_tree: WorkingTreeState
     ratings_problem: InvalidRatingsFile | None
     """Why the ratings file was ignored, leaving every file unrated."""
+    overview: PullRequestOverview | None
+    """From the ratings file. `None` if it is missing or invalid."""
 
     @staticmethod
     def fake() -> CheckResult:
@@ -38,6 +41,7 @@ class CheckResult(BaseModel):
             assessments=FileAssessments.fake(),
             working_tree=WorkingTreeState.CLEAN,
             ratings_problem=None,
+            overview=PullRequestOverview.fake(),
         )
 
     def verdict(self) -> Verdict:

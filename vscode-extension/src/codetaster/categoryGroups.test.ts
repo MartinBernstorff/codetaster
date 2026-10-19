@@ -61,6 +61,27 @@ describe('groupFilesByCategory', () => {
 		assert.deepStrictEqual(groups.map(group => group.label), ['2. Logic (1)', '10. Docs (1)', 'A (1)', 'b (1)']);
 	});
 
+	it('orders categories as the overview lists them, then any it does not list by name', () => {
+		const report = {
+			...fakeCheckReport({ sampled: { 'a.py': 'A', 'b.py': 'B', 'c.py': 'C', 'd.py': 'D' } }),
+			overview: { summary: 'Summary.', categories: [{ name: 'C', description: 'C.' }, { name: 'A', description: 'A.' }] },
+		};
+
+		const groups = groupFakeFiles(report, filesNamed('a.py', 'b.py', 'c.py', 'd.py'));
+
+		assert.deepStrictEqual(groups.map(group => group.label), ['C (1)', 'A (1)', 'B (1)', 'D (1)']);
+	});
+
+	it('explains the groups outside the categories, and leaves categories to the overview', () => {
+		const report = fakeCheckReport({ needsReview: { 'a.py': undefined }, sampled: { 'b.py': 'Z' } });
+
+		const groups = groupFakeFiles(report, filesNamed('a.py', 'b.py', 'missing.py'));
+
+		assert.deepStrictEqual(groups.map(group => [group.kind, group.tooltip !== undefined]), [
+			['not-checked', true], ['category', false], ['unrated', true],
+		]);
+	});
+
 	it('shows PR files the check did not list in a group before the categories, so none are hidden', () => {
 		const report = fakeCheckReport({ noReview: { 'c.py': 'A' } });
 		const [c, missing] = filesNamed('c.py', 'missing.py');

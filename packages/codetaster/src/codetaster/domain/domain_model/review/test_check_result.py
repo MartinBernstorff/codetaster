@@ -10,7 +10,7 @@ from codetaster.domain.domain_model.review.needs_review_threshold import (
 )
 from codetaster.domain.domain_model.review.path_rules import PathRules
 from codetaster.domain.domain_model.review.probability import Probability
-from codetaster.domain.domain_model.review.ratings import RatingsFile
+from codetaster.domain.domain_model.review.ratings import FileRatings
 from codetaster.domain.domain_model.review.sampling import (
     FileAssessment,
     FileAssessments,
@@ -80,8 +80,8 @@ def test_the_groups_partition_the_changed_files(
     threshold: NeedsReviewThreshold,
     data: st.DataObject,
 ) -> None:
-    ratings = RatingsFile(
-        ratings=tuple(
+    ratings = FileRatings(
+        tuple(
             rating
             for change in changes
             if (rating := data.draw(st.one_of(st.none(), ratings_of(change))))

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import JsonValue
 from typer.testing import CliRunner, Result
 
 from codetaster.delivery.console.app import app
@@ -15,6 +16,7 @@ from codetaster.delivery.console.test_repositories import (
 from codetaster.domain.domain_model.review.changes import BlobSha, RepositoryPath
 from codetaster.domain.domain_model.review.ratings import FileRating, RatingsFile
 from codetaster.domain.domain_model.review.ratings_template import RatingsTemplate
+from codetaster.domain.domain_model.review.test_strategies import ratings_file_of
 
 
 def run_template(repository: Repository, options: CliOptions) -> Result:
@@ -37,11 +39,9 @@ def test_prints_a_template_entry_for_the_changed_file(
 ) -> None:
     # The blob SHA of feature.py, which is empty.
     empty_blob = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
-
-    result = run_template(repository, CliOptions.fake())
-
-    assert result.exit_code == 0
-    assert json.loads(result.stdout) == {
+    expected_template: JsonValue = {
+        "summary": None,
+        "categories": [{"name": None, "description": None}],
         "ratings": [
             {
                 "path": "feature.py",
@@ -49,8 +49,13 @@ def test_prints_a_template_entry_for_the_changed_file(
                 "probability": None,
                 "category": None,
             }
-        ]
+        ],
     }
+
+    result = run_template(repository, CliOptions.fake())
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == expected_template
 
 
 def test_unknown_base_exits_non_zero(tmp_path: Path) -> None:
@@ -97,8 +102,8 @@ def write_ratings(
 def filled_template(repository: Repository) -> RatingsFile:
     """The template from `ratings template`, with every entry rated."""
     template = printed_template(run_template(repository, CliOptions.fake()))
-    return RatingsFile(
-        ratings=tuple(
+    return ratings_file_of(
+        *(
             FileRating.fake().model_copy(
                 update={"path": entry.path, "blob": entry.blob}
             )
@@ -119,7 +124,7 @@ def test_an_unrated_file_exits_non_zero_and_names_the_file(
     repository: Repository,
 ) -> None:
     unrated = "feature.py"
-    write_ratings(repository, RatingsFile(ratings=()))
+    write_ratings(repository, ratings_file_of())
 
     result = run_validate(repository, CliOptions.fake())
 
@@ -130,9 +135,9 @@ def test_an_unrated_file_exits_non_zero_and_names_the_file(
 def test_a_stale_rating_gives_the_current_blob(repository: Repository) -> None:
     # The blob SHA of feature.py, which is empty.
     current_blob = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
-    [rating] = filled_template(repository).ratings
+    [rating] = filled_template(repository).ratings.root
     stale = rating.model_copy(update={"blob": BlobSha("0" * 40)})
-    write_ratings(repository, RatingsFile(ratings=(stale,)))
+    write_ratings(repository, ratings_file_of(stale))
 
     result = run_validate(repository, CliOptions.fake())
 
@@ -144,9 +149,9 @@ def test_an_unknown_rating_exits_non_zero_and_names_the_path(
     repository: Repository,
 ) -> None:
     unknown = "unchanged.py"
-    [rating] = filled_template(repository).ratings
+    [rating] = filled_template(repository).ratings.root
     other = rating.model_copy(update={"path": RepositoryPath(unknown)})
-    write_ratings(repository, RatingsFile(ratings=(rating, other)))
+    write_ratings(repository, ratings_file_of(rating, other))
 
     result = run_validate(repository, CliOptions.fake())
 
@@ -155,12 +160,25 @@ def test_an_unknown_rating_exits_non_zero_and_names_the_path(
 
 
 def test_a_duplicate_rating_exits_non_zero(repository: Repository) -> None:
-    [rating] = filled_template(repository).ratings
-    write_ratings(repository, RatingsFile(ratings=(rating, rating)))
+    [rating] = filled_template(repository).ratings.root
+    write_ratings(repository, ratings_file_of(rating, rating))
 
     result = run_validate(repository, CliOptions.fake())
 
     assert result.exit_code == 1
+
+
+def test_an_undescribed_category_exits_non_zero_and_names_it(
+    repository: Repository,
+) -> None:
+    ratings = filled_template(repository)
+    [rating] = ratings.ratings.root
+    write_ratings(repository, ratings.model_copy(update={"categories": ()}))
+
+    result = run_validate(repository, CliOptions.fake())
+
+    assert result.exit_code == 1
+    assert rating.category.root in result.stderr
 
 
 def test_a_missing_ratings_file_exits_non_zero_and_names_its_location(
@@ -193,7 +211,7 @@ def test_validate_base_option_overrides_the_configured_base(tmp_path: Path) -> N
         tmp_path,
         TomlText('[review]\nbase_branch = "no-such-branch"\nbase_probability = 1\n'),
     )
-    write_ratings(repository, RatingsFile(ratings=()))
+    write_ratings(repository, ratings_file_of())
     unrated = "feature.py"
 
     result = run_validate(repository, CliOptions(("--base", "main")))

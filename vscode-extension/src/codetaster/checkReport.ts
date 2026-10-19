@@ -21,6 +21,20 @@ export interface FileReport {
 	readonly draw: number;
 }
 
+export interface CategoryReport {
+	readonly name: string;
+	/** Markdown. */
+	readonly description: string;
+}
+
+/** The PR summary and category descriptions from the ratings file. */
+export interface OverviewReport {
+	/** Markdown, referring to the categories by name. */
+	readonly summary: string;
+	/** In the order a reviewer should read them. */
+	readonly categories: readonly CategoryReport[];
+}
+
 export interface CheckReport {
 	readonly schema_version: 4;
 	readonly needs_review: boolean;
@@ -30,6 +44,8 @@ export interface CheckReport {
 	readonly needs_review_threshold: number;
 	/** Why an invalid ratings file was ignored, leaving every file unrated. Absent from older codetaster versions. */
 	readonly ratings_error?: string | null;
+	/** null when the ratings file is missing or invalid. Absent from older codetaster versions. */
+	readonly overview?: OverviewReport | null;
 	readonly 'needs-review': readonly FileReport[];
 	readonly sampled: readonly FileReport[];
 	readonly 'no-review': readonly FileReport[];
@@ -46,6 +62,13 @@ export type ParsedCheckReport =
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isOverview(value: unknown): boolean {
+	return isRecord(value)
+		&& typeof value.summary === 'string'
+		&& Array.isArray(value.categories)
+		&& value.categories.every(category => isRecord(category) && typeof category.name === 'string' && typeof category.description === 'string');
 }
 
 function invalidReport(message: string): ParsedCheckReport {
@@ -76,6 +99,9 @@ export function parseCheckReport(output: string): ParsedCheckReport {
 		if (!Array.isArray(files) || !files.every(file => isRecord(file) && typeof file.path === 'string')) {
 			return invalidReport(`Its output has no "${key}" list of files with paths.`);
 		}
+	}
+	if (json.overview !== undefined && json.overview !== null && !isOverview(json.overview)) {
+		return invalidReport('Its output has an "overview" without a summary and described categories.');
 	}
 	return { kind: 'report', report: json as unknown as CheckReport };
 }

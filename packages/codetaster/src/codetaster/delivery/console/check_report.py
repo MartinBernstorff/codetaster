@@ -16,7 +16,14 @@ from codetaster.domain.domain_model.review.needs_review_threshold import (
 )
 from codetaster.domain.domain_model.review.path_rules import PathPattern, PathRule
 from codetaster.domain.domain_model.review.probability import Probability
-from codetaster.domain.domain_model.review.ratings import FileRating, RatingCategory
+from codetaster.domain.domain_model.review.ratings import (
+    CategoryDescription,
+    DescribedCategory,
+    FileRating,
+    PullRequestOverview,
+    PullRequestSummary,
+    RatingCategory,
+)
 from codetaster.domain.domain_model.review.ratings_validation import (
     InvalidRatingsFile,
 )
@@ -95,6 +102,35 @@ class RatingReport(BaseModel):
     @staticmethod
     def fake() -> RatingReport:
         return rating_report_from_rating(FileRating.fake())
+
+
+class CategoryReport(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    name: RatingCategory = Field(description="As in each file's rating.category.")
+    description: CategoryDescription = Field(
+        description="Markdown: what the category's files change, and why."
+    )
+
+    @staticmethod
+    def fake() -> CategoryReport:
+        return category_report_from_category(DescribedCategory.fake())
+
+
+class OverviewReport(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    summary: PullRequestSummary = Field(
+        description="Markdown: what the PR does, referring to its categories by name."
+    )
+    categories: tuple[CategoryReport, ...] = Field(
+        description="The categories the ratings file describes, in the order a "
+        "reviewer should read them."
+    )
+
+    @staticmethod
+    def fake() -> OverviewReport:
+        return overview_report_from_overview(PullRequestOverview.fake())
 
 
 class PathRuleReport(BaseModel):
@@ -186,6 +222,10 @@ class CheckReport(BaseModel):
         description="Why the ratings file at [review] ratings_path was ignored, "
         "leaving every file unrated. null if it is valid or missing."
     )
+    overview: OverviewReport | None = Field(
+        description="The PR summary and category descriptions from the ratings "
+        "file. null if it is missing or invalid."
+    )
     needs_review_files: tuple[FileReport, ...] = Field(
         serialization_alias="needs-review",
         description="The rated files whose rating is at or above "
@@ -224,6 +264,9 @@ def check_report_from_result(result: CheckResult) -> CheckReport:
         ratings_error=None
         if result.ratings_problem is None
         else ratings_error_message(result.ratings_problem),
+        overview=None
+        if result.overview is None
+        else overview_report_from_overview(result.overview),
         needs_review_files=files_with(Verdict.NEEDS_REVIEW),
         sampled_files=files_with(Verdict.SAMPLED),
         no_review_files=files_with(Verdict.NO_REVIEW),
@@ -259,3 +302,16 @@ def path_rule_report_from_rule(rule: PathRule) -> PathRuleReport:
 
 def rating_report_from_rating(rating: FileRating) -> RatingReport:
     return RatingReport(probability=rating.probability, category=rating.category)
+
+
+def overview_report_from_overview(overview: PullRequestOverview) -> OverviewReport:
+    return OverviewReport(
+        summary=overview.summary,
+        categories=tuple(
+            category_report_from_category(category) for category in overview.categories
+        ),
+    )
+
+
+def category_report_from_category(category: DescribedCategory) -> CategoryReport:
+    return CategoryReport(name=category.name, description=category.description)
