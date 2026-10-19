@@ -3,15 +3,10 @@ from safe_result import Err, Ok, Result
 
 from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.configuration.configuration import Configuration
-from codetaster.domain.domain_model.filesystem import Location
 from codetaster.domain.domain_model.review.changes import (
     RevisionName,
     WorkingTreeState,
 )
-from codetaster.domain.domain_model.review.needs_review_threshold import (
-    NeedsReviewThreshold,
-)
-from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings_template import RatingsTemplate
 from codetaster.domain.domain_services.branch_change import (
     BranchChangeError,
@@ -32,23 +27,17 @@ class RatingsTemplateRequest(BaseModel):
 
 
 class RatingsTemplateResult(BaseModel):
-    """The template, and the review settings an agent needs to fill it in."""
+    """The template, and whether uncommitted changes were left out of it."""
 
     model_config = ConfigDict(frozen=True)
 
     template: RatingsTemplate
-    ratings_location: Location
-    base_probability: Probability
-    needs_review_threshold: NeedsReviewThreshold
     working_tree: WorkingTreeState
 
     @staticmethod
     def fake() -> RatingsTemplateResult:
         return RatingsTemplateResult(
             template=RatingsTemplate.fake(),
-            ratings_location=Location.fake(),
-            base_probability=Probability.fake(),
-            needs_review_threshold=NeedsReviewThreshold.fake(),
             working_tree=WorkingTreeState.CLEAN,
         )
 
@@ -70,9 +59,6 @@ def create_ratings_template(
     return Ok(
         RatingsTemplateResult(
             template=RatingsTemplate.of_changes(branch.value.change.files),
-            ratings_location=branch.value.ratings_location,
-            base_probability=branch.value.review.base_probability,
-            needs_review_threshold=branch.value.review.needs_review_threshold,
             working_tree=branch.value.working_tree,
         )
     )

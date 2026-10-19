@@ -16,10 +16,7 @@ from codetaster.domain.domain_model.review.changes import (
     WorkingTreeState,
 )
 from codetaster.domain.domain_model.review.errors import UnknownRevisionError
-from codetaster.domain.domain_model.review.ratings import (
-    RatingTarget,
-    ratings_file_location,
-)
+from codetaster.domain.domain_model.review.ratings import RatingTarget
 
 # Domain tests use the fakes from infrastructure, which tach otherwise forbids.
 from codetaster.infrastructure.committed_changes.fake_committed_changes import (
@@ -91,21 +88,6 @@ def test_never_lists_the_ratings_file() -> None:
     result = created_template(configuration, history)
 
     assert [entry.path for entry in result.template.ratings] == [other]
-
-
-def test_reports_the_review_settings_the_agent_needs() -> None:
-    configuration = Configuration.fake()
-    assert configuration.review is not None
-    history = history_with_feature_branch(
-        configuration.review.base_branch, RepositoryPath.fake()
-    )
-
-    result = created_template(configuration, history)
-
-    assert result.ratings_location == ratings_file_location(
-        RatingsTemplateRequest.fake().checkout, configuration.review.ratings_path
-    )
-    assert result.base_probability == configuration.review.base_probability
 
 
 def test_base_override_replaces_the_configured_base_branch() -> None:
