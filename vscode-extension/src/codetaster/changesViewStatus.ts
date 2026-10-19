@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
+import { CodetasterPlaceholderNode } from './categoryGroupNodes';
 import { changesViewContent, isSameReviewStatus, RepositoryReviewStatus, reviewStatusWithoutPullRequest } from './reviewStatus';
-import { codetasterSkeletonNodes } from './verdictGroupNodes';
 import { GitApiImpl } from '../api/api1';
 import { FolderRepositoryManager, ReposManagerState } from '../github/folderRepositoryManager';
 import { RepositoriesManager } from '../github/repositoriesManager';
@@ -48,8 +48,8 @@ function repositoryName(folderRepoManager: FolderRepositoryManager): string {
 }
 
 /**
- * The changes view's children while it shows no pull request: the verdict groups'
- * skeleton while pull requests are looked up, then why there is nothing to review.
+ * The changes view's children while it shows no pull request: a placeholder while
+ * pull requests are looked up, then why there is nothing to review.
  * Empty when the view's welcome content explains it instead.
  */
 export function codetasterNoPullRequestNodes(parent: TreeNodeParent, git: GitApiImpl, reposManager: RepositoriesManager): TreeNode[] {
@@ -64,7 +64,7 @@ export function codetasterNoPullRequestNodes(parent: TreeNodeParent, git: GitApi
 		})),
 	});
 	switch (content.kind) {
-		case 'skeleton': return codetasterSkeletonNodes(parent);
+		case 'placeholder': return [new CodetasterPlaceholderNode(parent, 'Looking for the pull request…')];
 		case 'messages': return content.messages.map(message => new CodetasterMessageNode(parent, message.text, message.signIn));
 		case 'welcome': return [];
 	}

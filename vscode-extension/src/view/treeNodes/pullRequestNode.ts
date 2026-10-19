@@ -24,7 +24,7 @@ import { InMemFileChangeNode, RemoteFileChangeNode } from './fileChangeNode';
 import { TreeNode, TreeNodeParent } from './treeNode';
 import { NotificationsManager } from '../../notifications/notificationsManager';
 import { PrsTreeModel } from '../prsTreeModel';
-import { codetasterChecks, codetasterFileNodes } from '../../codetaster/verdictGroupNodes';
+import { codetasterChecks, codetasterFileNodes } from '../../codetaster/categoryGroupNodes';
 
 export class PRNode extends TreeNode implements vscode.CommentingRangeProvider2 {
 	static ID = 'PRNode';
@@ -69,8 +69,6 @@ export class PRNode extends TreeNode implements vscode.CommentingRangeProvider2 
 		}));
 		this.resolvePRCommentController();
 		this._register(codetasterChecks.onDidRefresh(() => this.refresh(this)));
-		// codetaster: files with unresolved review threads move to needs-review.
-		this._register(this.pullRequestModel.onDidChangeReviewThreads(() => this.refresh(this)));
 	}
 
 	// #region Tree
@@ -102,7 +100,7 @@ export class PRNode extends TreeNode implements vscode.CommentingRangeProvider2 
 
 			const result: TreeNode[] = [];
 			const layout = vscode.workspace.getConfiguration(PR_SETTINGS_NAMESPACE).get<string>(FILE_LIST_LAYOUT);
-			// codetaster: group the checked-out PR's files by the codetaster check's verdict.
+			// codetaster: group the checked-out PR's files by the categories of their AI ratings.
 			const codetasterNodes = codetasterFileNodes(this, this._folderReposManager, this.pullRequestModel, this._fileChanges, this._fileChanges, layout);
 			if (codetasterNodes) {
 				result.push(...codetasterNodes);

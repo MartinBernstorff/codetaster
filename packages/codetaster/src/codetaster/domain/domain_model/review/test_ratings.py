@@ -35,7 +35,16 @@ def test_parses_a_valid_file() -> None:
 def test_parses_the_documented_format() -> None:
     content = RatingsFileContent(
         '{"ratings": [{"path": "a.py", "blob": null, "probability": 1, '
-        '"reason": "Why."}]}'
+        '"category": "1. Payments"}]}'
+    )
+
+    assert isinstance(parse_ratings_file(content, Location.fake()), Ok)
+
+
+def test_a_category_needs_no_number_prefix() -> None:
+    content = RatingsFileContent(
+        '{"ratings": [{"path": "a.py", "blob": null, "probability": 1, '
+        '"category": "Payments"}]}'
     )
 
     assert isinstance(parse_ratings_file(content, Location.fake()), Ok)
@@ -48,27 +57,32 @@ def test_parses_the_documented_format() -> None:
         RatingsFileContent("[]"),
         RatingsFileContent(
             '{"ratings": [{"path": "a.py", "blob": null, "probability": 1.5, '
-            '"reason": "Why."}]}'
+            '"category": "1. Payments"}]}'
         ),
         RatingsFileContent(
             '{"ratings": [{"path": "a.py", "blob": null, "probability": 1, '
-            '"reason": ""}]}'
+            '"category": ""}]}'
         ),
         RatingsFileContent(
             '{"ratings": [{"path": "a.py", "blob": null, "probability": 1}]}'
         ),
         RatingsFileContent(
             '{"ratings": [{"path": "a.py", "blob": null, "probability": 1, '
-            '"reason": "Why.", "extra": 1}]}'
+            '"category": "1. Payments", "extra": 1}]}'
+        ),
+        RatingsFileContent(
+            '{"ratings": [{"path": "a.py", "blob": null, "probability": 1, '
+            '"reason": "Why."}]}'
         ),
     ],
     ids=[
         "not-json",
         "not-an-object",
         "probability-above-one",
-        "empty-reason",
-        "no-reason",
+        "empty-category",
+        "no-category",
         "unknown-field",
+        "reason-instead-of-category",
     ],
 )
 def test_rejects_an_invalid_file(content: RatingsFileContent) -> None:

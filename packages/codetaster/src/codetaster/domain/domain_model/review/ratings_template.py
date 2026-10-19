@@ -1,6 +1,6 @@
 """A ratings file with every changed file listed and nothing rated yet.
 
-An agent fills in `probability` and `reason` for each entry. Until it does, the
+An agent fills in `probability` and `category` for each entry. Until it does, the
 template does not parse as a ratings file.
 """
 
@@ -22,7 +22,7 @@ class BlankRating(BaseModel):
     path: RepositoryPath
     blob: BlobSha | None
     probability: None = None
-    reason: None = None
+    category: None = None
 
     @staticmethod
     def fake() -> BlankRating:

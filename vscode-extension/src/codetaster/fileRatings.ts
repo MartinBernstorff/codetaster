@@ -1,3 +1,4 @@
+import { FileVerdict } from './categoryGroups';
 import { CheckReport, FILE_LIST_KEYS, FileReport } from './checkReport';
 
 const UNRATED_MARKER = 'unrated';
@@ -10,18 +11,28 @@ function formatPercentage(probability: number): string {
 	return `${Number((probability * 100).toFixed(1))}%`;
 }
 
-/**
- * A file node's plain-text hover: upstream's tooltip, then the file's AI rating and
- * reason, or a note that the file is unrated.
- */
-export function fileHover(upstreamTooltip: string, fileReport: FileReport | undefined): string {
-	if (!fileReport) {
-		return `${upstreamTooltip}\n\nNot in the codetaster check.`;
+function verdictName(verdict: FileVerdict): string {
+	switch (verdict) {
+		case 'needs-review': return 'Needs review';
+		case 'sampled': return 'Sampled';
+		case 'no-review': return 'No review';
+		case 'not-checked': return 'Not in codetaster check';
 	}
-	const ratingLines = fileReport.rating
-		? `AI rating: ${formatPercentage(fileReport.rating.probability)}\nAI reason: ${fileReport.rating.reason}`
+}
+
+/**
+ * A file node's plain-text hover: upstream's tooltip, then the file's verdict and, if
+ * the check listed the file, its AI rating or a note that it is unrated.
+ */
+export function fileHover(upstreamTooltip: string, verdict: FileVerdict, fileReport: FileReport | undefined): string {
+	const verdictLine = `Verdict: ${verdictName(verdict)}`;
+	if (!fileReport) {
+		return `${upstreamTooltip}\n\n${verdictLine}`;
+	}
+	const ratingLine = fileReport.rating
+		? `AI rating: ${formatPercentage(fileReport.rating.probability)}`
 		: 'Unrated: no AI rating matches this version of the file.';
-	return `${upstreamTooltip}\n\n${ratingLines}`;
+	return `${upstreamTooltip}\n\n${verdictLine}\n${ratingLine}`;
 }
 
 /**

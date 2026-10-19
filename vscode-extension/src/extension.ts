@@ -35,7 +35,7 @@ import { StateManager } from './issues/stateManager';
 import { IssueContextProvider } from './lm/issueContextProvider';
 import { PullRequestContextProvider, WorkspaceContextProvider } from './lm/pullRequestContextProvider';
 import { registerTools } from './lm/tools/tools';
-import { registerCodetaster } from './codetaster/verdictGroupNodes';
+import { registerCodetaster } from './codetaster/categoryGroupNodes';
 import { migrate } from './migrations';
 import { NotificationsFeatureRegister } from './notifications/notificationsFeatureRegistar';
 import { NotificationsManager } from './notifications/notificationsManager';

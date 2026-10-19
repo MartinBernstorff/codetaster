@@ -2,7 +2,7 @@ import logging
 
 from safe_result import Err, Ok, Result
 
-from codetaster.domain.domain_model.checkout import CheckoutPath
+from codetaster.domain.domain_model.checkout import CodetasterSources
 from codetaster.domain.domain_model.tool_errors import ToolError
 from codetaster.domain.domain_model.vscode_extension import (
     AllowlistUpdate,
@@ -10,6 +10,7 @@ from codetaster.domain.domain_model.vscode_extension import (
     BuiltExtension,
     ExtensionPackageError,
 )
+from codetaster.domain.secondary_ports.command_line_tools import CommandLineTools
 from codetaster.domain.secondary_ports.extension_build import ExtensionBuild
 from codetaster.domain.secondary_ports.proposed_api_allowlist import (
     ProposedApiAllowlist,
@@ -17,21 +18,33 @@ from codetaster.domain.secondary_ports.proposed_api_allowlist import (
 from codetaster.domain.secondary_ports.vscode_extensions import VsCodeExtensions
 
 
-def install_vscode_extension(
+def install_codetaster(
+    command_line_tools: CommandLineTools,
     build: ExtensionBuild,
     allowlist: ProposedApiAllowlist,
     vscode: VsCodeExtensions,
-    checkout: CheckoutPath,
+    sources: CodetasterSources,
 ) -> Result[BuiltExtension, ToolError | ExtensionPackageError | ArgvFileError]:
-    """Build the forked extension in `checkout` and install it into VS Code.
+    """Install the CLI from `sources`, then build and install the extension from it.
 
-    The fork uses proposed VS Code APIs, which VS Code only enables for allowlisted
-    extensions, so this also adds the extension to the allowlist. Every step is
-    idempotent. Stops at the first step that fails.
+    The extension runs the installed CLI, so both are installed together: an
+    extension installed on its own can call a CLI that is out of date with it.
+
+    The forked extension uses proposed VS Code APIs, which VS Code only enables
+    for allowlisted extensions, so this also adds the extension to the
+    allowlist. Every step is idempotent. Stops at the first step that fails.
     """
     log = logging.getLogger(__name__)
+    log.info("Installing the codetaster CLI from %s", sources.cli_package)
+    if isinstance(
+        cli_installed := command_line_tools.install_command_line_tool(
+            sources.cli_package
+        ),
+        Err,
+    ):
+        return cli_installed
     log.info("Building the VS Code extension")
-    match build.build_extension_package(checkout):
+    match build.build_extension_package(sources.checkout):
         case Err() as failed:
             return failed
         case Ok(built):
@@ -46,5 +59,8 @@ def install_vscode_extension(
     log.info("Installing %s", built.package)
     if isinstance(installed := vscode.install_extension_package(built.package), Err):
         return installed
-    log.info("Installed %s. Restart VS Code to load it.", built.extension_id)
+    log.info(
+        "Installed the codetaster CLI and %s. Restart VS Code to load it.",
+        built.extension_id,
+    )
     return Ok(built)

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { CategoryGroup, groupFilesByCategory, needsReviewShareDescription } from './categoryGroups';
 import { CheckReport } from './checkReport';
 import { CheckOutcome, CodetasterChecks } from './codetasterCheck';
 import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
@@ -6,7 +7,7 @@ import { headMismatchWarning } from './headMismatch';
 import { NodeCodetasterProcess } from './nodeCodetasterProcess';
 import { ratingsErrorWarning } from './ratingsError';
 import { nextFileToReview, OrderedFile, reviewOrder } from './reviewOrder';
-import { groupFilesByVerdict, skeletonGroupLabels, VerdictGroup } from './verdictGroups';
+import { verdictIconPath } from './verdictIcons';
 import type { Repository } from '../api/api';
 import { ViewedState } from '../common/comment';
 import { findLocalRepoRemoteFromGitHubRef } from '../common/githubRef';
@@ -16,7 +17,7 @@ import { FolderRepositoryManager } from '../github/folderRepositoryManager';
 import { PullRequestModel } from '../github/pullRequestModel';
 import { DirectoryTreeNode } from '../view/treeNodes/directoryTreeNode';
 import { FileChangeNode, GitFileChangeNode, InMemFileChangeNode, RemoteFileChangeNode } from '../view/treeNodes/fileChangeNode';
-import { LabelOnlyNode, TreeNode, TreeNodeParent } from '../view/treeNodes/treeNode';
+import { TreeNode, TreeNodeParent } from '../view/treeNodes/treeNode';
 
 export const CODETASTER_SETTINGS_NAMESPACE = 'codetaster';
 export const EXECUTABLE_PATH_SETTING = 'executablePath';
@@ -200,15 +201,15 @@ function fileListNodes(parent: TreeNode, files: readonly PullRequestFileNode[], 
 	return sorted;
 }
 
-export class VerdictGroupNode extends TreeNode implements vscode.TreeItem {
+export class CategoryGroupNode extends TreeNode implements vscode.TreeItem {
 	public collapsibleState: vscode.TreeItemCollapsibleState;
 	public readonly contextValue: string;
 
-	constructor(parent: TreeNodeParent, group: VerdictGroup<PullRequestFileNode>, layout: string | undefined) {
+	constructor(parent: TreeNodeParent, group: CategoryGroup<PullRequestFileNode>, layout: string | undefined) {
 		super(parent);
 		this.label = group.label;
-		this.contextValue = `codetaster:verdictGroup:${group.verdict}`;
-		this._children = fileListNodes(this, group.files, layout);
+		this.contextValue = `codetaster:categoryGroup:${group.kind}`;
+		this._children = fileListNodes(this, group.files.map(entry => entry.file), layout);
 		this.collapsibleState = !group.files.length
 			? vscode.TreeItemCollapsibleState.None
 			: group.collapsed
@@ -230,22 +231,17 @@ export class VerdictGroupNode extends TreeNode implements vscode.TreeItem {
 	}
 }
 
-/** A verdict group whose files are not known yet, with a placeholder child. */
-export class CodetasterSkeletonGroupNode extends TreeNode implements vscode.TreeItem {
-	public readonly collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+/** Stands in for the file list while it is not known yet. */
+export class CodetasterPlaceholderNode extends TreeNode implements vscode.TreeItem {
+	public readonly iconPath = new vscode.ThemeIcon('loading~spin');
 
 	constructor(parent: TreeNodeParent, label: string) {
 		super(parent);
 		this.label = label;
-		this._children = [new LabelOnlyNode(this, 'Loading…')];
 	}
 
 	getTreeItem(): vscode.TreeItem {
 		return this;
-	}
-
-	override async getChildren(): Promise<TreeNode[]> {
-		return this._children ?? [];
 	}
 }
 
@@ -259,10 +255,6 @@ function refreshWhenFinished(finished: Promise<CheckOutcome>, parent: TreeNode):
 	}
 }
 
-/** The verdict groups as they look before the check's results arrive. */
-export function codetasterSkeletonNodes(parent: TreeNodeParent): TreeNode[] {
-	return skeletonGroupLabels().map(label => new CodetasterSkeletonGroupNode(parent, label));
-}
 
 export class CodetasterErrorNode extends TreeNode implements vscode.TreeItem {
 	public readonly iconPath = new vscode.ThemeIcon('error', new vscode.ThemeColor('errorForeground'));
@@ -282,15 +274,16 @@ export class CodetasterErrorNode extends TreeNode implements vscode.TreeItem {
 interface UpstreamFileNodeItem {
 	readonly tooltip: string;
 	readonly description: string | boolean | undefined;
+	readonly iconPath: PullRequestFileNode['iconPath'];
 }
 
-/** Each file node's tooltip and description as upstream set them, before codetaster's. */
+/** Each file node's tooltip, description and icon as upstream set them, before codetaster's. */
 const upstreamFileNodeItems = new WeakMap<PullRequestFileNode, UpstreamFileNodeItem>();
 
 function upstreamFileNodeItem(file: PullRequestFileNode): UpstreamFileNodeItem {
 	let item = upstreamFileNodeItems.get(file);
 	if (!item) {
-		item = { tooltip: file.tooltip, description: file.description };
+		item = { tooltip: file.tooltip, description: file.description, iconPath: file.iconPath };
 		upstreamFileNodeItems.set(file, item);
 	}
 	return item;
@@ -301,24 +294,37 @@ function directoryOf(fileName: string): string {
 	return separator === -1 ? '' : fileName.slice(0, separator);
 }
 
+/** Shows `tooltip` on `file`. Upstream's `tooltip` is a getter; an own property shadows it without editing upstream. */
+function setFileTooltip(file: PullRequestFileNode, tooltip: string): void {
+	Object.defineProperty(file, 'tooltip', { value: tooltip, configurable: true, enumerable: true, writable: true });
+}
+
 /**
- * Shows each file's codetaster probability and AI reason on hover, and marks unrated
- * files in their description. Nodes can be reused across check runs, so this starts
- * from upstream's values each time.
+ * Shows each file's verdict as its icon, its verdict and codetaster probability on
+ * hover, and marks unrated files in their description. Nodes can be reused across
+ * check runs, so this starts from upstream's values each time.
  */
-function showFileRatings(report: CheckReport, files: readonly PullRequestFileNode[]): void {
+function showFileRatings(report: CheckReport, groups: readonly CategoryGroup<PullRequestFileNode>[]): void {
 	const reports = fileReportsByPath(report);
-	for (const file of files) {
+	for (const { file, verdict } of groups.flatMap(group => group.files)) {
 		const upstream = upstreamFileNodeItem(file);
 		const fileReport = reports.get(file.fileName);
-		// Upstream's `tooltip` is a getter; an own property shadows it without editing upstream.
-		Object.defineProperty(file, 'tooltip', {
-			value: fileHover(upstream.tooltip, fileReport),
-			configurable: true,
-			enumerable: true,
-			writable: true,
-		});
+		setFileTooltip(file, fileHover(upstream.tooltip, verdict, fileReport));
 		file.description = fileDescription(upstream.description, directoryOf(file.fileName), fileReport);
+		file.iconPath = verdictIconPath(verdict, upstream.iconPath, ({ id, color }) => new vscode.ThemeIcon(id, color ? new vscode.ThemeColor(color) : undefined));
+	}
+}
+
+/** Restores upstream's tooltip, description and icon on files codetaster changed, for upstream's file list. */
+function showUpstreamFileItems(files: readonly PullRequestFileNode[]): void {
+	for (const file of files) {
+		const upstream = upstreamFileNodeItems.get(file);
+		if (upstream) {
+			// Uncovers upstream's `tooltip` getter.
+			Reflect.deleteProperty(file, 'tooltip');
+			file.description = upstream.description;
+			file.iconPath = upstream.iconPath;
+		}
 	}
 }
 
@@ -345,6 +351,14 @@ function fileListKey(files: readonly PullRequestFileNode[]): string {
 	return JSON.stringify([pullRequestHead(files) ?? '', files.map(file => file.fileName).sort()]);
 }
 
+/** Shows `description` on `node`, refreshing it if that changes what it shows. */
+function describeNode(node: TreeNode | undefined, description: string | undefined): void {
+	if (node && node.description !== description) {
+		node.description = description;
+		node.refresh(node);
+	}
+}
+
 /** The PR's base branch as the checkout knows it: the remote-tracking branch, if a remote points at the base repository. */
 function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: PullRequestModel): string {
 	const remote = findLocalRepoRemoteFromGitHubRef(folderRepoManager.repository, pullRequest.base);
@@ -352,15 +366,16 @@ function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: P
 }
 
 /**
- * The children of a PR file list if the PR is checked out: the skeleton while the
- * PR's first check runs (later re-runs keep showing the last report), then one node per codetaster
- * verdict group, each holding its files in the configured layout, with files that have
- * unresolved review threads under needs-review, or an error and no
- * files if the check fails. Warnings precede the groups when the check ran on a
- * different commit than the PR head, or ignored an invalid ratings file. Undefined if the PR is not checked out, so the
- * caller shows upstream's file list.
+ * The children of a PR file list if the PR is checked out: a placeholder while the
+ * PR's first check runs (later re-runs keep showing the last report), then one node per
+ * category of the files' AI ratings, each holding its files in the configured layout,
+ * or an error and no files if the check fails. Each file's icon shows its verdict.
+ * Warnings precede the groups when the check ran on a different commit than the PR
+ * head, or ignored an invalid ratings file. Undefined if the PR is not checked out, so
+ * the caller shows upstream's file list.
  * `allFiles` is the PR's whole file list, which decides when the check re-runs;
  * `shownFiles` are the ones to show, e.g. without viewed files.
+ * `describedNode`, if given, shows the share of files in needs-review as its description.
  */
 export function codetasterFileNodes(
 	parent: TreeNode,
@@ -369,6 +384,7 @@ export function codetasterFileNodes(
 	allFiles: readonly PullRequestFileNode[],
 	shownFiles: readonly PullRequestFileNode[],
 	layout: string | undefined,
+	describedNode?: TreeNode,
 ): TreeNode[] | undefined {
 	const isCheckedOut = pullRequest.equals(folderRepoManager.activePullRequest);
 	const outcome = codetasterChecks.requestCheck({
@@ -382,32 +398,36 @@ export function codetasterFileNodes(
 		refreshOnHeadChange(folderRepoManager.repository);
 	}
 	if (!outcome) {
+		showUpstreamFileItems(shownFiles);
+		describeNode(describedNode, undefined);
 		return undefined;
 	}
 	let report: CheckReport;
 	if (outcome.kind === 'running') {
 		refreshWhenFinished(outcome.finished, parent);
 		if (!outcome.previousReport) {
-			return codetasterSkeletonNodes(parent);
+			describeNode(describedNode, undefined);
+			return [new CodetasterPlaceholderNode(parent, 'Running codetaster check…')];
 		}
 		report = outcome.previousReport;
 	} else if (outcome.kind === 'error') {
 		reviewOrders.delete(folderRepoManager);
+		describeNode(describedNode, undefined);
 		return [new CodetasterErrorNode(parent, outcome.message)];
 	} else {
 		report = outcome.report;
 	}
-	const unresolvedPaths = new Set(pullRequest.reviewThreadsCache.filter(thread => !thread.isResolved).map(thread => thread.path));
-	const hasUnresolvedThreads = (file: PullRequestFileNode) => unresolvedPaths.has(file.fileName);
 	// From all files, so a viewed file hidden from the list keeps its place.
+	const allGroups = groupFilesByCategory(report, allFiles, file => file.fileName);
 	reviewOrders.set(folderRepoManager, {
 		folderRepoManager,
 		pullRequest,
-		files: reviewOrder(groupFilesByVerdict(report, allFiles, file => file.fileName, hasUnresolvedThreads), file => file.fileName, layout),
+		files: reviewOrder(allGroups, file => file.fileName, layout),
 	});
-	showFileRatings(report, shownFiles);
-	const groups = groupFilesByVerdict(report, shownFiles, file => file.fileName, hasUnresolvedThreads)
-		.map(group => new VerdictGroupNode(parent, group, layout));
+	describeNode(describedNode, needsReviewShareDescription(report));
+	const shownGroups = groupFilesByCategory(report, shownFiles, file => file.fileName);
+	showFileRatings(report, shownGroups);
+	const groups = shownGroups.map(group => new CategoryGroupNode(parent, group, layout));
 	const warnings = [
 		headMismatchWarning(report.head.commit, pullRequestHead(allFiles)),
 		ratingsErrorWarning(report.ratings_error),

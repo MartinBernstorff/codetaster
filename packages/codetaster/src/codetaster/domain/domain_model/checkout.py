@@ -1,7 +1,9 @@
 from pathlib import Path
 from typing import Annotated, override
 
-from pydantic import ConfigDict, Field, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel
+
+from codetaster.domain.domain_model.command_line_tool import PythonPackagePath
 
 
 class CheckoutPath(RootModel[Path]):
@@ -30,3 +32,18 @@ class RepositoryName(RootModel[Annotated[str, Field(min_length=1)]]):
     @staticmethod
     def fake() -> RepositoryName:
         return RepositoryName("repo")
+
+
+class CodetasterSources(BaseModel):
+    """Where to install codetaster from: a checkout and the CLI package inside it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    checkout: CheckoutPath
+    cli_package: PythonPackagePath
+
+    @staticmethod
+    def fake() -> CodetasterSources:
+        return CodetasterSources(
+            checkout=CheckoutPath.fake(), cli_package=PythonPackagePath.fake()
+        )

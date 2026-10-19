@@ -47,7 +47,7 @@ def test_prints_a_template_entry_for_the_changed_file(
                 "path": "feature.py",
                 "blob": empty_blob,
                 "probability": None,
-                "reason": None,
+                "category": None,
             }
         ]
     }
@@ -63,6 +63,18 @@ def test_instructions_name_the_ratings_file_and_the_validate_command(
 
     assert ratings_path in result.stdout
     assert validate in result.stdout
+
+
+def test_instructions_ask_for_a_category_with_a_number_prefix(
+    repository: Repository,
+) -> None:
+    category_bullet = '- "category": which part of the PR this file belongs to.'
+    number_prefix = "prefix: `1.` for the most important changes"
+
+    result = run_template(repository, CliOptions.fake())
+
+    assert category_bullet in result.stdout
+    assert number_prefix in result.stdout
 
 
 def test_instructions_give_the_base_probability(tmp_path: Path) -> None:

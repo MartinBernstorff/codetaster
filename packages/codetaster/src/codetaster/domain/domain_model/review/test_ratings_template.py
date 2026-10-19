@@ -28,12 +28,12 @@ def test_has_one_entry_per_changed_file(changes: list[FileChange]) -> None:
     ]
 
 
-def test_leaves_probability_and_reason_blank() -> None:
+def test_leaves_probability_and_category_blank() -> None:
     template = RatingsTemplate.of_changes(FileChanges.fake())
 
     [entry] = json.loads(template.model_dump_json())["ratings"]
     assert entry["probability"] is None
-    assert entry["reason"] is None
+    assert entry["category"] is None
 
 
 def test_does_not_parse_as_a_ratings_file_until_filled() -> None:
@@ -54,7 +54,7 @@ def test_any_fill_parses_as_a_ratings_file(
     filled = {
         "ratings": [
             entry.model_dump(mode="json")
-            | {"probability": rating.probability.root, "reason": rating.reason.root}
+            | {"probability": rating.probability.root, "category": rating.category.root}
             for entry, rating in zip(
                 template.ratings,
                 (data.draw(ratings_of(change)) for change in changes),

@@ -5,12 +5,16 @@ from typing import Annotated
 import typer
 from safe_result import Err, Ok, Result
 
-from codetaster.domain.application_services.install_vscode_extension import (
-    install_vscode_extension,
+from codetaster.domain.application_services.install_codetaster import (
+    install_codetaster,
 )
 from codetaster.domain.application_services.set_up_checkout import set_up_checkout
-from codetaster.domain.domain_model.checkout import CheckoutPath
+from codetaster.domain.domain_model.checkout import CheckoutPath, CodetasterSources
+from codetaster.domain.domain_model.command_line_tool import PythonPackagePath
 from codetaster.domain.domain_model.filesystem import Location
+from codetaster.infrastructure.command_line_tools.uv_command_line_tools import (
+    UvCommandLineTools,
+)
 from codetaster.infrastructure.extension_build.moon_extension_build import (
     MoonExtensionBuild,
     MoonTarget,
@@ -63,19 +67,27 @@ def setup() -> None:
 
 
 @app.command()
-def install_extension() -> None:
-    """Build the forked GitHub Pull Requests extension and install it into VS Code.
+def install() -> None:
+    """Install the codetaster CLI and the VS Code extension from the current checkout.
 
-    Builds the VSIX with `moon run vscode-extension:package`, adds the extension to
-    `enable-proposed-api` in `~/.vscode/argv.json` and installs it with `code`.
+    Installs the CLI globally with `uv tool install --force --reinstall
+    packages/codetaster`, so `codetaster` on PATH matches this checkout. Then builds
+    the forked GitHub Pull Requests extension with `moon run vscode-extension:package`,
+    adds it to `enable-proposed-api` in `~/.vscode/argv.json` and installs it with
+    `code`. The extension calls the CLI, so the two are always installed together.
     Restart VS Code afterwards. Safe to re-run.
     """
+    checkout = Path.cwd()
     _ = exit_on_error(
-        install_vscode_extension(
+        install_codetaster(
+            UvCommandLineTools(),
             MoonExtensionBuild(MoonTarget("vscode-extension:package")),
             ArgvJsonAllowlist(Location(Path.home() / ".vscode" / "argv.json")),
             CodeCliExtensions(),
-            CheckoutPath(Path.cwd()),
+            CodetasterSources(
+                checkout=CheckoutPath(checkout),
+                cli_package=PythonPackagePath(checkout / "packages" / "codetaster"),
+            ),
         )
     )
 

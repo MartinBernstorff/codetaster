@@ -3,10 +3,10 @@ import { describe, it } from 'mocha';
 import { CheckReport, FileReport } from './checkReport';
 import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
 
-function ratedFileReport(path: string, probability: number, reason: string): FileReport {
+function ratedFileReport(path: string, probability: number): FileReport {
 	return {
 		path, previous_path: null, change_type: 'modified', base_probability: 0.1,
-		rating: { probability, reason }, unrated: false, draw: 0.5,
+		rating: { probability, category: 'Logic' }, unrated: false, draw: 0.5,
 	};
 }
 
@@ -18,32 +18,36 @@ function unratedFileReport(path: string): FileReport {
 }
 
 describe('fileHover', () => {
-	it('shows a rated file\'s AI rating and reason', () => {
-		const hover = fileHover('/repo/src/a.py', ratedFileReport('src/a.py', 0.8, 'Changes the retry logic.'));
+	it('states a rated file\'s verdict and AI rating', () => {
+		const hover = fileHover('/repo/src/a.py', 'needs-review', ratedFileReport('src/a.py', 0.8));
 
-		assert.strictEqual(hover, '/repo/src/a.py\n\nAI rating: 80%\nAI reason: Changes the retry logic.');
+		assert.strictEqual(hover, '/repo/src/a.py\n\nVerdict: Needs review\nAI rating: 80%');
 	});
 
-	it('marks an unrated file', () => {
-		const hover = fileHover('/repo/src/a.py', unratedFileReport('src/a.py'));
+	it('states an unrated file\'s verdict and marks it unrated', () => {
+		const hover = fileHover('/repo/src/a.py', 'sampled', unratedFileReport('src/a.py'));
 
-		assert.strictEqual(hover, '/repo/src/a.py\n\nUnrated: no AI rating matches this version of the file.');
+		assert.strictEqual(hover, '/repo/src/a.py\n\nVerdict: Sampled\nUnrated: no AI rating matches this version of the file.');
+	});
+
+	it('states a no-review verdict', () => {
+		assert.match(fileHover('a.py', 'no-review', ratedFileReport('a.py', 0.1)), /\nVerdict: No review\n/);
 	});
 
 	it('keeps fractional percentages instead of rounding them to 0%', () => {
-		const hover = fileHover('a.py', ratedFileReport('a.py', 0.005, 'Reason.'));
+		const hover = fileHover('a.py', 'no-review', ratedFileReport('a.py', 0.005));
 
 		assert.match(hover, /AI rating: 0\.5%/);
 	});
 
 	it('says when the check did not list the file', () => {
-		assert.strictEqual(fileHover('/repo/a.py', undefined), '/repo/a.py\n\nNot in the codetaster check.');
+		assert.strictEqual(fileHover('/repo/a.py', 'not-checked', undefined), '/repo/a.py\n\nVerdict: Not in codetaster check');
 	});
 });
 
 describe('fileDescription', () => {
 	it('leaves a rated file\'s description as it was', () => {
-		const rated = ratedFileReport('src/a.py', 0.8, 'Reason.');
+		const rated = ratedFileReport('src/a.py', 0.8);
 
 		assert.strictEqual(fileDescription(true, 'src', rated), true);
 		assert.strictEqual(fileDescription('', 'src', rated), '');
@@ -69,7 +73,7 @@ describe('fileDescription', () => {
 
 describe('fileReportsByPath', () => {
 	it('finds each file\'s report, whichever list it is in', () => {
-		const needsReview = ratedFileReport('a.py', 0.8, 'Reason.');
+		const needsReview = ratedFileReport('a.py', 0.8);
 		const sampled = unratedFileReport('b.py');
 		const noReview = unratedFileReport('c.py');
 		const report: CheckReport = {

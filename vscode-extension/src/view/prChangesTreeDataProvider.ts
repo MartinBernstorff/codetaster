@@ -204,7 +204,7 @@ export class PullRequestChangesTreeDataProvider extends Disposable implements vs
 					this._children.push(item);
 				}
 			} else {
-				// codetaster: the skeleton while looking for a pull request, then why there is none.
+				// codetaster: a placeholder while looking for a pull request, then why there is none.
 				this._children = codetasterNoPullRequestNodes(this, this._git, this._reposManager);
 			}
 			return this._children;

@@ -35,7 +35,7 @@ export interface ChangesViewMessage {
  * signed out of GitHub.
  */
 export type ChangesViewContent =
-	| { readonly kind: 'skeleton' }
+	| { readonly kind: 'placeholder' }
 	| { readonly kind: 'messages', readonly messages: readonly ChangesViewMessage[] }
 	| { readonly kind: 'welcome' };
 
@@ -65,12 +65,12 @@ export function changesViewContent(workspace: ChangesViewWorkspace): ChangesView
 	const settled: { name: string, status: SettledReviewStatus }[] = [];
 	for (const { name, status } of statuses) {
 		if (status.kind === 'loading') {
-			return { kind: 'skeleton' };
+			return { kind: 'placeholder' };
 		}
 		settled.push({ name, status });
 	}
 	if (settled.length === 0) {
-		return { kind: 'skeleton' };
+		return { kind: 'placeholder' };
 	}
 	if (settled.every(({ status }) => status.kind === 'signedOut')) {
 		return { kind: 'welcome' };
