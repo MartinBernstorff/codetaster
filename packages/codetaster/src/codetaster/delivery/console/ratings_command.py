@@ -82,13 +82,12 @@ Files rated {threshold} or higher need review. Every other file is sampled for r
 
 Fill in every entry of the JSON template below:
 - "probability": from 0 to 1, how likely the change to this file is to need
-  human review. Rate risky, subtle or hard-to-undo changes high. Rate
-  documentation high too, e.g. READMEs and agent instructions such as
-  CLAUDE.md. Rate mechanical changes (renames/refactors) low.
+  human review. Rate risky, hard-to-undo, or documentation changes high.
+  Rate mechanical changes (renames/refactors) low.
 - "category": which part of the PR this file belongs to. Divide the PR into
   meaningful categories, e.g. one per feature, refactor or move, and give every
-  file that serves the same purpose the same category. The reviewer sees
-  categories sorted alphabetically, so choose the review order with a number
+  file that serves the same purpose the same category. Tests should be grouped with their features.
+  The reviewer sees categories sorted alphabetically, so choose the review order with a number
   prefix: `1.` for the most important changes, `2.` for less important ones,
   and so on. Start with logic changes, then refactors, moves etc.
 - Leave "path" and "blob" as they are.

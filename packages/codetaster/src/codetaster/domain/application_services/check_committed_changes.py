@@ -45,14 +45,7 @@ def check_committed_changes(
     committed_changes: CommittedChanges,
     ratings_files: RatingsFileStore,
 ) -> Result[CheckResult, BranchChangeError]:
-    """Decide which files changed since the merge base with the base need review.
-
-    A path rule matching a file's path replaces the base probability for it. A
-    file's AI rating applies if it matches the file's change. Without a ratings
-    file every file is unrated, and so with an invalid one, which is reported. The
-    ratings file itself is never assessed. `threshold_override` replaces
-    `[review] needs_review_threshold`.
-    """
+    """Decide which files changed since the merge base with the base need review."""
     branch = read_branch_change(
         request.checkout, request.base_override, configuration, committed_changes
     )
