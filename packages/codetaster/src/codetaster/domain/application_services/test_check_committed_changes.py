@@ -20,6 +20,9 @@ from codetaster.domain.domain_model.review.changes import (
 )
 from codetaster.domain.domain_model.review.check_result import CheckResult
 from codetaster.domain.domain_model.review.errors import UnknownRevisionError
+from codetaster.domain.domain_model.review.needs_review_threshold import (
+    NeedsReviewThreshold,
+)
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import (
     FileRating,
@@ -28,7 +31,6 @@ from codetaster.domain.domain_model.review.ratings import (
     ratings_file_location,
 )
 from codetaster.domain.domain_model.review.sampling import Verdict
-from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 
 # Domain tests use the fakes from infrastructure, which tach otherwise forbids.
 from codetaster.infrastructure.committed_changes.fake_committed_changes import (
@@ -52,13 +54,13 @@ def history_with_feature_branch(
 
 def configuration_with(
     base_probability: Probability,
-    top_rated: TopRatedPercentage | None = None,
+    threshold: NeedsReviewThreshold | None = None,
 ) -> Configuration:
-    """All rated files need review unless `top_rated` says otherwise."""
+    """All rated files need review unless `threshold` says otherwise."""
     review = ReviewSettings.fake().model_copy(
         update={
             "base_probability": base_probability,
-            "top_rated_percentage": top_rated or TopRatedPercentage(100),
+            "needs_review_threshold": threshold or NeedsReviewThreshold(0),
         }
     )
     return Configuration.fake().model_copy(update={"review": review})
@@ -287,35 +289,43 @@ def test_a_valid_ratings_file_is_no_problem() -> None:
     assert result.ratings_problem is None
 
 
-def test_the_configured_top_rated_percentage_applies() -> None:
-    configuration = configuration_with(Probability(0), TopRatedPercentage(0))
+def rating_below_one_at_head(
+    history: FakeCommittedChanges, path: RepositoryPath
+) -> FileRating:
+    return certain_rating_at_head(history, path).model_copy(
+        update={"probability": Probability(0.9)}
+    )
+
+
+def test_the_configured_needs_review_threshold_applies() -> None:
+    configuration = configuration_with(Probability(0), NeedsReviewThreshold(1))
     assert configuration.review is not None
     path = RepositoryPath.fake()
     history = history_with_feature_branch(configuration.review.base_branch, path)
-    rating = certain_rating_at_head(history, path)
+    rating = rating_below_one_at_head(history, path)
 
     result = checked_result(
         configuration, history, ratings_files=ratings_at(configuration, rating)
     )
 
     [assessment] = result.assessments.root
-    assert result.top_rated_percentage == configuration.review.top_rated_percentage
+    assert result.needs_review_threshold == configuration.review.needs_review_threshold
     assert assessment.verdict is Verdict.NO_REVIEW
 
 
-def test_top_rated_override_replaces_the_configured_percentage() -> None:
-    configuration = configuration_with(Probability(0), TopRatedPercentage(0))
+def test_threshold_override_replaces_the_configured_threshold() -> None:
+    configuration = configuration_with(Probability(0), NeedsReviewThreshold(1))
     assert configuration.review is not None
     path = RepositoryPath.fake()
     history = history_with_feature_branch(configuration.review.base_branch, path)
-    rating = certain_rating_at_head(history, path)
-    override = TopRatedPercentage(100)
-    request = CheckRequest.fake().model_copy(update={"top_rated_override": override})
+    rating = rating_below_one_at_head(history, path)
+    override = NeedsReviewThreshold(0.9)
+    request = CheckRequest.fake().model_copy(update={"threshold_override": override})
 
     result = checked_result(
         configuration, history, request, ratings_at(configuration, rating)
     )
 
     [assessment] = result.assessments.root
-    assert result.top_rated_percentage == override
+    assert result.needs_review_threshold == override
     assert assessment.verdict is Verdict.NEEDS_REVIEW

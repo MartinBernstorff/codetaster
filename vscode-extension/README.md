@@ -10,7 +10,7 @@ Left out of the copy: `documentation/`, `.readme/`, `.github/`, `.husky/`, `azur
 
 Edits to upstream files:
 
-- `package.json`: `publisher` is `codetaster`; the `codetaster.executablePath`, `codetaster.topRatedPercentage` and `codetaster.openOnStartup` settings and the `codetaster.refreshCheck` command and its view title buttons. The `github-pull-request` view container is named "codetaster" with the `$(eye)` icon, its "Changes In Pull Request" view is visible without a pull request, it has welcome content for no folder, no git repository and signed out, and the "Active Pull Request" loading view is removed.
+- `package.json`: `publisher` is `codetaster`; the `codetaster.executablePath`, `codetaster.needsReviewThreshold` and `codetaster.openOnStartup` settings and the `codetaster.refreshCheck` command and its view title buttons. The `github-pull-request` view container is named "codetaster" with the `$(eye)` icon, its "Changes In Pull Request" view is visible without a pull request, it has welcome content for no folder, no git repository and signed out, and the "Active Pull Request" loading view is removed.
 - `package.nls.json`: `displayName`, the container name and the welcome content.
 - `src/constants.ts`: `EXTENSION_ID`.
 - `src/extension.ts`: calls `registerCodetaster`; `github.api.preloadPullRequest` focuses the changes view instead of the removed loading view.

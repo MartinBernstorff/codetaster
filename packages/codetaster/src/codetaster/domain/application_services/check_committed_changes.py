@@ -5,6 +5,9 @@ from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.configuration.configuration import Configuration
 from codetaster.domain.domain_model.review.changes import RevisionName
 from codetaster.domain.domain_model.review.check_result import CheckResult
+from codetaster.domain.domain_model.review.needs_review_threshold import (
+    NeedsReviewThreshold,
+)
 from codetaster.domain.domain_model.review.ratings import RatingsFile
 from codetaster.domain.domain_model.review.ratings_validation import (
     InvalidRatingsFile,
@@ -12,7 +15,6 @@ from codetaster.domain.domain_model.review.ratings_validation import (
 from codetaster.domain.domain_model.review.sampling import (
     assess_file_changes,
 )
-from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 from codetaster.domain.domain_services.branch_change import (
     BranchChangeError,
     read_branch_change,
@@ -26,12 +28,14 @@ class CheckRequest(BaseModel):
 
     checkout: CheckoutPath
     base_override: RevisionName | None
-    top_rated_override: TopRatedPercentage | None
+    threshold_override: NeedsReviewThreshold | None
 
     @staticmethod
     def fake() -> CheckRequest:
         return CheckRequest(
-            checkout=CheckoutPath.fake(), base_override=None, top_rated_override=None
+            checkout=CheckoutPath.fake(),
+            base_override=None,
+            threshold_override=None,
         )
 
 
@@ -46,8 +50,8 @@ def check_committed_changes(
     A path rule matching a file's path replaces the base probability for it. A
     file's AI rating applies if it matches the file's change. Without a ratings
     file every file is unrated, and so with an invalid one, which is reported. The
-    ratings file itself is never assessed. `top_rated_override` replaces
-    `[review] top_rated_percentage`.
+    ratings file itself is never assessed. `threshold_override` replaces
+    `[review] needs_review_threshold`.
     """
     branch = read_branch_change(
         request.checkout, request.base_override, configuration, committed_changes
@@ -65,19 +69,19 @@ def check_committed_changes(
     elif ratings.value is not None:
         ratings_file = ratings.value
     review = branch.value.review
-    top_rated = request.top_rated_override or review.top_rated_percentage
+    threshold = request.threshold_override or review.needs_review_threshold
     return Ok(
         CheckResult(
             base=change.base,
             merge_base=change.merge_base,
             head=change.head,
-            top_rated_percentage=top_rated,
+            needs_review_threshold=threshold,
             assessments=assess_file_changes(
                 change.files,
                 review.base_probability,
                 review.path_rules,
                 ratings_file,
-                top_rated,
+                threshold,
             ),
             working_tree=branch.value.working_tree,
             ratings_problem=ratings_problem,

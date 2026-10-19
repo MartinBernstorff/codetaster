@@ -99,15 +99,15 @@
 					"markdownDescription": "The `codetaster` executable that groups pull request files by review verdict. A bare name is looked up on PATH.",
 					"scope": "machine-overridable"
 				},
-				"codetaster.topRatedPercentage": {
+				"codetaster.needsReviewThreshold": {
 					"type": [
-						"integer",
+						"number",
 						"null"
 					],
 					"default": null,
 					"minimum": 0,
-					"maximum": 100,
-					"markdownDescription": "The percentage, from 0 to 100, of changed files with the highest AI ratings that need review. Passed to `codetaster check` as `--top-rated-percentage`. `null` uses the project config's `[review] top_rated_percentage`."
+					"maximum": 1,
+					"markdownDescription": "The AI rating, from 0 to 1, at or above which a changed file needs review. Passed to `codetaster check` as `--needs-review-threshold`. `null` uses the project config's `[review] needs_review_threshold`, 0.6 by default."
 				},
 				"codetaster.openOnStartup": {
 					"type": "boolean",
@@ -1026,8 +1026,8 @@
 				"category": "codetaster"
 			},
 			{
-				"command": "codetaster.setTopRatedPercentage",
-				"title": "Set Top-Rated Percentage",
+				"command": "codetaster.setNeedsReviewThreshold",
+				"title": "Set Needs-Review Threshold",
 				"category": "codetaster"
 			},
 			{
@@ -2840,7 +2840,7 @@
 					"group": "overflow@4"
 				},
 				{
-					"command": "codetaster.setTopRatedPercentage",
+					"command": "codetaster.setNeedsReviewThreshold",
 					"when": "view == prStatus:github || view == pr:github",
 					"group": "overflow@5"
 				},

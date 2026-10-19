@@ -77,11 +77,11 @@ describe('fileReportsByPath', () => {
 		const sampled = unratedFileReport('b.py');
 		const noReview = unratedFileReport('c.py');
 		const report: CheckReport = {
-			schema_version: 3,
+			schema_version: 4,
 			needs_review: true,
 			base: { ref: 'main', merge_base: 'a'.repeat(40) },
 			head: { commit: 'b'.repeat(40) },
-			top_rated_percentage: 20,
+			needs_review_threshold: 0.6,
 			'needs-review': [needsReview],
 			sampled: [sampled],
 			'no-review': [noReview],

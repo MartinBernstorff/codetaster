@@ -69,7 +69,7 @@ export function groupFilesByCategory<File>(
 	];
 }
 
-/** The file list's description: which share of the files the check put in needs-review. */
-export function needsReviewShareDescription(report: CheckReport): string {
-	return `needs review = top ${report.top_rated_percentage}%`;
+/** The file list's description: which files the check put in needs-review. */
+export function needsReviewRuleDescription(report: CheckReport): string {
+	return `needs review = rating ≥ ${report.needs_review_threshold}`;
 }

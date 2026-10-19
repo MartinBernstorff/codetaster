@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CategoryGroup, groupFilesByCategory, needsReviewShareDescription } from './categoryGroups';
+import { CategoryGroup, groupFilesByCategory, needsReviewRuleDescription } from './categoryGroups';
 import { CheckReport } from './checkReport';
 import { CheckOutcome, CodetasterChecks } from './codetasterCheck';
 import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
@@ -21,12 +21,12 @@ import { TreeNode, TreeNodeParent } from '../view/treeNodes/treeNode';
 
 export const CODETASTER_SETTINGS_NAMESPACE = 'codetaster';
 export const EXECUTABLE_PATH_SETTING = 'executablePath';
-export const TOP_RATED_PERCENTAGE_SETTING = 'topRatedPercentage';
+export const NEEDS_REVIEW_THRESHOLD_SETTING = 'needsReviewThreshold';
 export const OPEN_ON_STARTUP_SETTING = 'openOnStartup';
 /** Opens the view container that holds the codetaster view, `github-pull-request` in package.json. */
 const OPEN_CODETASTER_CONTAINER_COMMAND = 'workbench.view.extension.github-pull-request';
 export const REFRESH_CHECK_COMMAND = 'codetaster.refreshCheck';
-export const SET_TOP_RATED_PERCENTAGE_COMMAND = 'codetaster.setTopRatedPercentage';
+export const SET_NEEDS_REVIEW_THRESHOLD_COMMAND = 'codetaster.setNeedsReviewThreshold';
 export const MARK_VIEWED_AND_OPEN_NEXT_COMMAND = 'codetaster.markViewedAndOpenNext';
 
 type PullRequestFileNode = GitFileChangeNode | RemoteFileChangeNode | InMemFileChangeNode;
@@ -35,8 +35,8 @@ function configuredExecutablePath(): string {
 	return vscode.workspace.getConfiguration(CODETASTER_SETTINGS_NAMESPACE).get<string>(EXECUTABLE_PATH_SETTING) || 'codetaster';
 }
 
-function configuredTopRatedPercentage(): number | undefined {
-	return vscode.workspace.getConfiguration(CODETASTER_SETTINGS_NAMESPACE).get<number | null>(TOP_RATED_PERCENTAGE_SETTING) ?? undefined;
+function configuredNeedsReviewThreshold(): number | undefined {
+	return vscode.workspace.getConfiguration(CODETASTER_SETTINGS_NAMESPACE).get<number | null>(NEEDS_REVIEW_THRESHOLD_SETTING) ?? undefined;
 }
 
 export const codetasterChecks = new CodetasterChecks(new NodeCodetasterProcess(), configuredExecutablePath);
@@ -117,21 +117,21 @@ async function markViewedAndOpenNext(node: unknown): Promise<void> {
 	}
 }
 
-async function setTopRatedPercentage(): Promise<void> {
-	const current = configuredTopRatedPercentage();
+async function setNeedsReviewThreshold(): Promise<void> {
+	const current = configuredNeedsReviewThreshold();
 	const input = await vscode.window.showInputBox({
-		title: 'codetaster: top-rated percentage',
-		prompt: 'The percentage, from 0 to 100, of changed files with the highest AI ratings that need review. Leave empty to use the project config.',
+		title: 'codetaster: needs-review threshold',
+		prompt: 'The AI rating, from 0 to 1, at or above which a changed file needs review. Leave empty to use the project config\'s threshold.',
 		value: current === undefined ? '' : String(current),
-		validateInput: value => value.trim() === '' || /^(100|[1-9]?[0-9])$/.test(value.trim())
+		validateInput: value => value.trim() === '' || /^(0|1|0?\.\d+|1\.0+)$/.test(value.trim())
 			? undefined
-			: 'Enter a whole number from 0 to 100, or nothing.',
+			: 'Enter a number from 0 to 1, or nothing.',
 	});
 	if (input === undefined) {
 		return;
 	}
 	await vscode.workspace.getConfiguration(CODETASTER_SETTINGS_NAMESPACE).update(
-		TOP_RATED_PERCENTAGE_SETTING,
+		NEEDS_REVIEW_THRESHOLD_SETTING,
 		input.trim() === '' ? undefined : Number(input.trim()),
 		vscode.ConfigurationTarget.Workspace,
 	);
@@ -172,10 +172,10 @@ export function registerCodetaster(context: vscode.ExtensionContext): void {
 		ratingsWatcher.onDidDelete(() => codetasterChecks.refresh()),
 		{ dispose: () => disposeAll(headListeners) },
 		vscode.commands.registerCommand(REFRESH_CHECK_COMMAND, () => codetasterChecks.refresh()),
-		vscode.commands.registerCommand(SET_TOP_RATED_PERCENTAGE_COMMAND, setTopRatedPercentage),
+		vscode.commands.registerCommand(SET_NEEDS_REVIEW_THRESHOLD_COMMAND, setNeedsReviewThreshold),
 		vscode.commands.registerCommand(MARK_VIEWED_AND_OPEN_NEXT_COMMAND, markViewedAndOpenNext),
 		vscode.workspace.onDidChangeConfiguration(e => {
-			if ([EXECUTABLE_PATH_SETTING, TOP_RATED_PERCENTAGE_SETTING].some(setting => e.affectsConfiguration(`${CODETASTER_SETTINGS_NAMESPACE}.${setting}`))) {
+			if ([EXECUTABLE_PATH_SETTING, NEEDS_REVIEW_THRESHOLD_SETTING].some(setting => e.affectsConfiguration(`${CODETASTER_SETTINGS_NAMESPACE}.${setting}`))) {
 				codetasterChecks.refresh();
 			}
 		}),
@@ -375,7 +375,7 @@ function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: P
  * the caller shows upstream's file list.
  * `allFiles` is the PR's whole file list, which decides when the check re-runs;
  * `shownFiles` are the ones to show, e.g. without viewed files.
- * `describedNode`, if given, shows the share of files in needs-review as its description.
+ * `describedNode`, if given, shows which files are in needs-review as its description.
  */
 export function codetasterFileNodes(
 	parent: TreeNode,
@@ -392,7 +392,7 @@ export function codetasterFileNodes(
 		base: baseRevision(folderRepoManager, pullRequest),
 		fileListKey: fileListKey(allFiles),
 		localHead: folderRepoManager.repository.state.HEAD?.commit,
-		topRatedPercentage: configuredTopRatedPercentage(),
+		needsReviewThreshold: configuredNeedsReviewThreshold(),
 	});
 	if (isCheckedOut) {
 		refreshOnHeadChange(folderRepoManager.repository);
@@ -424,7 +424,7 @@ export function codetasterFileNodes(
 		pullRequest,
 		files: reviewOrder(allGroups, file => file.fileName, layout),
 	});
-	describeNode(describedNode, needsReviewShareDescription(report));
+	describeNode(describedNode, needsReviewRuleDescription(report));
 	const shownGroups = groupFilesByCategory(report, shownFiles, file => file.fileName);
 	showFileRatings(report, shownGroups);
 	const groups = shownGroups.map(group => new CategoryGroupNode(parent, group, layout));

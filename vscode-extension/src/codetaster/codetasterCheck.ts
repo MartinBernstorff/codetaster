@@ -19,17 +19,17 @@ function checkError(message: string): CheckOutcome {
 
 /**
  * Runs `codetaster check <checkout> --base <base> --format json` and parses its report.
- * `topRatedPercentage` is passed as `--top-rated-percentage` if given.
+ * `needsReviewThreshold` is passed as `--needs-review-threshold` if given.
  */
 export async function runCodetasterCheck(
 	process: CodetasterProcess,
 	executable: string,
 	checkout: string,
 	base: string,
-	topRatedPercentage?: number,
+	needsReviewThreshold?: number,
 ): Promise<CheckOutcome> {
-	const topRatedArgs = topRatedPercentage === undefined ? [] : ['--top-rated-percentage', String(topRatedPercentage)];
-	const outcome = await process.runCodetaster(executable, ['check', checkout, '--base', base, ...topRatedArgs, '--format', 'json'], checkout);
+	const thresholdArgs = needsReviewThreshold === undefined ? [] : ['--needs-review-threshold', String(needsReviewThreshold)];
+	const outcome = await process.runCodetaster(executable, ['check', checkout, '--base', base, ...thresholdArgs, '--format', 'json'], checkout);
 	if (outcome.kind === 'failedToStart') {
 		return checkError(`Could not run "${executable}" (${outcome.message}). Install codetaster on your PATH or set codetaster.executablePath.`);
 	}
@@ -58,8 +58,8 @@ export interface CheckTarget {
 	readonly fileListKey: string;
 	/** The checkout's HEAD commit; the check re-runs when it changes, e.g. after a local commit. */
 	readonly localHead: string | undefined;
-	/** Overrides the project config's `[review] top_rated_percentage`, if given. */
-	readonly topRatedPercentage: number | undefined;
+	/** Replaces the project config's `[review] needs_review_threshold`, if given. */
+	readonly needsReviewThreshold: number | undefined;
 }
 
 /** A check that has not finished yet, or its outcome. */
@@ -81,8 +81,8 @@ interface CachedCheck {
 
 /**
  * The check results the PR file views group by. Only a checked-out PR is checked.
- * A check re-runs only when the checkout, its HEAD commit, the base, the top-rated
- * percentage or the PR's file list changes, after it failed, or on refresh, so tree refreshes (viewed state, comments)
+ * A check re-runs only when the checkout, its HEAD commit, the base, the needs-review
+ * threshold or the PR's file list changes, after it failed, or on refresh, so tree refreshes (viewed state, comments)
  * don't each start a process.
  */
 export class CodetasterChecks {
@@ -100,16 +100,16 @@ export class CodetasterChecks {
 	 * A failed check is returned once after it finishes, and re-run on the next request.
 	 */
 	requestCheck(target: CheckTarget): CheckState | undefined {
-		const { checkout, base, fileListKey, localHead, topRatedPercentage } = target;
+		const { checkout, base, fileListKey, localHead, needsReviewThreshold } = target;
 		if (checkout === undefined) {
 			return undefined;
 		}
-		const pullRequestKey = JSON.stringify([checkout, base, fileListKey, topRatedPercentage ?? null]);
+		const pullRequestKey = JSON.stringify([checkout, base, fileListKey, needsReviewThreshold ?? null]);
 		const cacheKey = JSON.stringify([pullRequestKey, localHead ?? null]);
 		let check = this.checks.get(cacheKey);
 		if (!check || check.errorReturned) {
 			const started: CachedCheck = {
-				finished: runCodetasterCheck(this.process, this.executable(), checkout, base, topRatedPercentage).then(outcome => {
+				finished: runCodetasterCheck(this.process, this.executable(), checkout, base, needsReviewThreshold).then(outcome => {
 					started.outcome = outcome;
 					if (outcome.kind === 'report') {
 						this.lastReports.set(pullRequestKey, outcome.report);

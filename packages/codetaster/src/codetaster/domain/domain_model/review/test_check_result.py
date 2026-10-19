@@ -5,6 +5,9 @@ from hypothesis import strategies as st
 
 from codetaster.domain.domain_model.review.changes import FileChange, FileChanges
 from codetaster.domain.domain_model.review.check_result import CheckResult
+from codetaster.domain.domain_model.review.needs_review_threshold import (
+    NeedsReviewThreshold,
+)
 from codetaster.domain.domain_model.review.path_rules import PathRules
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import RatingsFile
@@ -16,11 +19,10 @@ from codetaster.domain.domain_model.review.sampling import (
 )
 from codetaster.domain.domain_model.review.test_strategies import (
     distinct_file_changes,
+    needs_review_thresholds,
     probabilities,
     ratings_of,
-    top_rated_percentages,
 )
-from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 
 
 def result_with_verdicts(*verdicts: Verdict) -> CheckResult:
@@ -69,13 +71,13 @@ def test_no_changed_files_need_no_review() -> None:
 @given(
     changes=distinct_file_changes(),
     base_probability=probabilities(),
-    top_rated=top_rated_percentages(),
+    threshold=needs_review_thresholds(),
     data=st.data(),
 )
 def test_the_groups_partition_the_changed_files(
     changes: list[FileChange],
     base_probability: Probability,
-    top_rated: TopRatedPercentage,
+    threshold: NeedsReviewThreshold,
     data: st.DataObject,
 ) -> None:
     ratings = RatingsFile(
@@ -93,7 +95,7 @@ def test_the_groups_partition_the_changed_files(
                 base_probability,
                 PathRules(()),
                 ratings,
-                top_rated,
+                threshold,
             )
         }
     )

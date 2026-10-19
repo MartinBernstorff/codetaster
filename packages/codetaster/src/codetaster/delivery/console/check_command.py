@@ -16,8 +16,10 @@ from codetaster.domain.application_services.check_committed_changes import (
     CheckRequest,
     check_committed_changes,
 )
+from codetaster.domain.domain_model.review.needs_review_threshold import (
+    NeedsReviewThreshold,
+)
 from codetaster.domain.domain_model.review.sampling import Verdict
-from codetaster.domain.domain_model.review.top_rated import TopRatedPercentage
 from codetaster.infrastructure.committed_changes.git_committed_changes import (
     GitCommittedChanges,
 )
@@ -35,14 +37,14 @@ class OutputFormat(StrEnum):
 def check_changes(
     checkout: CheckoutArgument,
     base: BaseOption = None,
-    top_rated: Annotated[
-        TopRatedPercentage | None,
+    threshold: Annotated[
+        NeedsReviewThreshold | None,
         typer.Option(
-            "--top-rated-percentage",
-            parser=lambda value: TopRatedPercentage(int(value)),
-            metavar="PERCENT",
-            help="The percentage, from 0 to 100, of changed files with the highest "
-            "AI ratings that need review, instead of \\[review] top_rated_percentage.",
+            "--needs-review-threshold",
+            parser=lambda value: NeedsReviewThreshold(float(value)),
+            metavar="RATING",
+            help="The AI rating, from 0 to 1, at or above which a file needs "
+            "review, instead of \\[review] needs_review_threshold.",
             show_default=False,
         ),
     ] = None,
@@ -60,16 +62,17 @@ def check_changes(
     """Decide which files changed since the merge base with the base need review.
 
     Files are rated from \\[review] ratings_path, if it exists and is valid; an
-    invalid one is reported and leaves every file unrated. The highest-rated
-    files, --top-rated-percentage of all changed files, need review; other files
-    are sampled at \\[review] base_probability. Only committed
+    invalid one is reported and leaves every file unrated. Files rated at or
+    above --needs-review-threshold need review; other files are sampled at \\[review] base_probability. Only committed
     changes count. Exits 0 whatever the verdict, unless
     --fail-on-needs-review is given.
     """
     checkout = resolve_checkout(checkout)
     match check_committed_changes(
         CheckRequest(
-            checkout=checkout, base_override=base, top_rated_override=top_rated
+            checkout=checkout,
+            base_override=base,
+            threshold_override=threshold,
         ),
         load_checkout_configuration(checkout),
         GitCommittedChanges(),

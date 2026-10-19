@@ -72,13 +72,13 @@ def echo_rating_instructions(
     result: RatingsTemplateResult, checkout: CheckoutPath, base: RevisionName | None
 ) -> None:
     base_probability = result.base_probability.root
-    top_rated = result.top_rated_percentage.root
+    threshold = result.needs_review_threshold.root
     location = result.ratings_location
     validate = ratings_command_line(RatingsSubcommand.VALIDATE, checkout, base)
     typer.echo(f"""\
 Rate how likely each file changed on this branch is to need human review.
 
-The files with the highest ratings, {top_rated}%, need review. Every other file is sampled for review with the base probability, {base_probability}.
+Files rated {threshold} or higher need review. Every other file is sampled for review with the base probability, {base_probability}.
 
 Fill in every entry of the JSON template below:
 - "probability": from 0 to 1, how likely the change to this file is to need

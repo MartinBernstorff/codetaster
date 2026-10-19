@@ -3,12 +3,12 @@ import { describe, it } from 'mocha';
 import { CheckState, CheckTarget, CodetasterChecks, CodetasterProcess, ProcessOutcome, runCodetasterCheck } from './codetasterCheck';
 
 const validReport = {
-	schema_version: 3,
+	schema_version: 4,
 	needs_review: true,
 	override_label_applied: false,
 	base: { ref: 'main', merge_base: 'a'.repeat(40) },
 	head: { commit: 'b'.repeat(40) },
-	top_rated_percentage: 20,
+	needs_review_threshold: 0.6,
 	'needs-review': [],
 	sampled: [{ path: 'a.py', previous_path: null, change_type: 'added', base_probability: 0.1, rating: null, unrated: true, draw: 0.05, from_a_later_schema: true }],
 	'no-review': [],
@@ -48,12 +48,12 @@ describe('runCodetasterCheck', () => {
 		assert.deepStrictEqual(process.calls, [{ executable: '/opt/bin/codetaster', args: ['check', '/repo', '--base', 'origin/release', '--format', 'json'], cwd: '/repo' }]);
 	});
 
-	it('passes a top-rated percentage override on', async () => {
+	it('passes a needs-review threshold on', async () => {
 		const process = successfulProcess();
 
-		await runCodetasterCheck(process, 'codetaster', '/repo', 'origin/main', 35);
+		await runCodetasterCheck(process, 'codetaster', '/repo', 'origin/main', 0.35);
 
-		assert.deepStrictEqual(process.calls.map(call => call.args), [['check', '/repo', '--base', 'origin/main', '--top-rated-percentage', '35', '--format', 'json']]);
+		assert.deepStrictEqual(process.calls.map(call => call.args), [['check', '/repo', '--base', 'origin/main', '--needs-review-threshold', '0.35', '--format', 'json']]);
 	});
 
 	it('returns the parsed report, keeping fields it does not know', async () => {
@@ -102,7 +102,7 @@ describe('runCodetasterCheck', () => {
 });
 
 function checkedOutPullRequest(target: Partial<CheckTarget> = {}): CheckTarget {
-	return { checkout: '/repo', base: 'origin/main', fileListKey: 'a.py', localHead: 'c'.repeat(40), topRatedPercentage: undefined, ...target };
+	return { checkout: '/repo', base: 'origin/main', fileListKey: 'a.py', localHead: 'c'.repeat(40), needsReviewThreshold: undefined, ...target };
 }
 
 /** Requests the check, and requests it again once it finishes if it was running. */
@@ -209,12 +209,12 @@ describe('CodetasterChecks', () => {
 		assert.strictEqual(process.calls.length, 2);
 	});
 
-	it('re-runs the check when the top-rated percentage changes', async () => {
+	it('re-runs the check when the needs-review threshold changes', async () => {
 		const process = successfulProcess();
 		const checks = new CodetasterChecks(process, () => 'codetaster');
 
-		await finishedCheck(checks, checkedOutPullRequest({ topRatedPercentage: undefined }));
-		await finishedCheck(checks, checkedOutPullRequest({ topRatedPercentage: 50 }));
+		await finishedCheck(checks, checkedOutPullRequest({ needsReviewThreshold: undefined }));
+		await finishedCheck(checks, checkedOutPullRequest({ needsReviewThreshold: 0.5 }));
 
 		assert.strictEqual(process.calls.length, 2);
 	});
