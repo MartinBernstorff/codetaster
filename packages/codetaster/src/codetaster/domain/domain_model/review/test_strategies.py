@@ -97,7 +97,13 @@ def fill_template(
     filled = ratings_file_of(*ratings).model_dump(mode="json")
     filled["ratings"] = [
         entry.model_dump(mode="json")
-        | {"probability": rating.probability.root, "category": rating.category.root}
+        | {
+            "probability": rating.probability.root,
+            "category": rating.category.root,
+            "annotations": [
+                annotation.model_dump(mode="json") for annotation in rating.annotations
+            ],
+        }
         for entry, rating in zip(template.ratings, ratings, strict=True)
     ]
     return RatingsFileContent(json.dumps(filled))

@@ -41,6 +41,37 @@ class BlobSha(RootModel[str]):
         return BlobSha("a" * 40)
 
 
+class FileText(RootModel[str]):
+    """A file's content as text, with each line break as a newline character."""
+
+    model_config = ConfigDict(frozen=True)
+
+    @staticmethod
+    def fake() -> FileText:
+        return FileText("content\n")
+
+
+class LineCount(RootModel[Annotated[int, Field(ge=0)]]):
+    """How many lines a file has, as a diff numbers them."""
+
+    model_config = ConfigDict(frozen=True)
+
+    @override
+    def __str__(self) -> str:
+        return str(self.root)
+
+    @staticmethod
+    def fake() -> LineCount:
+        return LineCount(1)
+
+    @staticmethod
+    def of_text(text: FileText) -> LineCount:
+        """A last line without a trailing line break counts; an empty file has none."""
+        content = text.root
+        unterminated = 1 if content and not content.endswith("\n") else 0
+        return LineCount(content.count("\n") + unterminated)
+
+
 class RepositoryPath(RootModel[str]):
     """A file's path relative to the repository root, with `/` separators."""
 

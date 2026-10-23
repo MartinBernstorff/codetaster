@@ -11,7 +11,9 @@ from codetaster.domain.domain_model.review.changes import (
     CommittedChange,
     FileChange,
     FileChanges,
+    FileText,
     FileVersion,
+    LineCount,
     RepositoryPath,
     RevisionName,
     WorkingTreeState,
@@ -97,6 +99,15 @@ class GitCommittedChanges(CommittedChanges):
         if isinstance(root, Err):
             return root
         return Ok(CheckoutPath(Path(root.value.root.strip())))
+
+    @override
+    def read_line_count(
+        self, checkout: CheckoutPath, blob: BlobSha
+    ) -> Result[LineCount, ToolError]:
+        content = run_git(checkout, GitArguments(("cat-file", "blob", blob.root)))
+        if isinstance(content, Err):
+            return content
+        return Ok(LineCount.of_text(FileText(content.value.root)))
 
 
 def resolve_commit(

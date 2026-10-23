@@ -23,9 +23,13 @@ from codetaster.domain.domain_model.review.needs_review_threshold import (
 from codetaster.domain.domain_model.review.path_rules import PathPattern, PathRule
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import (
+    AnnotationSide,
+    AnnotationText,
     CategoryDescription,
     DescribedCategory,
     FileRating,
+    LineAnnotation,
+    LineNumber,
     PullRequestOverview,
     PullRequestSummary,
     RatingCategory,
@@ -47,7 +51,7 @@ class SchemaVersion(RootModel[int]):
 
     @staticmethod
     def fake() -> SchemaVersion:
-        return SchemaVersion(5)
+        return SchemaVersion(6)
 
 
 class ReportFlag(RootModel[bool]):
@@ -95,6 +99,22 @@ class HeadReport(BaseModel):
         return HeadReport(commit=CommitSha.fake())
 
 
+class AnnotationReport(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    side: AnnotationSide = Field(
+        description="before or after: which version of the file `line` is in."
+    )
+    line: LineNumber = Field(
+        description="The annotated line, counting from 1, in that version."
+    )
+    text: AnnotationText = Field(description="Markdown: the note for the reviewer.")
+
+    @staticmethod
+    def fake() -> AnnotationReport:
+        return annotation_report_from_annotation(LineAnnotation.fake())
+
+
 class RatingReport(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -103,6 +123,10 @@ class RatingReport(BaseModel):
     )
     category: RatingCategory = Field(
         description="Which part of the PR the AI put this file in.",
+    )
+    annotations: tuple[AnnotationReport, ...] = Field(
+        description="The AI's notes on lines of this version of the file, from the "
+        "ratings file. Never posted as review comments."
     )
 
     @staticmethod
@@ -233,9 +257,10 @@ class CheckReport(BaseModel):
     """Which changed files need human review, in three groups. Every changed file
     is in exactly one group. Files are ordered by path.
 
-    Schema version 5 samples files at `sampling_probability`, which evidence from
-    the reviewer raises above `base_probability`, and adds `sampling`. Version 4
-    picks needs-review by `needs_review_threshold`, replacing
+    Schema version 6 samples files at `sampling_probability`, which evidence from
+    the reviewer raises above `base_probability`, and adds `sampling`. Version 5
+    adds each rating's `annotations`. Version 4 picks needs-review by
+    `needs_review_threshold`, replacing
     `top_rated_percentage`. Version 3 picked needs-review by rank, added
     `top_rated_percentage` and dropped each file's `probability`. In version 2, a file was in needs-review if
     its draw was below its rating. Schema version 2 added `sampled`. In version 1,
@@ -300,7 +325,7 @@ def check_report_from_result(result: CheckResult) -> CheckReport:
         )
 
     return CheckReport(
-        schema_version=SchemaVersion(5),
+        schema_version=SchemaVersion(6),
         needs_review=ReportFlag(root=result.verdict() is not Verdict.NO_REVIEW),
         # Nothing applies an override label yet.
         override_label_applied=ReportFlag(root=False),
@@ -359,7 +384,20 @@ def path_rule_report_from_rule(rule: PathRule) -> PathRuleReport:
 
 
 def rating_report_from_rating(rating: FileRating) -> RatingReport:
-    return RatingReport(probability=rating.probability, category=rating.category)
+    return RatingReport(
+        probability=rating.probability,
+        category=rating.category,
+        annotations=tuple(
+            annotation_report_from_annotation(annotation)
+            for annotation in rating.annotations
+        ),
+    )
+
+
+def annotation_report_from_annotation(annotation: LineAnnotation) -> AnnotationReport:
+    return AnnotationReport(
+        side=annotation.side, line=annotation.line, text=annotation.text
+    )
 
 
 def overview_report_from_overview(overview: PullRequestOverview) -> OverviewReport:

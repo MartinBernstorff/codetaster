@@ -18,7 +18,7 @@ function fakeSampling(sampling: Partial<SamplingReport> = {}): SamplingReport {
 
 function fakeCheckReport(lists: { needsReview?: string[], sampled?: string[], noReview?: string[] }): CheckReport {
 	return {
-		schema_version: 5,
+		schema_version: 6,
 		needs_review: true,
 		base: { ref: 'main', merge_base: 'a'.repeat(40) },
 		head: { commit: 'b'.repeat(40) },

@@ -15,9 +15,11 @@ from codetaster.domain.domain_model.review.changes import (
 )
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import (
+    AnnotationSide,
     DescribedCategory,
     FileRating,
     FileRatings,
+    LineAnnotation,
     RatingsFile,
     RatingsFileContent,
     RatingTarget,
@@ -48,6 +50,26 @@ def test_parses_the_documented_format() -> None:
     assert isinstance(parse_ratings_file(content, Location.fake()), Ok)
 
 
+def test_parses_annotations() -> None:
+    annotation = LineAnnotation.fake()
+    rating = FileRating.fake().model_copy(update={"annotations": (annotation,)})
+    ratings = RatingsFile.fake().model_copy(update={"ratings": FileRatings((rating,))})
+    content = RatingsFileContent(ratings.model_dump_json())
+
+    assert parse_ratings_file(content, Location.fake()) == Ok(ratings)
+
+
+def test_an_annotation_is_on_the_after_side_unless_it_says_otherwise() -> None:
+    content = fake_rating_with(annotations=[{"line": 1, "text": "Moved."}])
+
+    match parse_ratings_file(content, Location.fake()):
+        case Ok(RatingsFile(ratings=FileRatings(root=(rating,)))):
+            [annotation] = rating.annotations
+            assert annotation.side is AnnotationSide.AFTER
+        case result:
+            raise AssertionError(result)
+
+
 def fake_file_with(**fields: JsonValue) -> RatingsFileContent:
     """The fake ratings file, with `fields` replaced."""
     return RatingsFileContent(
@@ -64,6 +86,13 @@ def fake_category_with(**fields: JsonValue) -> RatingsFileContent:
     """The fake ratings file, with `fields` replaced in its one category."""
     return fake_file_with(
         categories=[DescribedCategory.fake().model_dump(mode="json") | fields]
+    )
+
+
+def fake_annotation_with(**fields: JsonValue) -> RatingsFileContent:
+    """The fake ratings file, with one annotation on its rating, `fields` replaced."""
+    return fake_rating_with(
+        annotations=[LineAnnotation.fake().model_dump(mode="json") | fields]
     )
 
 
@@ -94,6 +123,11 @@ def fake_file_without(field: FieldName) -> RatingsFileContent:
         fake_category_with(description=""),
         fake_category_with(description=None),
         fake_category_with(extra=1),
+        fake_annotation_with(line=0),
+        fake_annotation_with(line=None),
+        fake_annotation_with(text=""),
+        fake_annotation_with(side="middle"),
+        fake_annotation_with(extra=1),
     ],
     ids=[
         "not-json",
@@ -108,6 +142,11 @@ def fake_file_without(field: FieldName) -> RatingsFileContent:
         "empty-description",
         "no-description",
         "unknown-category-field",
+        "annotation-line-zero",
+        "annotation-without-line",
+        "empty-annotation-text",
+        "unknown-annotation-side",
+        "unknown-annotation-field",
     ],
 )
 def test_rejects_an_invalid_file(content: RatingsFileContent) -> None:

@@ -80,6 +80,8 @@ def run_external_tool(
             stdout=capture,
             stderr=capture,
             text=True,
+            # Binary output, e.g. a blob's content, would otherwise raise.
+            errors="replace",
             check=False,
             env=environment.root if environment is not None else None,
         )

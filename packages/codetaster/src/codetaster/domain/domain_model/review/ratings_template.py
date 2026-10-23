@@ -1,7 +1,7 @@
 """A ratings file with every changed file listed and nothing rated yet.
 
 An agent fills in the summary, the categories, and `probability` and `category`
-for each entry. Until it does, the template does not parse as a ratings file.
+for each entry, and fills in or removes each entry's annotation. Until it does, the template does not parse as a ratings file.
 """
 
 from pydantic import BaseModel, ConfigDict
@@ -11,7 +11,21 @@ from codetaster.domain.domain_model.review.changes import (
     FileChanges,
     RepositoryPath,
 )
-from codetaster.domain.domain_model.review.ratings import RatingTarget
+from codetaster.domain.domain_model.review.ratings import AnnotationSide, RatingTarget
+
+
+class BlankAnnotation(BaseModel):
+    """A placeholder that shows the shape of an annotation, and its default side."""
+
+    model_config = ConfigDict(frozen=True)
+
+    side: AnnotationSide = AnnotationSide.AFTER
+    line: None = None
+    text: None = None
+
+    @staticmethod
+    def fake() -> BlankAnnotation:
+        return BlankAnnotation()
 
 
 class BlankRating(BaseModel):
@@ -23,6 +37,7 @@ class BlankRating(BaseModel):
     blob: BlobSha | None
     probability: None = None
     category: None = None
+    annotations: tuple[BlankAnnotation, ...] = (BlankAnnotation(),)
 
     @staticmethod
     def fake() -> BlankRating:

@@ -1,3 +1,5 @@
+from pydantic import JsonValue
+
 from codetaster.delivery.console.check_report import check_report_from_result
 from codetaster.domain.domain_model.review.adaptive_sampling import AdaptiveSampling
 from codetaster.domain.domain_model.review.changes import (
@@ -12,6 +14,7 @@ from codetaster.domain.domain_model.review.needs_review_threshold import (
 from codetaster.domain.domain_model.review.path_rules import PathRule
 from codetaster.domain.domain_model.review.ratings import (
     FileRating,
+    LineAnnotation,
     PullRequestOverview,
 )
 from codetaster.domain.domain_model.review.ratings_validation import (
@@ -110,8 +113,8 @@ def test_no_ratings_file_is_no_overview() -> None:
     assert report["overview"] is None
 
 
-def test_schema_version_is_five() -> None:
-    expected = 5
+def test_schema_version_is_six() -> None:
+    expected = 6
 
     report = check_report_from_result(CheckResult.fake()).model_dump(
         mode="json", by_alias=True
@@ -153,9 +156,10 @@ def test_reports_each_files_decision_inputs() -> None:
 def test_reports_a_rated_files_rating_and_category() -> None:
     rating = FileRating.fake()
     assessment = FileAssessment.fake().model_copy(update={"rating": rating})
-    expected = {
+    expected: JsonValue = {
         "probability": rating.probability.root,
         "category": rating.category.root,
+        "annotations": [],
     }
 
     report = check_report_from_result(result_with(assessment)).model_dump(
@@ -165,6 +169,26 @@ def test_reports_a_rated_files_rating_and_category() -> None:
     [file] = report["no-review"]
     assert file["rating"] == expected
     assert file["unrated"] is False
+
+
+def test_reports_a_rated_files_annotations() -> None:
+    annotation = LineAnnotation.fake()
+    rating = FileRating.fake().model_copy(update={"annotations": (annotation,)})
+    assessment = FileAssessment.fake().model_copy(update={"rating": rating})
+    expected = [
+        {
+            "side": annotation.side.value,
+            "line": annotation.line.root,
+            "text": annotation.text.root,
+        }
+    ]
+
+    report = check_report_from_result(result_with(assessment)).model_dump(
+        mode="json", by_alias=True
+    )
+
+    [file] = report["no-review"]
+    assert file["rating"]["annotations"] == expected
 
 
 def test_reports_the_matching_path_rule() -> None:

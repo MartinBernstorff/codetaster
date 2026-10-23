@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Protocol, override
 
 import pytest
-from pydantic import RootModel
 from safe_result import Err, Ok
 
 from codetaster.domain.domain_model.checkout import CheckoutPath
@@ -16,11 +15,14 @@ from codetaster.domain.domain_model.review.changes import (
     ChangeType,
     CommitSha,
     CommittedChange,
+    FileText,
+    LineCount,
     RepositoryPath,
     RevisionName,
     WorkingTreeState,
 )
 from codetaster.domain.domain_model.review.errors import UnknownRevisionError
+from codetaster.domain.domain_model.tool_errors import ToolFailedError
 from codetaster.domain.secondary_ports.committed_changes import CommittedChanges
 from codetaster.infrastructure.committed_changes.fake_committed_changes import (
     FakeCommittedChanges,
@@ -30,13 +32,6 @@ from codetaster.infrastructure.committed_changes.git_committed_changes import (
     GitCommittedChanges,
 )
 from codetaster.infrastructure.external_tool.run_external_tool import ToolOutput
-
-
-class FileText(RootModel[str]):
-    @staticmethod
-    def fake() -> FileText:
-        return FileText("content\n")
-
 
 type FileEdits = Mapping[RepositoryPath, FileText | None]
 """New content per path. `None` deletes the file."""
@@ -140,14 +135,15 @@ class InMemoryRepository(Repository):
 
     @override
     def commit(self, edits: FileEdits) -> CommitSha:
-        return self.fake.commit(
-            {
-                path: None
-                if text is None
-                else BlobSha(hashlib.sha1(text.root.encode()).hexdigest())
-                for path, text in edits.items()
-            }
-        )
+        blobs: dict[RepositoryPath, BlobSha | None] = {}
+        for path, text in edits.items():
+            if text is None:
+                blobs[path] = None
+                continue
+            blob = BlobSha(hashlib.sha1(text.root.encode()).hexdigest())
+            self.fake.line_counts[blob] = LineCount.of_text(text)
+            blobs[path] = blob
+        return self.fake.commit(blobs)
 
     @override
     def create_branch(self, name: RevisionName) -> None:
@@ -349,3 +345,30 @@ def test_the_repository_root_of_a_subdirectory_is_the_checkout(
     root = repository.changes.read_repository_root(repository.subdirectory())
 
     assert root == Ok(repository.checkout)
+
+
+def test_counts_the_lines_of_a_committed_blob(repository: Repository) -> None:
+    expected = LineCount(3)
+    path = RepositoryPath("file.py")
+
+    change = change_from_main(repository, edits={path: FileText("one\ntwo\nthree")})
+
+    [file] = change.files.root
+    assert file.after is not None
+    assert repository.changes.read_line_count(
+        repository.checkout, file.after.blob
+    ) == Ok(expected)
+
+
+def test_counting_the_lines_of_an_unknown_blob_is_an_error(
+    repository: Repository,
+) -> None:
+    _ = repository.commit({RepositoryPath("README.md"): FileText.fake()})
+
+    result = repository.changes.read_line_count(repository.checkout, BlobSha("0" * 40))
+
+    match result:
+        case Err(ToolFailedError()):
+            pass
+        case _:
+            raise AssertionError(result)

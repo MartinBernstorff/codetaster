@@ -6,7 +6,9 @@ from codetaster.domain.domain_model.review.changes import (
     ChangeType,
     FileChange,
     FileChanges,
+    FileText,
     FileVersion,
+    LineCount,
     RepositoryPath,
 )
 
@@ -98,3 +100,17 @@ def test_a_file_at_a_new_path_is_renamed_and_uses_the_new_path() -> None:
 def test_a_change_needs_a_before_or_an_after() -> None:
     with pytest.raises(ValidationError):
         _ = FileChange(before=None, after=None)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (FileText(""), LineCount(0)),
+        (FileText("one\n"), LineCount(1)),
+        (FileText("one\ntwo"), LineCount(2)),
+        (FileText("one\n\n"), LineCount(2)),
+    ],
+    ids=["empty", "terminated", "unterminated-last-line", "blank-last-line"],
+)
+def test_line_count_of_text(text: FileText, expected: LineCount) -> None:
+    assert LineCount.of_text(text) == expected
