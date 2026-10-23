@@ -1,7 +1,9 @@
 """A ratings file with every changed file listed and nothing rated yet.
 
 An agent fills in the summary, the categories, and `probability` and `category`
-for each entry, and fills in or removes each entry's annotation. Until it does, the template does not parse as a ratings file.
+for each entry. Until it does, the template does not parse as a ratings file.
+Each entry's placeholder annotation shows the shape of one; the agent fills it in
+or removes it, and one left blank is ignored.
 """
 
 from pydantic import BaseModel, ConfigDict

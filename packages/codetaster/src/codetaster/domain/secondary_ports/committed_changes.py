@@ -4,9 +4,9 @@ from safe_result import Result
 
 from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.review.changes import (
+    BlobLineCounts,
     BlobSha,
     CommittedChange,
-    LineCount,
     RevisionName,
     WorkingTreeState,
 )
@@ -41,8 +41,12 @@ class CommittedChanges(Protocol):
         """The top directory of the checkout `checkout` is in, which may be itself."""
         ...
 
-    def read_line_count(
-        self, checkout: CheckoutPath, blob: BlobSha
-    ) -> Result[LineCount, ToolError]:
-        """How many lines the file with content `blob` has. An error if no such blob."""
+    def read_line_counts(
+        self, checkout: CheckoutPath, blobs: tuple[BlobSha, ...]
+    ) -> Result[BlobLineCounts, ToolError]:
+        """How many lines each of the files with content `blobs` has, read at once.
+
+        A blob that does not exist, or names something other than a file's
+        content (such as a submodule's commit), is left out.
+        """
         ...

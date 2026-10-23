@@ -27,6 +27,7 @@ from codetaster.domain.domain_model.review.ratings import (
 )
 from codetaster.domain.domain_model.review.ratings_validation import (
     AnnotationLineOutOfRange,
+    AnnotationOnUnreadableFile,
     InvalidRatingsFile,
     MissingRatingsFile,
     RatingProblems,
@@ -127,6 +128,40 @@ def test_reports_an_annotation_past_the_last_line() -> None:
         (
             AnnotationLineOutOfRange(
                 target=target, annotation=annotation, line_count=line_count
+            ),
+        )
+    )
+
+
+def test_an_unreadable_annotated_file_is_a_problem_not_an_error() -> None:
+    configuration = Configuration.fake()
+    assert configuration.review is not None
+    unreadable = RepositoryPath("submodule")
+    readable = RepositoryPath.fake()
+    history = history_with_feature_branch(
+        configuration.review.base_branch, unreadable, readable
+    )
+    unreadable_target = head_target(history, unreadable)
+    # Both paths have the fake blob; give the readable one its own.
+    readable_blob = BlobSha("c" * 40)
+    _ = history.commit({readable: readable_blob})
+    line_count = LineCount(3)
+    history.line_counts[readable_blob] = line_count
+    readable_target = head_target(history, readable)
+    annotation = LineAnnotation.fake().model_copy(update={"line": LineNumber(4)})
+    store = ratings_store(
+        configuration,
+        rating_for(unreadable_target).model_copy(update={"annotations": (annotation,)}),
+        rating_for(readable_target).model_copy(update={"annotations": (annotation,)}),
+    )
+
+    result = validated(configuration, history, store)
+
+    assert result.problems == RatingProblems(
+        (
+            AnnotationOnUnreadableFile(target=unreadable_target, annotation=annotation),
+            AnnotationLineOutOfRange(
+                target=readable_target, annotation=annotation, line_count=line_count
             ),
         )
     )

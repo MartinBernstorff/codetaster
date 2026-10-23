@@ -1,12 +1,14 @@
 """Problems that stop a ratings file from rating exactly the current change."""
 
 from collections import Counter
+from collections.abc import Iterator
 
 from pydantic import BaseModel, ConfigDict, RootModel
 
 from codetaster.domain.domain_model.configuration.errors import ErrorReason
 from codetaster.domain.domain_model.filesystem import Location
 from codetaster.domain.domain_model.review.changes import (
+    BlobLineCounts,
     BlobSha,
     FileChange,
     FileChanges,
@@ -172,8 +174,9 @@ class AnnotationLineOutOfRange(BaseModel):
         )
 
 
-class UnknownFileAnnotation(BaseModel):
-    """An annotation on a file that is not changed."""
+class AnnotationOnUnreadableFile(BaseModel):
+    """An annotation on a file version whose lines cannot be read, such as a
+    submodule's."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -181,8 +184,8 @@ class UnknownFileAnnotation(BaseModel):
     annotation: LineAnnotation
 
     @staticmethod
-    def fake() -> UnknownFileAnnotation:
-        return UnknownFileAnnotation(
+    def fake() -> AnnotationOnUnreadableFile:
+        return AnnotationOnUnreadableFile(
             target=RatingTarget.fake(), annotation=LineAnnotation.fake()
         )
 
@@ -199,7 +202,7 @@ FileRatingProblem = (
 CategoryProblem = UndeclaredCategory | UnusedCategory | DuplicateCategory
 
 AnnotationProblem = (
-    AnnotationOnMissingSide | AnnotationLineOutOfRange | UnknownFileAnnotation
+    AnnotationOnMissingSide | AnnotationLineOutOfRange | AnnotationOnUnreadableFile
 )
 
 RatingProblem = FileRatingProblem | CategoryProblem | AnnotationProblem
@@ -211,16 +214,6 @@ class RatingProblems(RootModel[tuple[RatingProblem, ...]]):
     @staticmethod
     def fake() -> RatingProblems:
         return RatingProblems((UnratedFile.fake(),))
-
-
-class BlobLineCounts(RootModel[dict[BlobSha, LineCount]]):
-    """How many lines each file version has, by its blob."""
-
-    model_config = ConfigDict(frozen=True)
-
-    @staticmethod
-    def fake() -> BlobLineCounts:
-        return BlobLineCounts({BlobSha.fake(): LineCount.fake()})
 
 
 def find_rating_problems(
@@ -293,20 +286,9 @@ def find_category_problems(ratings: RatingsFile) -> tuple[CategoryProblem, ...]:
 def find_annotation_problems(
     changes: FileChanges, ratings: RatingsFile, line_counts: BlobLineCounts
 ) -> tuple[AnnotationProblem, ...]:
-    """Annotations on a stale rating are not checked: the file is to be re-rated."""
-    changed_paths = {change.path() for change in changes.root}
+    """Only the annotations `checked_ratings` lists are checked."""
     problems: list[AnnotationProblem] = []
-    for rating in ratings.ratings.root:
-        if not rating.annotations:
-            continue
-        change = changed_file_rated_by(changes, rating)
-        if change is None:
-            if rating.path not in changed_paths:
-                problems.extend(
-                    UnknownFileAnnotation(target=rating.target(), annotation=annotation)
-                    for annotation in rating.annotations
-                )
-            continue
+    for rating, change in checked_ratings(changes, ratings):
         for annotation in rating.annotations:
             blob = annotated_blob(change, annotation.side)
             if blob is None:
@@ -317,7 +299,13 @@ def find_annotation_problems(
                 )
                 continue
             line_count = line_counts.root.get(blob)
-            if line_count is not None and annotation.line.root > line_count.root:
+            if line_count is None:
+                problems.append(
+                    AnnotationOnUnreadableFile(
+                        target=rating.target(), annotation=annotation
+                    )
+                )
+            elif annotation.line.root > line_count.root:
                 problems.append(
                     AnnotationLineOutOfRange(
                         target=rating.target(),
@@ -334,17 +322,35 @@ def annotated_blobs(changes: FileChanges, ratings: RatingsFile) -> tuple[BlobSha
     Each is listed once, in the order the ratings file first annotates it.
     """
     blobs: dict[BlobSha, None] = {}
-    for rating in ratings.ratings.root:
-        if not rating.annotations:
-            continue
-        change = changed_file_rated_by(changes, rating)
-        if change is None:
-            continue
+    for rating, change in checked_ratings(changes, ratings):
         for annotation in rating.annotations:
             blob = annotated_blob(change, annotation.side)
             if blob is not None:
                 blobs[blob] = None
     return tuple(blobs)
+
+
+def checked_ratings(
+    changes: FileChanges, ratings: RatingsFile
+) -> Iterator[tuple[FileRating, FileChange]]:
+    """The annotated ratings whose annotations are checked, with their changes.
+
+    Annotations on a stale rating are not checked: the file is to be re-rated.
+    Nor are those on a rating for an unchanged file, which is reported as unknown
+    already. Of duplicate ratings, only the first's are checked, so that its
+    problems are reported once.
+    """
+    seen: set[RatingTarget] = set()
+    for rating in ratings.ratings.root:
+        target = rating.target()
+        if target in seen:
+            continue
+        seen.add(target)
+        if not rating.annotations:
+            continue
+        change = changed_file_rated_by(changes, rating)
+        if change is not None:
+            yield rating, change
 
 
 def changed_file_rated_by(

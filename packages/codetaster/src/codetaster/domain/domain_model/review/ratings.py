@@ -25,13 +25,22 @@ The ratings file is JSON:
 
 A rating applies to a file's change only when both `path` and `blob` match it,
 so editing a file makes its rating stale, and its annotations with it.
-`annotations` is optional.
+`annotations` is optional. An annotation with a null `line` and `text`, as the
+template shows, is ignored.
 """
 
 from enum import StrEnum
 from typing import Annotated, override
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    RootModel,
+    ValidationError,
+    field_validator,
+)
 from safe_result import Err, Ok, Result
 
 from codetaster.domain.domain_model.checkout import CheckoutPath
@@ -233,6 +242,24 @@ class FileRating(BaseModel):
         description="Notes for the reviewer on lines of this version of the file. "
         "Optional.",
     )
+
+    @field_validator("annotations", mode="before")
+    @classmethod
+    def drop_blank_annotations(cls, annotations: JsonValue) -> JsonValue:
+        """Ignore the template's placeholder, so leaving it in is harmless."""
+        if not isinstance(annotations, list):
+            return annotations
+        return [
+            annotation
+            for annotation in annotations
+            if not (
+                isinstance(annotation, dict)
+                and "line" in annotation
+                and "text" in annotation
+                and annotation["line"] is None
+                and annotation["text"] is None
+            )
+        ]
 
     @staticmethod
     def fake() -> FileRating:

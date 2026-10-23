@@ -11,11 +11,14 @@ from codetaster.domain.domain_model.tool_errors import (
     ToolNotFoundError,
 )
 from codetaster.infrastructure.external_tool.run_external_tool import (
+    BinaryToolOutput,
     OutputMode,
     ToolArguments,
     ToolEnvironment,
+    ToolInput,
     ToolOutput,
     run_external_tool,
+    run_external_tool_on_input,
 )
 
 
@@ -91,3 +94,46 @@ def test_runs_the_tool_with_the_given_environment(tmp_path: Path) -> None:
     )
 
     assert result == Ok(ToolOutput(value))
+
+
+def test_passes_input_and_captures_undecoded_output(tmp_path: Path) -> None:
+    content = b"\xff\xfe not utf-8\r\n"
+
+    result = run_external_tool_on_input(
+        ToolArguments(("cat",)),
+        CheckoutPath(tmp_path),
+        ToolInput(content),
+        InstallationHint.fake(),
+    )
+
+    assert result == Ok(BinaryToolOutput(content))
+
+
+def test_reports_the_exit_code_of_a_failing_tool_given_input(tmp_path: Path) -> None:
+    failure_exit_code = ExitCode(1)
+
+    result = run_external_tool_on_input(
+        ToolArguments(("false",)),
+        CheckoutPath(tmp_path),
+        ToolInput.fake(),
+        InstallationHint.fake(),
+    )
+
+    assert isinstance(result, Err)
+    assert isinstance(result.error, ToolFailedError)
+    assert result.error.exit_code == failure_exit_code
+
+
+def test_reports_a_missing_program_given_input(tmp_path: Path) -> None:
+    hint = InstallationHint.fake()
+
+    result = run_external_tool_on_input(
+        ToolArguments(("codetaster-no-such-program",)),
+        CheckoutPath(tmp_path),
+        ToolInput.fake(),
+        hint,
+    )
+
+    assert isinstance(result, Err)
+    assert isinstance(result.error, ToolNotFoundError)
+    assert str(hint) in str(result.error)

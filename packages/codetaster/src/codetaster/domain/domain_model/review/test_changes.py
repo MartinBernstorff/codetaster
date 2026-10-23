@@ -2,11 +2,11 @@ import pytest
 from pydantic import ValidationError
 
 from codetaster.domain.domain_model.review.changes import (
+    BlobContent,
     BlobSha,
     ChangeType,
     FileChange,
     FileChanges,
-    FileText,
     FileVersion,
     LineCount,
     RepositoryPath,
@@ -103,14 +103,23 @@ def test_a_change_needs_a_before_or_an_after() -> None:
 
 
 @pytest.mark.parametrize(
-    ("text", "expected"),
+    ("content", "expected"),
     [
-        (FileText(""), LineCount(0)),
-        (FileText("one\n"), LineCount(1)),
-        (FileText("one\ntwo"), LineCount(2)),
-        (FileText("one\n\n"), LineCount(2)),
+        (BlobContent(b""), LineCount(0)),
+        (BlobContent(b"one\n"), LineCount(1)),
+        (BlobContent(b"one\ntwo"), LineCount(2)),
+        (BlobContent(b"one\n\n"), LineCount(2)),
+        (BlobContent(b"one\rtwo\r\n"), LineCount(1)),
+        (BlobContent(b"\xff\xfe\n\x00"), LineCount(2)),
     ],
-    ids=["empty", "terminated", "unterminated-last-line", "blank-last-line"],
+    ids=[
+        "empty",
+        "terminated",
+        "unterminated-last-line",
+        "blank-last-line",
+        "carriage-returns-are-not-line-breaks",
+        "binary",
+    ],
 )
-def test_line_count_of_text(text: FileText, expected: LineCount) -> None:
-    assert LineCount.of_text(text) == expected
+def test_line_count_of_content(content: BlobContent, expected: LineCount) -> None:
+    assert LineCount.of_content(content) == expected

@@ -25,6 +25,7 @@ from codetaster.domain.domain_model.review.ratings import AnnotationSide
 from codetaster.domain.domain_model.review.ratings_validation import (
     AnnotationLineOutOfRange,
     AnnotationOnMissingSide,
+    AnnotationOnUnreadableFile,
     AnnotationProblem,
     CategoryProblem,
     DuplicateCategory,
@@ -35,7 +36,6 @@ from codetaster.domain.domain_model.review.ratings_validation import (
     RatingProblem,
     StaleRating,
     UndeclaredCategory,
-    UnknownFileAnnotation,
     UnknownRating,
     UnratedFile,
     UnusedCategory,
@@ -129,7 +129,7 @@ def describe_rating_problem(
         case (
             AnnotationOnMissingSide()
             | AnnotationLineOutOfRange()
-            | UnknownFileAnnotation()
+            | AnnotationOnUnreadableFile()
         ):
             return describe_annotation_problem(problem)
         case _:
@@ -213,11 +213,12 @@ def describe_annotation_problem(
                 f"version has {line_count} lines. Annotate an existing line, or "
                 "remove the annotation."
             )
-        case UnknownFileAnnotation(target=target, annotation=annotation):
+        case AnnotationOnUnreadableFile(target=target, annotation=annotation):
             return RatingProblemDescription(
-                f"{target.path} is not changed on this branch, so its annotation on "
-                f"{annotation.side} line {annotation.line} cannot be shown. "
-                "Remove it with the rating."
+                f"The {annotation.side} version of {target.path} has no lines to "
+                f"read, e.g. because it is a submodule, so the annotation on "
+                f"{annotation.side} line {annotation.line} cannot be shown. Remove "
+                "the annotation."
             )
 
 

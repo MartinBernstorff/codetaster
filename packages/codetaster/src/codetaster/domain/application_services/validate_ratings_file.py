@@ -5,13 +5,10 @@ from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.configuration.configuration import Configuration
 from codetaster.domain.domain_model.filesystem import Location
 from codetaster.domain.domain_model.review.changes import (
-    BlobSha,
-    LineCount,
     RevisionName,
     WorkingTreeState,
 )
 from codetaster.domain.domain_model.review.ratings_validation import (
-    BlobLineCounts,
     InvalidRatingsFile,
     MissingRatingsFile,
     RatingProblems,
@@ -82,15 +79,12 @@ def validate_ratings_file(
         problems = RatingProblems((MissingRatingsFile(location=location),))
     else:
         changes = branch.value.change.files
-        line_counts: dict[BlobSha, LineCount] = {}
-        for blob in annotated_blobs(changes, ratings.value):
-            line_count = committed_changes.read_line_count(request.checkout, blob)
-            if isinstance(line_count, Err):
-                return line_count
-            line_counts[blob] = line_count.value
-        problems = find_rating_problems(
-            changes, ratings.value, BlobLineCounts(line_counts)
+        line_counts = committed_changes.read_line_counts(
+            request.checkout, annotated_blobs(changes, ratings.value)
         )
+        if isinstance(line_counts, Err):
+            return line_counts
+        problems = find_rating_problems(changes, ratings.value, line_counts.value)
     return Ok(
         RatingsValidationResult(
             problems=problems, location=location, working_tree=branch.value.working_tree

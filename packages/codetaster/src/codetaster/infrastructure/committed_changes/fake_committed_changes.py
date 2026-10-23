@@ -6,6 +6,7 @@ from safe_result import Err, Ok, Result
 
 from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.review.changes import (
+    BlobLineCounts,
     BlobSha,
     CommitSha,
     CommittedChange,
@@ -18,12 +19,7 @@ from codetaster.domain.domain_model.review.changes import (
     WorkingTreeState,
 )
 from codetaster.domain.domain_model.review.errors import UnknownRevisionError
-from codetaster.domain.domain_model.tool_errors import (
-    ExitCode,
-    ToolError,
-    ToolFailedError,
-    ToolInvocation,
-)
+from codetaster.domain.domain_model.tool_errors import ToolError
 from codetaster.domain.secondary_ports.committed_changes import (
     ChangeReadError,
     CommittedChanges,
@@ -114,17 +110,18 @@ class FakeCommittedChanges(CommittedChanges):
         return Ok(self.repository_root)
 
     @override
-    def read_line_count(
-        self, checkout: CheckoutPath, blob: BlobSha
-    ) -> Result[LineCount, ToolError]:
-        count = self.line_counts.get(blob)
-        if count is None:
-            return Err(
-                ToolFailedError(
-                    ToolInvocation(f"git cat-file blob {blob.root}"), ExitCode(128)
-                )
+    def read_line_counts(
+        self, checkout: CheckoutPath, blobs: tuple[BlobSha, ...]
+    ) -> Result[BlobLineCounts, ToolError]:
+        return Ok(
+            BlobLineCounts(
+                {
+                    blob: self.line_counts[blob]
+                    for blob in blobs
+                    if blob in self.line_counts
+                }
             )
-        return Ok(count)
+        )
 
     def ancestry(self, commit: CommitSha) -> list[CommitSha]:
         """`commit`, then its parent, and so on to the root."""
