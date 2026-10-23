@@ -215,3 +215,49 @@ def test_missing_review_section_exits_non_zero(tmp_path: Path) -> None:
     result = run_check(repository, CliOptions.fake())
 
     assert result.exit_code != 0
+
+
+def test_commented_files_add_sampled_files(tmp_path: Path) -> None:
+    # feature.py's draw is about 0.31: above 0.2, below (2 + 3) / (10 + 3 + 1).
+    repository = Repository(
+        tmp_path,
+        TomlText('[review]\nbase_branch = "main"\nbase_probability = 0.2\n'),
+    )
+    commented = 3
+    viewed = 1
+    feature = "feature.py"
+    summary = "Sampling at"
+
+    without = run_check(repository, CliOptions.fake())
+    with_evidence = run_check(
+        repository,
+        CliOptions(
+            ("--commented-files", str(commented), "--viewed-files", str(viewed))
+        ),
+    )
+
+    assert not json.loads(without.stdout)["sampled"]
+    report = json.loads(with_evidence.stdout)
+    assert report["sampling"]["commented_files"] == commented
+    assert report["sampling"]["viewed_files"] == viewed
+    [file] = report["sampled"]
+    assert file["path"] == feature
+    assert summary in with_evidence.stderr
+
+
+def test_evidence_that_leaves_the_probability_unchanged_prints_no_summary(
+    repository: Repository,
+) -> None:
+    # Viewed files alone never move the probability below the base.
+    summary = "Sampling at"
+
+    result = run_check(repository, CliOptions(("--viewed-files", "3")))
+
+    assert result.exit_code == 0
+    assert summary not in result.stderr
+
+
+def test_a_negative_commented_file_count_is_an_error(repository: Repository) -> None:
+    result = run_check(repository, CliOptions(("--commented-files", "-1")))
+
+    assert result.exit_code != 0

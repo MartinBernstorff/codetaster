@@ -1,16 +1,18 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
 import { CheckState, CheckTarget, CodetasterChecks, CodetasterProcess, ProcessOutcome, runCodetasterCheck } from './codetasterCheck';
+import { NO_EVIDENCE } from './samplingEvidence';
 
 const validReport = {
-	schema_version: 4,
+	schema_version: 6,
 	needs_review: true,
 	override_label_applied: false,
 	base: { ref: 'main', merge_base: 'a'.repeat(40) },
 	head: { commit: 'b'.repeat(40) },
 	needs_review_threshold: 0.6,
+	sampling: { base_probability: 0.1, base_probability_weight: 10, commented_files: 0, viewed_files: 0, effective_probability: 0.1 },
 	'needs-review': [],
-	sampled: [{ path: 'a.py', previous_path: null, change_type: 'added', base_probability: 0.1, rating: null, unrated: true, draw: 0.05, from_a_later_schema: true }],
+	sampled: [{ path: 'a.py', previous_path: null, change_type: 'added', base_probability: 0.1, sampling_probability: 0.1, rating: null, unrated: true, draw: 0.05, from_a_later_schema: true }],
 	'no-review': [],
 };
 
@@ -54,6 +56,29 @@ describe('runCodetasterCheck', () => {
 		await runCodetasterCheck(process, 'codetaster', '/repo', 'origin/main', 0.35);
 
 		assert.deepStrictEqual(process.calls.map(call => call.args), [['check', '/repo', '--base', 'origin/main', '--needs-review-threshold', '0.35', '--format', 'json']]);
+	});
+
+	it('passes the reviewer\'s evidence on', async () => {
+		const process = successfulProcess();
+
+		await runCodetasterCheck(process, 'codetaster', '/repo', 'origin/main', undefined, { commentedFiles: 1, viewedFiles: 5 });
+
+		assert.deepStrictEqual(process.calls.map(call => call.args), [['check', '/repo', '--base', 'origin/main', '--commented-files', '1', '--viewed-files', '5', '--format', 'json']]);
+	});
+
+	it('passes no evidence options without evidence', async () => {
+		const process = successfulProcess();
+
+		await runCodetasterCheck(process, 'codetaster', '/repo', 'origin/main', undefined, NO_EVIDENCE);
+
+		assert.deepStrictEqual(process.calls.map(call => call.args), [['check', '/repo', '--base', 'origin/main', '--format', 'json']]);
+	});
+
+	it('rejects a report without sampling', async () => {
+		// JSON.stringify leaves out undefined fields.
+		const message = await errorMessageFrom(new FakeCodetasterProcess(exitedWith(0, JSON.stringify({ ...validReport, sampling: undefined }))));
+
+		assert.match(message, /"sampling"/);
 	});
 
 	it('returns the parsed report, keeping fields it does not know', async () => {
@@ -109,6 +134,24 @@ describe('runCodetasterCheck', () => {
 		assert.deepStrictEqual(outcome.kind === 'report' && outcome.report.overview, overview);
 	});
 
+	it('returns each rating\'s annotations', async () => {
+		const annotations = [{ side: 'before', line: 3, text: 'Moved to `b.py`.' }];
+		const rated = { ...validReport.sampled[0], rating: { probability: 0.2, category: 'Moves', annotations }, unrated: false };
+		const process = new FakeCodetasterProcess(exitedWith(0, JSON.stringify({ ...validReport, sampled: [rated] })));
+
+		const outcome = await runCodetasterCheck(process, 'codetaster', '/repo', 'origin/main');
+
+		assert.deepStrictEqual(outcome.kind === 'report' && outcome.report.sampled[0].rating?.annotations, annotations);
+	});
+
+	it('rejects an annotation without a line', async () => {
+		const rated = { ...validReport.sampled[0], rating: { probability: 0.2, category: 'Moves', annotations: [{ side: 'after', text: 'Moved.' }] }, unrated: false };
+
+		const message = await errorMessageFrom(new FakeCodetasterProcess(exitedWith(0, JSON.stringify({ ...validReport, sampled: [rated] }))));
+
+		assert.match(message, /"annotations"/);
+	});
+
 	it('rejects an overview whose categories have no descriptions', async () => {
 		const overview = { summary: 'Retries payments.', categories: [{ name: 'Retry' }] };
 
@@ -119,7 +162,7 @@ describe('runCodetasterCheck', () => {
 });
 
 function checkedOutPullRequest(target: Partial<CheckTarget> = {}): CheckTarget {
-	return { checkout: '/repo', base: 'origin/main', fileListKey: 'a.py', localHead: 'c'.repeat(40), needsReviewThreshold: undefined, ...target };
+	return { checkout: '/repo', base: 'origin/main', fileListKey: 'a.py', localHead: 'c'.repeat(40), needsReviewThreshold: undefined, evidence: NO_EVIDENCE, ...target };
 }
 
 /** Requests the check, and requests it again once it finishes if it was running. */
@@ -234,6 +277,28 @@ describe('CodetasterChecks', () => {
 		await finishedCheck(checks, checkedOutPullRequest({ needsReviewThreshold: 0.5 }));
 
 		assert.strictEqual(process.calls.length, 2);
+	});
+
+	it('re-runs the check when the evidence changes, offering the last report meanwhile', async () => {
+		const process = successfulProcess();
+		const checks = new CodetasterChecks(process, () => 'codetaster');
+		const firstReport = await finishedCheck(checks, checkedOutPullRequest());
+
+		const running = checks.requestCheck(checkedOutPullRequest({ evidence: { commentedFiles: 1, viewedFiles: 0 } }));
+
+		assert.strictEqual(process.calls.length, 2);
+		assert.ok(firstReport?.kind === 'report' && running?.kind === 'running');
+		assert.deepStrictEqual(running.previousReport, firstReport.report);
+	});
+
+	it('offers the latest report of a PR, whatever the evidence', async () => {
+		const checks = new CodetasterChecks(successfulProcess(), () => 'codetaster');
+		const report = await finishedCheck(checks, checkedOutPullRequest({ evidence: { commentedFiles: 2, viewedFiles: 0 } }));
+
+		const latest = checks.latestReport(checkedOutPullRequest());
+
+		assert.ok(report?.kind === 'report');
+		assert.deepStrictEqual(latest, report.report);
 	});
 
 	it('re-runs the check after a refresh, and tells listeners', async () => {

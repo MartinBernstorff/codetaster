@@ -12,6 +12,7 @@ from codetaster.domain.domain_model.review.ratings_validation import (
     InvalidRatingsFile,
     MissingRatingsFile,
     RatingProblems,
+    annotated_blobs,
     find_rating_problems,
 )
 from codetaster.domain.domain_services.branch_change import (
@@ -57,7 +58,8 @@ def validate_ratings_file(
     committed_changes: CommittedChanges,
     ratings_files: RatingsFileStore,
 ) -> Result[RatingsValidationResult, BranchChangeError]:
-    """Check the ratings file rates every file changed since the merge base, once.
+    """Check the ratings file rates every file changed since the merge base, once,
+    and annotates only lines that exist.
 
     A missing or invalid ratings file is a problem, not an error. The ratings file
     itself needs no rating.
@@ -76,7 +78,13 @@ def validate_ratings_file(
     elif ratings.value is None:
         problems = RatingProblems((MissingRatingsFile(location=location),))
     else:
-        problems = find_rating_problems(branch.value.change.files, ratings.value)
+        changes = branch.value.change.files
+        line_counts = committed_changes.read_line_counts(
+            request.checkout, annotated_blobs(changes, ratings.value)
+        )
+        if isinstance(line_counts, Err):
+            return line_counts
+        problems = find_rating_problems(changes, ratings.value, line_counts.value)
     return Ok(
         RatingsValidationResult(
             problems=problems, location=location, working_tree=branch.value.working_tree

@@ -5,6 +5,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
+from codetaster.domain.domain_model.review.adaptive_sampling import AdaptiveSampling
 from codetaster.domain.domain_model.review.changes import FileChange, FileChanges
 from codetaster.domain.domain_model.review.needs_review_threshold import (
     NeedsReviewThreshold,
@@ -15,7 +16,7 @@ from codetaster.domain.domain_model.review.ratings import FileRating, FileRating
 
 
 class Draw(RootModel[Annotated[float, Field(ge=0, lt=1)]]):
-    """A file's reproducible random number. It is sampled if this is below the base probability."""
+    """A file's reproducible random number. It is sampled if this is below its sampling probability."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -28,7 +29,7 @@ class Verdict(StrEnum):
     """The group a changed file is reported in, most urgent first.
 
     needs-review: rated at or above the needs-review threshold.
-    sampled: not needs-review, but the draw is below the base probability.
+    sampled: not needs-review, but the draw is below the sampling probability.
     no-review: everything else.
     """
 
@@ -61,14 +62,16 @@ class FileAssessment(BaseModel):
     """Which group a changed file is in, and what decided it.
 
     `base_probability` is the matching path rule's probability, or the configured
-    base probability if `path_rule` is `None`. `rating` is `None` if the file is
-    unrated.
+    base probability if `path_rule` is `None`. `sampling_probability` is
+    `base_probability` raised by adaptive sampling. `rating` is `None` if the file
+    is unrated.
     """
 
     model_config = ConfigDict(frozen=True)
 
     change: FileChange
     base_probability: Probability
+    sampling_probability: Probability
     path_rule: PathRule | None
     rating: FileRating | None
     draw: Draw
@@ -79,6 +82,7 @@ class FileAssessment(BaseModel):
         return FileAssessment(
             change=FileChange.fake(),
             base_probability=Probability.fake(),
+            sampling_probability=Probability.fake(),
             path_rule=None,
             rating=None,
             draw=Draw.fake(),
@@ -96,36 +100,44 @@ class FileAssessments(RootModel[tuple[FileAssessment, ...]]):
 
 def assess_file_changes(
     changes: FileChanges,
-    base_probability: Probability,
+    sampling: AdaptiveSampling,
     path_rules: PathRules,
     ratings: FileRatings,
     threshold: NeedsReviewThreshold,
 ) -> FileAssessments:
-    """A matching path rule's probability replaces `base_probability` for sampling."""
+    """A matching path rule's probability replaces the base probability, and
+    `sampling` raises either for the reviewer's evidence."""
     draws = tuple(draw_for_file_change(change) for change in changes.root)
     file_ratings = tuple(ratings.rating_for(change) for change in changes.root)
     file_rules = tuple(path_rules.rule_for(change.path()) for change in changes.root)
     file_base_probabilities = tuple(
-        base_probability if rule is None else rule.probability for rule in file_rules
+        sampling.base_probability if rule is None else rule.probability
+        for rule in file_rules
+    )
+    file_sampling_probabilities = tuple(
+        sampling.sampling_probability_for(file_base)
+        for file_base in file_base_probabilities
     )
     return FileAssessments(
         tuple(
             FileAssessment(
                 change=change,
                 base_probability=file_base,
+                sampling_probability=file_sampling,
                 path_rule=rule,
                 rating=rating,
                 draw=draw,
                 verdict=Verdict.NEEDS_REVIEW
                 if rating is not None and rating.probability.root >= threshold.root
                 else Verdict.SAMPLED
-                if draw.root < file_base.root
+                if draw.root < file_sampling.root
                 else Verdict.NO_REVIEW,
             )
-            for change, rule, file_base, rating, draw in zip(
+            for change, rule, file_base, file_sampling, rating, draw in zip(
                 changes.root,
                 file_rules,
                 file_base_probabilities,
+                file_sampling_probabilities,
                 file_ratings,
                 draws,
                 strict=True,

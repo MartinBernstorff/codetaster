@@ -4,6 +4,12 @@ from typing import override
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
+from codetaster.domain.domain_model.review.adaptive_sampling import (
+    AdaptiveSampling,
+    BaseProbabilityWeight,
+    CommentedFileCount,
+    ViewedFileCount,
+)
 from codetaster.domain.domain_model.review.changes import (
     ChangeType,
     CommitSha,
@@ -17,9 +23,13 @@ from codetaster.domain.domain_model.review.needs_review_threshold import (
 from codetaster.domain.domain_model.review.path_rules import PathPattern, PathRule
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import (
+    AnnotationSide,
+    AnnotationText,
     CategoryDescription,
     DescribedCategory,
     FileRating,
+    LineAnnotation,
+    LineNumber,
     PullRequestOverview,
     PullRequestSummary,
     RatingCategory,
@@ -41,7 +51,7 @@ class SchemaVersion(RootModel[int]):
 
     @staticmethod
     def fake() -> SchemaVersion:
-        return SchemaVersion(4)
+        return SchemaVersion(6)
 
 
 class ReportFlag(RootModel[bool]):
@@ -89,6 +99,22 @@ class HeadReport(BaseModel):
         return HeadReport(commit=CommitSha.fake())
 
 
+class AnnotationReport(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    side: AnnotationSide = Field(
+        description="before or after: which version of the file `line` is in."
+    )
+    line: LineNumber = Field(
+        description="The annotated line, counting from 1, in that version."
+    )
+    text: AnnotationText = Field(description="Markdown: the note for the reviewer.")
+
+    @staticmethod
+    def fake() -> AnnotationReport:
+        return annotation_report_from_annotation(LineAnnotation.fake())
+
+
 class RatingReport(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -97,6 +123,10 @@ class RatingReport(BaseModel):
     )
     category: RatingCategory = Field(
         description="Which part of the PR the AI put this file in.",
+    )
+    annotations: tuple[AnnotationReport, ...] = Field(
+        description="The AI's notes on lines of this version of the file, from the "
+        "ratings file. Never posted as review comments."
     )
 
     @staticmethod
@@ -146,6 +176,38 @@ class PathRuleReport(BaseModel):
         return path_rule_report_from_rule(PathRule.fake())
 
 
+class SamplingReport(BaseModel):
+    """How the reviewer's evidence raised the probability files are sampled at."""
+
+    model_config = ConfigDict(frozen=True)
+
+    base_probability: Probability = Field(
+        description="[review] base_probability, before any evidence."
+    )
+    base_probability_weight: BaseProbabilityWeight = Field(
+        description="[review] base_probability_weight: how many reviewed files "
+        "base_probability counts as."
+    )
+    commented_files: CommentedFileCount = Field(
+        description="--commented-files: sampled or needs-review files with a "
+        "comment thread by the reviewer."
+    )
+    viewed_files: ViewedFileCount = Field(
+        description="--viewed-files: sampled or needs-review files the reviewer "
+        "viewed without commenting."
+    )
+    effective_probability: Probability = Field(
+        description="The posterior mean of a Beta prior with mean base_probability "
+        "worth base_probability_weight files, counting commented files as defects "
+        "and viewed files as clean, but never below base_probability. "
+        "base_probability without evidence."
+    )
+
+    @staticmethod
+    def fake() -> SamplingReport:
+        return sampling_report_from_sampling(AdaptiveSampling.fake())
+
+
 class FileReport(BaseModel):
     """One changed file, and the inputs to whether it needs review."""
 
@@ -160,8 +222,13 @@ class FileReport(BaseModel):
     )
     change_type: ChangeType = Field(description="added, modified, deleted or renamed.")
     base_probability: Probability = Field(
-        description="The probability the file is sampled at: path_rule's "
-        "probability if a rule matches, else [review] base_probability."
+        description="The probability the file is sampled at without evidence: "
+        "path_rule's probability if a rule matches, else [review] base_probability."
+    )
+    sampling_probability: Probability = Field(
+        description="The probability the file is sampled at: base_probability with "
+        "its odds multiplied by those of sampling.effective_probability over those of "
+        "sampling.base_probability. 0 and 1 stay as they are."
     )
     path_rule: PathRuleReport | None = Field(
         description="The last rule in [review] path_rules whose pattern matches "
@@ -176,7 +243,7 @@ class FileReport(BaseModel):
     )
     draw: Draw = Field(
         description="From 0 inclusive to 1 exclusive. A file not in needs-review "
-        "is sampled if draw < base_probability. SHA-256 over the JSON array [before_path, "
+        "is sampled if draw < sampling_probability. SHA-256 over the JSON array [before_path, "
         "before_blob, after_path, after_blob], null for a missing side, with the "
         "first 53 bits divided by 2^53. It changes only when the file's change does."
     )
@@ -190,7 +257,10 @@ class CheckReport(BaseModel):
     """Which changed files need human review, in three groups. Every changed file
     is in exactly one group. Files are ordered by path.
 
-    Schema version 4 picks needs-review by `needs_review_threshold`, replacing
+    Schema version 6 samples files at `sampling_probability`, which evidence from
+    the reviewer raises above `base_probability`, and adds `sampling`. Version 5
+    adds each rating's `annotations`. Version 4 picks needs-review by
+    `needs_review_threshold`, replacing
     `top_rated_percentage`. Version 3 picked needs-review by rank, added
     `top_rated_percentage` and dropped each file's `probability`. In version 2, a file was in needs-review if
     its draw was below its rating. Schema version 2 added `sampled`. In version 1,
@@ -218,6 +288,7 @@ class CheckReport(BaseModel):
         "review: --needs-review-threshold if given, else [review] "
         "needs_review_threshold."
     )
+    sampling: SamplingReport
     ratings_error: RatingsErrorMessage | None = Field(
         description="Why the ratings file at [review] ratings_path was ignored, "
         "leaving every file unrated. null if it is valid or missing."
@@ -234,7 +305,7 @@ class CheckReport(BaseModel):
     sampled_files: tuple[FileReport, ...] = Field(
         serialization_alias="sampled",
         description="The files not in needs-review that were picked at random, at "
-        "base_probability, for human review.",
+        "sampling_probability, for human review.",
     )
     no_review_files: tuple[FileReport, ...] = Field(
         serialization_alias="no-review",
@@ -254,13 +325,14 @@ def check_report_from_result(result: CheckResult) -> CheckReport:
         )
 
     return CheckReport(
-        schema_version=SchemaVersion(4),
+        schema_version=SchemaVersion(6),
         needs_review=ReportFlag(root=result.verdict() is not Verdict.NO_REVIEW),
         # Nothing applies an override label yet.
         override_label_applied=ReportFlag(root=False),
         base=BaseReport(ref=result.base, merge_base=result.merge_base),
         head=HeadReport(commit=result.head),
         needs_review_threshold=result.needs_review_threshold,
+        sampling=sampling_report_from_sampling(result.sampling),
         ratings_error=None
         if result.ratings_problem is None
         else ratings_error_message(result.ratings_problem),
@@ -285,6 +357,7 @@ def file_report_from_assessment(assessment: FileAssessment) -> FileReport:
         previous_path=assessment.change.previous_path(),
         change_type=assessment.change.change_type(),
         base_probability=assessment.base_probability,
+        sampling_probability=assessment.sampling_probability,
         path_rule=None
         if assessment.path_rule is None
         else path_rule_report_from_rule(assessment.path_rule),
@@ -296,12 +369,35 @@ def file_report_from_assessment(assessment: FileAssessment) -> FileReport:
     )
 
 
+def sampling_report_from_sampling(sampling: AdaptiveSampling) -> SamplingReport:
+    return SamplingReport(
+        base_probability=sampling.base_probability,
+        base_probability_weight=sampling.weight,
+        commented_files=sampling.evidence.commented_files,
+        viewed_files=sampling.evidence.viewed_files,
+        effective_probability=sampling.effective_probability(),
+    )
+
+
 def path_rule_report_from_rule(rule: PathRule) -> PathRuleReport:
     return PathRuleReport(pattern=rule.pattern, probability=rule.probability)
 
 
 def rating_report_from_rating(rating: FileRating) -> RatingReport:
-    return RatingReport(probability=rating.probability, category=rating.category)
+    return RatingReport(
+        probability=rating.probability,
+        category=rating.category,
+        annotations=tuple(
+            annotation_report_from_annotation(annotation)
+            for annotation in rating.annotations
+        ),
+    )
+
+
+def annotation_report_from_annotation(annotation: LineAnnotation) -> AnnotationReport:
+    return AnnotationReport(
+        side=annotation.side, line=annotation.line, text=annotation.text
+    )
 
 
 def overview_report_from_overview(overview: PullRequestOverview) -> OverviewReport:

@@ -3,6 +3,13 @@ from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import ValidationError
 
+from codetaster.domain.domain_model.review.adaptive_sampling import (
+    AdaptiveSampling,
+    BaseProbabilityWeight,
+    CommentedFileCount,
+    SamplingEvidence,
+    ViewedFileCount,
+)
 from codetaster.domain.domain_model.review.changes import (
     BlobSha,
     FileChange,
@@ -66,14 +73,37 @@ def assessments_of(
     threshold: NeedsReviewThreshold | None = None,
     path_rules: PathRules | None = None,
 ) -> tuple[FileAssessment, ...]:
-    """Without ratings or path rules, at a base probability of 0 and a
+    """Without ratings, path rules or evidence, at a base probability of 0 and a
     needs-review threshold of 1."""
     return assess_file_changes(
         FileChanges(tuple(changes)),
-        base_probability or Probability(0),
+        sampling_with(base_probability or Probability(0), SamplingEvidence.none()),
         path_rules or PathRules(()),
         ratings or FileRatings(()),
         threshold or NeedsReviewThreshold(1),
+    ).root
+
+
+def sampling_with(
+    base_probability: Probability, evidence: SamplingEvidence
+) -> AdaptiveSampling:
+    return AdaptiveSampling(
+        base_probability=base_probability,
+        weight=BaseProbabilityWeight(10),
+        evidence=evidence,
+    )
+
+
+def assessments_with_evidence(
+    changes: list[FileChange], base_probability: Probability, evidence: SamplingEvidence
+) -> tuple[FileAssessment, ...]:
+    """Without ratings or path rules, at a needs-review threshold of 1."""
+    return assess_file_changes(
+        FileChanges(tuple(changes)),
+        sampling_with(base_probability, evidence),
+        PathRules(()),
+        FileRatings(()),
+        NeedsReviewThreshold(1),
     ).root
 
 
@@ -330,3 +360,53 @@ def test_a_path_rule_of_zero_still_lets_a_file_above_the_threshold_need_review()
     )
 
     assert assessment.verdict is Verdict.NEEDS_REVIEW
+
+
+def test_a_commented_file_raises_the_sampling_probability() -> None:
+    change = FileChange.fake()
+    base_probability = Probability(0.1)
+    commented = SamplingEvidence(
+        commented_files=CommentedFileCount(2), viewed_files=ViewedFileCount(0)
+    )
+    raised = Probability(0.25)
+
+    [assessment] = assessments_with_evidence([change], base_probability, commented)
+
+    assert assessment.base_probability == base_probability
+    assert assessment.sampling_probability.root == pytest.approx(raised.root)
+
+
+def test_without_evidence_the_sampling_probability_is_the_base_probability() -> None:
+    base_probability = Probability(0.1)
+
+    [assessment] = assessments_of([FileChange.fake()], base_probability)
+
+    assert assessment.sampling_probability == base_probability
+
+
+@given(
+    changes=distinct_file_changes(),
+    base_probability=probabilities(),
+    commented=st.builds(CommentedFileCount, st.integers(min_value=0, max_value=20)),
+)
+def test_evidence_only_adds_sampled_files(
+    changes: list[FileChange],
+    base_probability: Probability,
+    commented: CommentedFileCount,
+) -> None:
+    evidence = SamplingEvidence(
+        commented_files=commented, viewed_files=ViewedFileCount(0)
+    )
+
+    without = assessments_of(changes, base_probability)
+    with_evidence = assessments_with_evidence(changes, base_probability, evidence)
+
+    assert {
+        assessment.change.path()
+        for assessment in without
+        if assessment.verdict is Verdict.SAMPLED
+    } <= {
+        assessment.change.path()
+        for assessment in with_evidence
+        if assessment.verdict is Verdict.SAMPLED
+    }

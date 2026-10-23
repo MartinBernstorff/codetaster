@@ -3,6 +3,10 @@ from safe_result import Err, Ok, Result
 
 from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.configuration.configuration import Configuration
+from codetaster.domain.domain_model.review.adaptive_sampling import (
+    AdaptiveSampling,
+    SamplingEvidence,
+)
 from codetaster.domain.domain_model.review.changes import RevisionName
 from codetaster.domain.domain_model.review.check_result import CheckResult
 from codetaster.domain.domain_model.review.needs_review_threshold import (
@@ -29,6 +33,8 @@ class CheckRequest(BaseModel):
     checkout: CheckoutPath
     base_override: RevisionName | None
     threshold_override: NeedsReviewThreshold | None
+    evidence: SamplingEvidence
+    """What the reviewer found so far, which raises the sampling probability."""
 
     @staticmethod
     def fake() -> CheckRequest:
@@ -36,6 +42,7 @@ class CheckRequest(BaseModel):
             checkout=CheckoutPath.fake(),
             base_override=None,
             threshold_override=None,
+            evidence=SamplingEvidence.none(),
         )
 
 
@@ -63,15 +70,21 @@ def check_committed_changes(
         ratings_file = ratings.value
     review = branch.value.review
     threshold = request.threshold_override or review.needs_review_threshold
+    sampling = AdaptiveSampling(
+        base_probability=review.base_probability,
+        weight=review.base_probability_weight,
+        evidence=request.evidence,
+    )
     return Ok(
         CheckResult(
             base=change.base,
             merge_base=change.merge_base,
             head=change.head,
             needs_review_threshold=threshold,
+            sampling=sampling,
             assessments=assess_file_changes(
                 change.files,
-                review.base_probability,
+                sampling,
                 review.path_rules,
                 FileRatings(()) if ratings_file is None else ratings_file.ratings,
                 threshold,

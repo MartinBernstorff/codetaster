@@ -45,6 +45,26 @@ class ToolOutput(RootModel[str]):
         return ToolOutput("")
 
 
+class ToolInput(RootModel[bytes]):
+    """What to write to a tool's stdin."""
+
+    model_config = ConfigDict(frozen=True)
+
+    @staticmethod
+    def fake() -> ToolInput:
+        return ToolInput(b"")
+
+
+class BinaryToolOutput(RootModel[bytes]):
+    """What a tool wrote to stdout, undecoded."""
+
+    model_config = ConfigDict(frozen=True)
+
+    @staticmethod
+    def fake() -> BinaryToolOutput:
+        return BinaryToolOutput(b"")
+
+
 class ToolEnvironment(RootModel[dict[str, str]]):
     """The environment variables a tool runs with, in place of this process's."""
 
@@ -100,3 +120,40 @@ def run_external_tool(
             ToolFailedError(arguments.invocation(), ExitCode(completed.returncode))
         )
     return Ok(ToolOutput(completed.stdout or ""))
+
+
+def run_external_tool_on_input(
+    arguments: ToolArguments,
+    checkout: CheckoutPath,
+    tool_input: ToolInput,
+    hint: InstallationHint,
+) -> Result[BinaryToolOutput, ToolError]:
+    """Run a tool inside `checkout` with `tool_input` on stdin, and capture its
+    stdout as bytes, for output that need not be text, such as file content.
+
+    A failing tool's stdout and stderr are logged, since nothing else shows them.
+    """
+    try:
+        completed = subprocess.run(
+            arguments.root,
+            cwd=checkout.root,
+            input=tool_input.root,
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError as error:
+        # Also raised for a missing cwd; only a missing program is expected.
+        if error.filename != arguments.root[0]:
+            raise
+        return Err(ToolNotFoundError(arguments.invocation(), hint))
+    if completed.returncode != 0:
+        logging.getLogger(__name__).error(
+            "`%s` failed.\nstdout:\n%s\nstderr:\n%s",
+            arguments,
+            completed.stdout.decode(errors="replace"),
+            completed.stderr.decode(errors="replace"),
+        )
+        return Err(
+            ToolFailedError(arguments.invocation(), ExitCode(completed.returncode))
+        )
+    return Ok(BinaryToolOutput(completed.stdout))

@@ -7,6 +7,8 @@ from safe_result import Err, Ok
 from codetaster.domain.domain_model.filesystem import Location
 from codetaster.domain.domain_model.review.changes import FileChange, FileChanges
 from codetaster.domain.domain_model.review.ratings import (
+    FileRating,
+    FileRatings,
     RatingsFile,
     RatingsFileContent,
     RatingTarget,
@@ -51,6 +53,19 @@ def test_shows_one_blank_category() -> None:
     assert json.loads(template.model_dump_json())["categories"] == [blank_category]
 
 
+def test_shows_one_blank_annotation_per_entry() -> None:
+    template = RatingsTemplate.of_changes(FileChanges.fake())
+
+    blank_annotation: dict[str, str | None] = {
+        "side": "after",
+        "line": None,
+        "text": None,
+    }
+
+    [entry] = json.loads(template.model_dump_json())["ratings"]
+    assert entry["annotations"] == [blank_annotation]
+
+
 def test_does_not_parse_as_a_ratings_file_until_filled() -> None:
     template = RatingsTemplate.of_changes(FileChanges.fake())
 
@@ -77,5 +92,21 @@ def test_any_fill_parses_as_a_ratings_file(
             assert [rating.target() for rating in ratings.root] == [
                 entry.target() for entry in template.ratings
             ]
+        case _:
+            raise AssertionError(result)
+
+
+def test_a_fill_that_leaves_the_placeholder_annotation_has_no_annotations() -> None:
+    change = FileChange.fake()
+    template = RatingsTemplate.of_changes(FileChanges((change,)))
+    filled = json.loads(fill_template(template, [FileRating.fake()]).root)
+    [template_entry] = json.loads(template.model_dump_json())["ratings"]
+    filled["ratings"][0]["annotations"] = template_entry["annotations"]
+
+    result = parse_ratings_file(RatingsFileContent(json.dumps(filled)), Location.fake())
+
+    match result:
+        case Ok(RatingsFile(ratings=FileRatings(root=(rating,)))):
+            assert rating.annotations == ()
         case _:
             raise AssertionError(result)

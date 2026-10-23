@@ -3,6 +3,9 @@ from typing import override
 from pydantic import BaseModel, ConfigDict, Field
 
 from codetaster.domain.domain_model.configuration.settings import Settings
+from codetaster.domain.domain_model.review.adaptive_sampling import (
+    BaseProbabilityWeight,
+)
 from codetaster.domain.domain_model.review.changes import RepositoryPath, RevisionName
 from codetaster.domain.domain_model.review.needs_review_threshold import (
     NeedsReviewThreshold,
@@ -21,6 +24,11 @@ class ReviewSettings(BaseModel):
     )
     base_probability: Probability = Field(
         description="The probability, from 0 to 1, that a changed file needs review."
+    )
+    base_probability_weight: BaseProbabilityWeight = Field(
+        default=BaseProbabilityWeight(10),
+        description="How many reviewed files base_probability counts as. Lower "
+        "values let each comment or viewed file change the sampling probability more.",
     )
     needs_review_threshold: NeedsReviewThreshold = Field(
         default=NeedsReviewThreshold(0.6),
@@ -46,6 +54,7 @@ class ReviewSettings(BaseModel):
         return ReviewSettings(
             base_branch=RevisionName.fake(),
             base_probability=Probability.fake(),
+            base_probability_weight=BaseProbabilityWeight.fake(),
             needs_review_threshold=NeedsReviewThreshold.fake(),
             ratings_path=RepositoryPath(".codetaster/ratings.json"),
             path_rules=PathRules(()),

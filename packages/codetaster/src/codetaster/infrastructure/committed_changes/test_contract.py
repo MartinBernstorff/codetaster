@@ -7,15 +7,18 @@ from pathlib import Path
 from typing import Protocol, override
 
 import pytest
-from pydantic import RootModel
+from pydantic import ConfigDict, RootModel
 from safe_result import Err, Ok
 
 from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.review.changes import (
+    BlobContent,
+    BlobLineCounts,
     BlobSha,
     ChangeType,
     CommitSha,
     CommittedChange,
+    LineCount,
     RepositoryPath,
     RevisionName,
     WorkingTreeState,
@@ -33,6 +36,10 @@ from codetaster.infrastructure.external_tool.run_external_tool import ToolOutput
 
 
 class FileText(RootModel[str]):
+    """A file's content as text, with each line break as a newline character."""
+
+    model_config = ConfigDict(frozen=True)
+
     @staticmethod
     def fake() -> FileText:
         return FileText("content\n")
@@ -140,14 +147,17 @@ class InMemoryRepository(Repository):
 
     @override
     def commit(self, edits: FileEdits) -> CommitSha:
-        return self.fake.commit(
-            {
-                path: None
-                if text is None
-                else BlobSha(hashlib.sha1(text.root.encode()).hexdigest())
-                for path, text in edits.items()
-            }
-        )
+        blobs: dict[RepositoryPath, BlobSha | None] = {}
+        for path, text in edits.items():
+            if text is None:
+                blobs[path] = None
+                continue
+            blob = BlobSha(hashlib.sha1(text.root.encode()).hexdigest())
+            self.fake.line_counts[blob] = LineCount.of_content(
+                BlobContent(text.root.encode())
+            )
+            blobs[path] = blob
+        return self.fake.commit(blobs)
 
     @override
     def create_branch(self, name: RevisionName) -> None:
@@ -349,3 +359,49 @@ def test_the_repository_root_of_a_subdirectory_is_the_checkout(
     root = repository.changes.read_repository_root(repository.subdirectory())
 
     assert root == Ok(repository.checkout)
+
+
+def test_counts_the_lines_of_committed_blobs_as_git_does(
+    repository: Repository,
+) -> None:
+    unterminated = RepositoryPath("unterminated.py")
+    carriage_returns = RepositoryPath("carriage_returns.py")
+    expected = {unterminated: LineCount(3), carriage_returns: LineCount(2)}
+    change = change_from_main(
+        repository,
+        edits={
+            unterminated: FileText("one\ntwo\nthree"),
+            # A lone \r is no line break.
+            carriage_returns: FileText("one\rtwo\r\nthree\n"),
+        },
+    )
+    blobs = {file.path(): file.after.blob for file in change.files.root if file.after}
+
+    result = repository.changes.read_line_counts(
+        repository.checkout, tuple(blobs.values())
+    )
+
+    assert result == Ok(
+        BlobLineCounts({blobs[path]: count for path, count in expected.items()})
+    )
+
+
+def test_unknown_blobs_and_other_objects_have_no_line_count(
+    repository: Repository,
+) -> None:
+    # A submodule's entry names a commit, not a blob.
+    commit = repository.commit({RepositoryPath("README.md"): FileText.fake()})
+
+    result = repository.changes.read_line_counts(
+        repository.checkout, (BlobSha("0" * 40), BlobSha(commit.root))
+    )
+
+    assert result == Ok(BlobLineCounts({}))
+
+
+def test_no_blobs_have_no_line_counts(repository: Repository) -> None:
+    _ = repository.commit({RepositoryPath("README.md"): FileText.fake()})
+
+    result = repository.changes.read_line_counts(repository.checkout, ())
+
+    assert result == Ok(BlobLineCounts({}))

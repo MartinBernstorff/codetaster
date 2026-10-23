@@ -10,11 +10,16 @@ from typer.testing import CliRunner, Result
 from codetaster.delivery.console.app import app
 from codetaster.delivery.console.test_repositories import (
     CliOptions,
+    FeatureFileText,
     Repository,
     TomlText,
 )
 from codetaster.domain.domain_model.review.changes import BlobSha, RepositoryPath
-from codetaster.domain.domain_model.review.ratings import FileRating, RatingsFile
+from codetaster.domain.domain_model.review.ratings import (
+    FileRating,
+    LineAnnotation,
+    RatingsFile,
+)
 from codetaster.domain.domain_model.review.ratings_template import RatingsTemplate
 from codetaster.domain.domain_model.review.test_strategies import ratings_file_of
 
@@ -48,6 +53,7 @@ def test_prints_a_template_entry_for_the_changed_file(
                 "blob": empty_blob,
                 "probability": None,
                 "category": None,
+                "annotations": [{"side": "after", "line": None, "text": None}],
             }
         ],
     }
@@ -166,6 +172,34 @@ def test_a_duplicate_rating_exits_non_zero(repository: Repository) -> None:
     result = run_validate(repository, CliOptions.fake())
 
     assert result.exit_code == 1
+
+
+def test_an_annotation_past_the_last_line_exits_non_zero_and_names_the_file(
+    repository: Repository,
+) -> None:
+    # feature.py is empty, so it has no line 1.
+    path = "feature.py"
+    ratings = filled_template(repository)
+    [rating] = ratings.ratings.root
+    annotated = rating.model_copy(update={"annotations": (LineAnnotation.fake(),)})
+    write_ratings(repository, ratings_file_of(annotated))
+
+    result = run_validate(repository, CliOptions.fake())
+
+    assert result.exit_code == 1
+    assert path in result.stderr
+
+
+def test_an_annotation_on_an_existing_line_is_valid(repository: Repository) -> None:
+    repository.commit_feature_file(FeatureFileText.fake())
+    ratings = filled_template(repository)
+    [rating] = ratings.ratings.root
+    annotated = rating.model_copy(update={"annotations": (LineAnnotation.fake(),)})
+    write_ratings(repository, ratings_file_of(annotated))
+
+    result = run_validate(repository, CliOptions.fake())
+
+    assert result.exit_code == 0
 
 
 def test_an_undescribed_category_exits_non_zero_and_names_it(

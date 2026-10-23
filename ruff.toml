@@ -45,7 +45,8 @@ ignore = ["E501"]
 [lint.per-file-ignores]
 "**/test_*.py" = ["PLR2004"]
 # A Typer command's bool parameter is a CLI flag, not a boolean trap.
-"packages/*/src/*/delivery/**" = ["FBT001", "FBT002"]
+# Each parameter of a Typer command is a CLI option, so a command has as many as it needs.
+"packages/*/src/*/delivery/**" = ["FBT001", "FBT002", "PLR0913", "PLR0917"]
 
 [lint.isort]
 known-first-party = ["codetaster"]

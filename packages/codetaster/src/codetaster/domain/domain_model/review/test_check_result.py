@@ -3,6 +3,7 @@ from collections import Counter
 from hypothesis import given
 from hypothesis import strategies as st
 
+from codetaster.domain.domain_model.review.adaptive_sampling import AdaptiveSampling
 from codetaster.domain.domain_model.review.changes import FileChange, FileChanges
 from codetaster.domain.domain_model.review.check_result import CheckResult
 from codetaster.domain.domain_model.review.needs_review_threshold import (
@@ -92,7 +93,9 @@ def test_the_groups_partition_the_changed_files(
         update={
             "assessments": assess_file_changes(
                 FileChanges(tuple(changes)),
-                base_probability,
+                AdaptiveSampling.fake().model_copy(
+                    update={"base_probability": base_probability}
+                ),
                 PathRules(()),
                 ratings,
                 threshold,

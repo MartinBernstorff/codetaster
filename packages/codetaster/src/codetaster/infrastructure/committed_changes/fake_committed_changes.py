@@ -6,12 +6,14 @@ from safe_result import Err, Ok, Result
 
 from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.review.changes import (
+    BlobLineCounts,
     BlobSha,
     CommitSha,
     CommittedChange,
     FileChange,
     FileChanges,
     FileVersion,
+    LineCount,
     RepositoryPath,
     RevisionName,
     WorkingTreeState,
@@ -36,7 +38,8 @@ class FakeCommittedChanges(CommittedChanges):
     """A linear history per branch, built with `commit`, `create_branch` and `switch_to`.
 
     Ignores the checkout: every directory is in the one at `repository_root`.
-    Detects renames only when the content is unchanged.
+    Detects renames only when the content is unchanged. Knows the line count of the
+    blobs in `line_counts`.
     """
 
     def __init__(self, initial_branch: RevisionName) -> None:
@@ -45,6 +48,7 @@ class FakeCommittedChanges(CommittedChanges):
         self.current_branch = initial_branch
         self.working_tree = WorkingTreeState.CLEAN
         self.repository_root = CheckoutPath.fake()
+        self.line_counts: dict[BlobSha, LineCount] = {}
 
     def commit(self, edits: Mapping[RepositoryPath, BlobSha | None]) -> CommitSha:
         """Commit on the current branch. A `None` blob deletes the file."""
@@ -104,6 +108,20 @@ class FakeCommittedChanges(CommittedChanges):
         self, checkout: CheckoutPath
     ) -> Result[CheckoutPath, ToolError]:
         return Ok(self.repository_root)
+
+    @override
+    def read_line_counts(
+        self, checkout: CheckoutPath, blobs: tuple[BlobSha, ...]
+    ) -> Result[BlobLineCounts, ToolError]:
+        return Ok(
+            BlobLineCounts(
+                {
+                    blob: self.line_counts[blob]
+                    for blob in blobs
+                    if blob in self.line_counts
+                }
+            )
+        )
 
     def ancestry(self, commit: CommitSha) -> list[CommitSha]:
         """`commit`, then its parent, and so on to the root."""

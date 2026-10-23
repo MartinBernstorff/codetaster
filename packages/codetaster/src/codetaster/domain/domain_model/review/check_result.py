@@ -1,5 +1,6 @@
 from pydantic import BaseModel, ConfigDict
 
+from codetaster.domain.domain_model.review.adaptive_sampling import AdaptiveSampling
 from codetaster.domain.domain_model.review.changes import (
     CommitSha,
     RevisionName,
@@ -24,6 +25,8 @@ class CheckResult(BaseModel):
     merge_base: CommitSha
     head: CommitSha
     needs_review_threshold: NeedsReviewThreshold
+    sampling: AdaptiveSampling
+    """The base probability, and how the reviewer's evidence raised it."""
     assessments: FileAssessments
     working_tree: WorkingTreeState
     ratings_problem: InvalidRatingsFile | None
@@ -38,6 +41,7 @@ class CheckResult(BaseModel):
             merge_base=CommitSha.fake(),
             head=CommitSha.fake(),
             needs_review_threshold=NeedsReviewThreshold.fake(),
+            sampling=AdaptiveSampling.fake(),
             assessments=FileAssessments.fake(),
             working_tree=WorkingTreeState.CLEAN,
             ratings_problem=None,

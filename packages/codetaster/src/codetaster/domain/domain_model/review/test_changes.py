@@ -2,11 +2,13 @@ import pytest
 from pydantic import ValidationError
 
 from codetaster.domain.domain_model.review.changes import (
+    BlobContent,
     BlobSha,
     ChangeType,
     FileChange,
     FileChanges,
     FileVersion,
+    LineCount,
     RepositoryPath,
 )
 
@@ -98,3 +100,26 @@ def test_a_file_at_a_new_path_is_renamed_and_uses_the_new_path() -> None:
 def test_a_change_needs_a_before_or_an_after() -> None:
     with pytest.raises(ValidationError):
         _ = FileChange(before=None, after=None)
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        (BlobContent(b""), LineCount(0)),
+        (BlobContent(b"one\n"), LineCount(1)),
+        (BlobContent(b"one\ntwo"), LineCount(2)),
+        (BlobContent(b"one\n\n"), LineCount(2)),
+        (BlobContent(b"one\rtwo\r\n"), LineCount(1)),
+        (BlobContent(b"\xff\xfe\n\x00"), LineCount(2)),
+    ],
+    ids=[
+        "empty",
+        "terminated",
+        "unterminated-last-line",
+        "blank-last-line",
+        "carriage-returns-are-not-line-breaks",
+        "binary",
+    ],
+)
+def test_line_count_of_content(content: BlobContent, expected: LineCount) -> None:
+    assert LineCount.of_content(content) == expected

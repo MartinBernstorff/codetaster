@@ -41,6 +41,49 @@ class BlobSha(RootModel[str]):
         return BlobSha("a" * 40)
 
 
+class BlobContent(RootModel[bytes]):
+    """A file version's content, byte for byte."""
+
+    model_config = ConfigDict(frozen=True)
+
+    @staticmethod
+    def fake() -> BlobContent:
+        return BlobContent(b"content\n")
+
+
+class LineCount(RootModel[Annotated[int, Field(ge=0)]]):
+    """How many lines a file has, as a diff numbers them."""
+
+    model_config = ConfigDict(frozen=True)
+
+    @override
+    def __str__(self) -> str:
+        return str(self.root)
+
+    @staticmethod
+    def fake() -> LineCount:
+        return LineCount(1)
+
+    @staticmethod
+    def of_content(content: BlobContent) -> LineCount:
+        """Counted as git does: each line ends at a `\\n`, and a last line without
+        one counts too. A lone `\\r` is not a line break; an empty file has no lines.
+        """
+        data = content.root
+        unterminated = 1 if data and not data.endswith(b"\n") else 0
+        return LineCount(data.count(b"\n") + unterminated)
+
+
+class BlobLineCounts(RootModel[dict[BlobSha, LineCount]]):
+    """How many lines each file version has, by its blob."""
+
+    model_config = ConfigDict(frozen=True)
+
+    @staticmethod
+    def fake() -> BlobLineCounts:
+        return BlobLineCounts({BlobSha.fake(): LineCount.fake()})
+
+
 class RepositoryPath(RootModel[str]):
     """A file's path relative to the repository root, with `/` separators."""
 

@@ -1,16 +1,20 @@
 import * as vscode from 'vscode';
+import { AnnotationComments } from './annotationComments';
+import { AnnotatedFile, annotationPlacements } from './annotationThreads';
 import { CategoryGroup, groupFilesByCategory, needsReviewRuleDescription } from './categoryGroups';
 import { CheckReport } from './checkReport';
-import { CheckOutcome, CodetasterChecks } from './codetasterCheck';
+import { CheckOutcome, CheckTarget, CodetasterChecks } from './codetasterCheck';
 import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
 import { headMismatchWarning } from './headMismatch';
 import { NodeCodetasterProcess } from './nodeCodetasterProcess';
 import { registerOverviewPreview, summaryNode } from './overviewPreview';
 import { ratingsErrorWarning } from './ratingsError';
 import { nextFileToReview, OrderedFile, reviewOrder } from './reviewOrder';
+import { countSamplingEvidence, NO_EVIDENCE, reviewablePaths, ReviewablePathsSeen, samplingDescription, SamplingEvidence } from './samplingEvidence';
 import { verdictIconPath } from './verdictIcons';
 import type { Repository } from '../api/api';
 import { ViewedState } from '../common/comment';
+import { GitChangeType } from '../common/file';
 import { findLocalRepoRemoteFromGitHubRef } from '../common/githubRef';
 import { disposeAll } from '../common/lifecycle';
 import { compareIgnoreCase } from '../common/utils';
@@ -160,8 +164,22 @@ function refreshOnHeadChange(repository: Repository): void {
 	}));
 }
 
+/** The ratings file's annotations on the checked-out PRs' diffs, per repository. Created on activation. */
+let annotationComments: AnnotationComments | undefined;
+
+/** The documents `file`'s diff shows, as upstream opens them. */
+function annotatedFile(file: PullRequestFileNode): AnnotatedFile<vscode.Uri> {
+	return {
+		path: file.fileName,
+		beforeUri: file.status === GitChangeType.ADD ? undefined : file.changeModel.parentFilePath,
+		afterUri: file.status === GitChangeType.DELETE ? undefined : file.changeModel.filePath,
+	};
+}
+
 export function registerCodetaster(context: vscode.ExtensionContext): void {
 	registerOverviewPreview(context);
+	annotationComments = new AnnotationComments();
+	context.subscriptions.push(annotationComments);
 	if (vscode.workspace.getConfiguration(CODETASTER_SETTINGS_NAMESPACE).get<boolean>(OPEN_ON_STARTUP_SETTING, false)) {
 		vscode.commands.executeCommand(OPEN_CODETASTER_CONTAINER_COMMAND);
 	}
@@ -355,6 +373,51 @@ function fileListKey(files: readonly PullRequestFileNode[]): string {
 	return JSON.stringify([pullRequestHead(files) ?? '', files.map(file => file.fileName).sort()]);
 }
 
+/** The signed-in user's login per PR, or null if it could not be found. Absent while it is looked up. */
+const viewerLogins = new WeakMap<PullRequestModel, string | null>();
+const viewerLoginsLookedUp = new WeakSet<PullRequestModel>();
+
+/** The signed-in user's login, or undefined until it is known, when `parent` is refreshed. */
+function viewerLogin(pullRequest: PullRequestModel, parent: TreeNode): string | undefined {
+	const login = viewerLogins.get(pullRequest);
+	if (login !== undefined) {
+		return login ?? undefined;
+	}
+	if (!viewerLoginsLookedUp.has(pullRequest)) {
+		viewerLoginsLookedUp.add(pullRequest);
+		pullRequest.githubRepository.getAuthenticatedUser().then(
+			account => viewerLogins.set(pullRequest, account.login),
+			() => viewerLogins.set(pullRequest, null),
+		).then(() => parent.refresh(parent));
+	}
+	return undefined;
+}
+
+const reviewablePathsSeen = new ReviewablePathsSeen<PullRequestModel>();
+
+/**
+ * The signed-in user's comments and viewed files on the files the PR's latest report
+ * (or any earlier one this session) put in needs-review or sampled. None before the
+ * first report, or while the user's login is looked up.
+ */
+function samplingEvidenceFor(target: CheckTarget, pullRequest: PullRequestModel, parent: TreeNode): SamplingEvidence {
+	const latest = codetasterChecks.latestReport(target);
+	const login = latest && viewerLogin(pullRequest, parent);
+	if (!latest || login === undefined) {
+		return NO_EVIDENCE;
+	}
+	const viewedPaths = new Set(Object.entries(pullRequest.fileChangeViewedState)
+		.filter(([, state]) => state === ViewedState.VIEWED)
+		.map(([path]) => path));
+	reviewablePathsSeen.recordPaths(pullRequest, reviewablePaths(latest));
+	return countSamplingEvidence({
+		reviewablePaths: reviewablePathsSeen.pathsSeen(pullRequest),
+		threads: pullRequest.reviewThreadsCache.map(thread => ({ path: thread.path, authorLogin: thread.comments[0]?.user?.login })),
+		viewedPaths,
+		viewerLogin: login,
+	});
+}
+
 /** Shows `description` on `node`, refreshing it if that changes what it shows. */
 function describeNode(node: TreeNode | undefined, description: string | undefined): void {
 	if (node && node.description !== description) {
@@ -376,12 +439,17 @@ function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: P
  * or an error and no files if the check fails. A summary node, which opens the PR
  * summary and category descriptions, precedes the categories when the ratings file
  * has them. Each file's icon shows its verdict.
+ * The ratings file's annotations on the files show as read-only comment threads in the
+ * diffs this file list opens, alongside those of other file lists of the same PR.
  * Warnings precede the groups when the check ran on a different commit than the PR
  * head, or ignored an invalid ratings file. Undefined if the PR is not checked out, so
  * the caller shows upstream's file list.
  * `allFiles` is the PR's whole file list, which decides when the check re-runs;
  * `shownFiles` are the ones to show, e.g. without viewed files.
- * `describedNode`, if given, shows which files are in needs-review as its description.
+ * `describedNode`, if given, shows which files are in needs-review and the sampling
+ * probability as its description.
+ * The check gets the signed-in user's comments and viewed files as evidence, and
+ * re-runs when they change, as the PR's file list views refresh then.
  */
 export function codetasterFileNodes(
 	parent: TreeNode,
@@ -393,19 +461,25 @@ export function codetasterFileNodes(
 	describedNode?: TreeNode,
 ): TreeNode[] | undefined {
 	const isCheckedOut = pullRequest.equals(folderRepoManager.activePullRequest);
-	const outcome = codetasterChecks.requestCheck({
+	const target: CheckTarget = {
 		checkout: isCheckedOut ? folderRepoManager.repository.rootUri.fsPath : undefined,
 		base: baseRevision(folderRepoManager, pullRequest),
 		fileListKey: fileListKey(allFiles),
 		localHead: folderRepoManager.repository.state.HEAD?.commit,
 		needsReviewThreshold: configuredNeedsReviewThreshold(),
-	});
+		evidence: NO_EVIDENCE,
+	};
+	const outcome = codetasterChecks.requestCheck(isCheckedOut
+		? { ...target, evidence: samplingEvidenceFor(target, pullRequest, parent) }
+		: target);
 	if (isCheckedOut) {
 		refreshOnHeadChange(folderRepoManager.repository);
 	}
 	if (!outcome) {
 		showUpstreamFileItems(shownFiles);
 		describeNode(describedNode, undefined);
+		// Another PR's file list must not remove the checked-out PR's annotations.
+		annotationComments?.clearUnlessFor(folderRepoManager, folderRepoManager.activePullRequest);
 		return undefined;
 	}
 	let report: CheckReport;
@@ -418,6 +492,7 @@ export function codetasterFileNodes(
 		report = outcome.previousReport;
 	} else if (outcome.kind === 'error') {
 		reviewOrders.delete(folderRepoManager);
+		annotationComments?.clear(folderRepoManager);
 		describeNode(describedNode, undefined);
 		return [new CodetasterErrorNode(parent, outcome.message)];
 	} else {
@@ -430,7 +505,9 @@ export function codetasterFileNodes(
 		pullRequest,
 		files: reviewOrder(allGroups, file => file.fileName, layout),
 	});
-	describeNode(describedNode, needsReviewRuleDescription(report));
+	describeNode(describedNode, `${needsReviewRuleDescription(report)} · ${samplingDescription(report.sampling)}`);
+	// Each kind of file list opens diffs at its own URIs, so each adds its own placements.
+	annotationComments?.show(folderRepoManager, pullRequest, parent.constructor, annotationPlacements(report, allFiles.map(annotatedFile)));
 	const shownGroups = groupFilesByCategory(report, shownFiles, file => file.fileName);
 	showFileRatings(report, shownGroups);
 	const groups = shownGroups.map(group => new CategoryGroupNode(parent, group, layout));

@@ -21,7 +21,12 @@ from codetaster.domain.application_services.validate_ratings_file import (
 )
 from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.review.changes import RevisionName
+from codetaster.domain.domain_model.review.ratings import AnnotationSide
 from codetaster.domain.domain_model.review.ratings_validation import (
+    AnnotationLineOutOfRange,
+    AnnotationOnMissingSide,
+    AnnotationOnUnreadableFile,
+    AnnotationProblem,
     CategoryProblem,
     DuplicateCategory,
     DuplicateRating,
@@ -74,8 +79,8 @@ def validate_ratings(
     checkout: CheckoutArgument,
     base: BaseOption = None,
 ) -> None:
-    """Check the ratings file rates every changed file once and nothing else, and
-    describes every category it uses once.
+    """Check the ratings file rates every changed file once and nothing else,
+    describes every category it uses once, and annotates only lines that exist.
 
     Exits 1 and lists every problem if it does not.
     """
@@ -121,6 +126,12 @@ def describe_rating_problem(
     match problem:
         case UndeclaredCategory() | UnusedCategory() | DuplicateCategory():
             return describe_category_problem(problem)
+        case (
+            AnnotationOnMissingSide()
+            | AnnotationLineOutOfRange()
+            | AnnotationOnUnreadableFile()
+        ):
+            return describe_annotation_problem(problem)
         case _:
             return describe_file_rating_problem(problem, checkout, base)
 
@@ -178,6 +189,36 @@ def describe_category_problem(problem: CategoryProblem) -> RatingProblemDescript
             return RatingProblemDescription(
                 f"`categories` lists {category.model_dump_json()} more than once. "
                 "Keep one."
+            )
+
+
+def describe_annotation_problem(
+    problem: AnnotationProblem,
+) -> RatingProblemDescription:
+    match problem:
+        case AnnotationOnMissingSide(target=target, annotation=annotation):
+            missing = "added" if annotation.side is AnnotationSide.BEFORE else "deleted"
+            return RatingProblemDescription(
+                f"{target.path} is {missing}, so it has no {annotation.side} "
+                f"version for the annotation on {annotation.side} line "
+                f"{annotation.line}. Remove the annotation, or put it on the other "
+                "side."
+            )
+        case AnnotationLineOutOfRange(
+            target=target, annotation=annotation, line_count=line_count
+        ):
+            return RatingProblemDescription(
+                f"The annotation on {annotation.side} line {annotation.line} of "
+                f"{target.path} is past its last line: the {annotation.side} "
+                f"version has {line_count} lines. Annotate an existing line, or "
+                "remove the annotation."
+            )
+        case AnnotationOnUnreadableFile(target=target, annotation=annotation):
+            return RatingProblemDescription(
+                f"The {annotation.side} version of {target.path} has no lines to "
+                f"read, e.g. because it is a submodule, so the annotation on "
+                f"{annotation.side} line {annotation.line} cannot be shown. Remove "
+                "the annotation."
             )
 
 

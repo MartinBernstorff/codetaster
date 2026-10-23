@@ -6,12 +6,15 @@ from safe_result import Err, Ok, Result
 
 from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.review.changes import (
+    BlobContent,
+    BlobLineCounts,
     BlobSha,
     CommitSha,
     CommittedChange,
     FileChange,
     FileChanges,
     FileVersion,
+    LineCount,
     RepositoryPath,
     RevisionName,
     WorkingTreeState,
@@ -27,10 +30,13 @@ from codetaster.domain.secondary_ports.committed_changes import (
     CommittedChanges,
 )
 from codetaster.infrastructure.external_tool.run_external_tool import (
+    BinaryToolOutput,
     OutputMode,
     ToolArguments,
+    ToolInput,
     ToolOutput,
     run_external_tool,
+    run_external_tool_on_input,
 )
 
 
@@ -98,6 +104,23 @@ class GitCommittedChanges(CommittedChanges):
             return root
         return Ok(CheckoutPath(Path(root.value.root.strip())))
 
+    @override
+    def read_line_counts(
+        self, checkout: CheckoutPath, blobs: tuple[BlobSha, ...]
+    ) -> Result[BlobLineCounts, ToolError]:
+        if not blobs:
+            return Ok(BlobLineCounts({}))
+        # Bytes, not text: content need not be UTF-8, and a lone \r is no line break.
+        output = run_external_tool_on_input(
+            ToolArguments(("git", "cat-file", "--batch")),
+            checkout,
+            ToolInput("".join(f"{blob.root}\n" for blob in blobs).encode()),
+            git_installation_hint(),
+        )
+        if isinstance(output, Err):
+            return output
+        return Ok(parse_batch_line_counts(output.value))
+
 
 def resolve_commit(
     checkout: CheckoutPath, revision: RevisionName
@@ -134,6 +157,10 @@ class GitArguments(RootModel[tuple[str, ...]]):
         return GitArguments(("status",))
 
 
+def git_installation_hint() -> InstallationHint:
+    return InstallationHint("Install git from https://git-scm.com/downloads.")
+
+
 def run_git(
     checkout: CheckoutPath, arguments: GitArguments
 ) -> Result[ToolOutput, ToolError]:
@@ -141,7 +168,7 @@ def run_git(
         ToolArguments(("git", *arguments.root)),
         checkout,
         OutputMode.CAPTURE,
-        InstallationHint("Install git from https://git-scm.com/downloads."),
+        git_installation_hint(),
     )
 
 
@@ -173,3 +200,27 @@ def parse_raw_diff(output: ToolOutput) -> FileChanges:
             )
         )
     return FileChanges(tuple(sorted(changes, key=lambda change: change.path().root)))
+
+
+def parse_batch_line_counts(output: BinaryToolOutput) -> BlobLineCounts:
+    """Count the lines of each blob in `git cat-file --batch` output.
+
+    Each object is `<sha> <type> <size>\\n`, then `size` bytes of content and a
+    `\\n`. An object git cannot find is `<sha> missing\\n` (or `ambiguous`).
+    """
+    data = output.root
+    counts: dict[BlobSha, LineCount] = {}
+    position = 0
+    while position < len(data):
+        header_end = data.index(b"\n", position)
+        header = data[position:header_end].decode().split(" ")
+        position = header_end + 1
+        match header:
+            case [sha, object_type, size]:
+                content = data[position : position + int(size)]
+                position += int(size) + 1
+                if object_type == "blob":
+                    counts[BlobSha(sha)] = LineCount.of_content(BlobContent(content))
+            case _:
+                pass
+    return BlobLineCounts(counts)

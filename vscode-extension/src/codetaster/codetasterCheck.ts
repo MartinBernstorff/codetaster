@@ -1,4 +1,5 @@
 import { CheckReport, parseCheckReport } from './checkReport';
+import { NO_EVIDENCE, SamplingEvidence } from './samplingEvidence';
 
 /** Runs the codetaster executable. Faked in tests. */
 export interface CodetasterProcess {
@@ -19,7 +20,8 @@ function checkError(message: string): CheckOutcome {
 
 /**
  * Runs `codetaster check <checkout> --base <base> --format json` and parses its report.
- * `needsReviewThreshold` is passed as `--needs-review-threshold` if given.
+ * `needsReviewThreshold` is passed as `--needs-review-threshold` if given, and
+ * `evidence` as `--commented-files` and `--viewed-files` unless it is empty.
  */
 export async function runCodetasterCheck(
 	process: CodetasterProcess,
@@ -27,9 +29,13 @@ export async function runCodetasterCheck(
 	checkout: string,
 	base: string,
 	needsReviewThreshold?: number,
+	evidence: SamplingEvidence = NO_EVIDENCE,
 ): Promise<CheckOutcome> {
 	const thresholdArgs = needsReviewThreshold === undefined ? [] : ['--needs-review-threshold', String(needsReviewThreshold)];
-	const outcome = await process.runCodetaster(executable, ['check', checkout, '--base', base, ...thresholdArgs, '--format', 'json'], checkout);
+	const evidenceArgs = evidence.commentedFiles === 0 && evidence.viewedFiles === 0
+		? []
+		: ['--commented-files', String(evidence.commentedFiles), '--viewed-files', String(evidence.viewedFiles)];
+	const outcome = await process.runCodetaster(executable, ['check', checkout, '--base', base, ...thresholdArgs, ...evidenceArgs, '--format', 'json'], checkout);
 	if (outcome.kind === 'failedToStart') {
 		return checkError(`Could not run "${executable}" (${outcome.message}). Install codetaster on your PATH or set codetaster.executablePath.`);
 	}
@@ -60,6 +66,8 @@ export interface CheckTarget {
 	readonly localHead: string | undefined;
 	/** Replaces the project config's `[review] needs_review_threshold`, if given. */
 	readonly needsReviewThreshold: number | undefined;
+	/** What the reviewer found so far, which raises the sampling probability. */
+	readonly evidence: SamplingEvidence;
 }
 
 /** A check that has not finished yet, or its outcome. */
@@ -82,8 +90,8 @@ interface CachedCheck {
 /**
  * The check results the PR file views group by. Only a checked-out PR is checked.
  * A check re-runs only when the checkout, its HEAD commit, the base, the needs-review
- * threshold or the PR's file list changes, after it failed, or on refresh, so tree refreshes (viewed state, comments)
- * don't each start a process.
+ * threshold, the PR's file list or the reviewer's evidence changes, after it failed, or on
+ * refresh, so tree refreshes that change none of these don't each start a process.
  */
 export class CodetasterChecks {
 	private readonly checks = new Map<string, CachedCheck>();
@@ -100,16 +108,16 @@ export class CodetasterChecks {
 	 * A failed check is returned once after it finishes, and re-run on the next request.
 	 */
 	requestCheck(target: CheckTarget): CheckState | undefined {
-		const { checkout, base, fileListKey, localHead, needsReviewThreshold } = target;
+		const { checkout, base, localHead, needsReviewThreshold, evidence } = target;
 		if (checkout === undefined) {
 			return undefined;
 		}
-		const pullRequestKey = JSON.stringify([checkout, base, fileListKey, needsReviewThreshold ?? null]);
-		const cacheKey = JSON.stringify([pullRequestKey, localHead ?? null]);
+		const pullRequestKey = this.pullRequestKey(target);
+		const cacheKey = JSON.stringify([pullRequestKey, localHead ?? null, evidence.commentedFiles, evidence.viewedFiles]);
 		let check = this.checks.get(cacheKey);
 		if (!check || check.errorReturned) {
 			const started: CachedCheck = {
-				finished: runCodetasterCheck(this.process, this.executable(), checkout, base, needsReviewThreshold).then(outcome => {
+				finished: runCodetasterCheck(this.process, this.executable(), checkout, base, needsReviewThreshold, evidence).then(outcome => {
 					started.outcome = outcome;
 					if (outcome.kind === 'report') {
 						this.lastReports.set(pullRequestKey, outcome.report);
@@ -126,6 +134,15 @@ export class CodetasterChecks {
 		}
 		check.errorReturned = check.outcome.kind === 'error';
 		return check.outcome;
+	}
+
+	/** The report of the PR's check that finished last, at any local HEAD or evidence. */
+	latestReport(target: CheckTarget): CheckReport | undefined {
+		return this.lastReports.get(this.pullRequestKey(target));
+	}
+
+	private pullRequestKey({ checkout, base, fileListKey, needsReviewThreshold }: CheckTarget): string {
+		return JSON.stringify([checkout ?? null, base, fileListKey, needsReviewThreshold ?? null]);
 	}
 
 	refresh(): void {

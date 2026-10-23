@@ -1,24 +1,33 @@
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from safe_result import Ok
 
 from codetaster.domain.domain_model.filesystem import Location
 from codetaster.domain.domain_model.review.changes import (
+    BlobLineCounts,
     BlobSha,
     FileChange,
     FileChanges,
     FileVersion,
+    LineCount,
     RepositoryPath,
 )
 from codetaster.domain.domain_model.review.ratings import (
+    AnnotationSide,
     DescribedCategory,
     FileRating,
+    LineAnnotation,
+    LineNumber,
     RatingCategory,
     RatingTarget,
     parse_ratings_file,
 )
 from codetaster.domain.domain_model.review.ratings_template import RatingsTemplate
 from codetaster.domain.domain_model.review.ratings_validation import (
+    AnnotationLineOutOfRange,
+    AnnotationOnMissingSide,
+    AnnotationOnUnreadableFile,
     DuplicateCategory,
     DuplicateRating,
     RatingProblems,
@@ -27,6 +36,7 @@ from codetaster.domain.domain_model.review.ratings_validation import (
     UnknownRating,
     UnratedFile,
     UnusedCategory,
+    annotated_blobs,
     find_rating_problems,
 )
 from codetaster.domain.domain_model.review.test_strategies import (
@@ -53,6 +63,7 @@ def test_a_rating_for_every_changed_file_has_no_problems() -> None:
     problems = find_rating_problems(
         FileChanges((change,)),
         ratings_file_of(rating_for(RatingTarget.of_change(change))),
+        BlobLineCounts({}),
     )
 
     assert problems == RatingProblems(())
@@ -62,7 +73,7 @@ def test_a_changed_file_without_a_rating_is_unrated() -> None:
     target = RatingTarget.of_change(FileChange.fake())
 
     problems = find_rating_problems(
-        FileChanges((FileChange.fake(),)), ratings_file_of()
+        FileChanges((FileChange.fake(),)), ratings_file_of(), BlobLineCounts({})
     )
 
     assert problems == RatingProblems((UnratedFile(target=target),))
@@ -77,6 +88,7 @@ def test_a_rating_for_an_older_blob_is_stale() -> None:
     problems = find_rating_problems(
         FileChanges((added(path, current_blob),)),
         ratings_file_of(rating_for(old)),
+        BlobLineCounts({}),
     )
 
     assert problems == RatingProblems((StaleRating(rating=old, current=current),))
@@ -91,6 +103,7 @@ def test_a_rating_for_an_unchanged_file_is_unknown() -> None:
         ratings_file_of(
             rating_for(RatingTarget.of_change(change)), rating_for(unknown)
         ),
+        BlobLineCounts({}),
     )
 
     assert problems == RatingProblems((UnknownRating(rating=unknown),))
@@ -103,6 +116,7 @@ def test_two_ratings_for_the_same_file_are_duplicates() -> None:
     problems = find_rating_problems(
         FileChanges((change,)),
         ratings_file_of(rating_for(target), rating_for(target)),
+        BlobLineCounts({}),
     )
 
     assert problems == RatingProblems((DuplicateRating(target=target),))
@@ -120,7 +134,7 @@ def test_any_fill_of_the_template_has_no_problems(
     parsed = parse_ratings_file(filled, Location.fake())
     assert isinstance(parsed, Ok)
 
-    problems = find_rating_problems(file_changes_, parsed.value)
+    problems = find_rating_problems(file_changes_, parsed.value, BlobLineCounts({}))
 
     assert problems == RatingProblems(())
 
@@ -130,7 +144,7 @@ def test_a_category_that_is_not_described_is_undeclared() -> None:
     rating = rating_for(RatingTarget.of_change(change))
     ratings = ratings_file_of(rating).model_copy(update={"categories": ()})
 
-    problems = find_rating_problems(FileChanges((change,)), ratings)
+    problems = find_rating_problems(FileChanges((change,)), ratings, BlobLineCounts({}))
 
     assert problems == RatingProblems((UndeclaredCategory(category=rating.category),))
 
@@ -143,7 +157,7 @@ def test_a_described_category_without_files_is_unused() -> None:
     ratings = ratings_file_of(rating_for(RatingTarget.of_change(change)))
     ratings = ratings.model_copy(update={"categories": (*ratings.categories, unused)})
 
-    problems = find_rating_problems(FileChanges((change,)), ratings)
+    problems = find_rating_problems(FileChanges((change,)), ratings, BlobLineCounts({}))
 
     assert problems == RatingProblems((UnusedCategory(category=unused.name),))
 
@@ -154,6 +168,208 @@ def test_a_category_described_twice_is_a_duplicate() -> None:
     ratings = ratings.model_copy(update={"categories": ratings.categories * 2})
     [category] = {category.name for category in ratings.categories}
 
-    problems = find_rating_problems(FileChanges((change,)), ratings)
+    problems = find_rating_problems(FileChanges((change,)), ratings, BlobLineCounts({}))
 
     assert problems == RatingProblems((DuplicateCategory(category=category),))
+
+
+def modified(path: RepositoryPath, before: BlobSha, after: BlobSha) -> FileChange:
+    return FileChange(
+        before=FileVersion(path=path, blob=before),
+        after=FileVersion(path=path, blob=after),
+    )
+
+
+def annotation_on(side: AnnotationSide, line: LineNumber) -> LineAnnotation:
+    return LineAnnotation.fake().model_copy(update={"side": side, "line": line})
+
+
+def annotated_rating(change: FileChange, *annotations: LineAnnotation) -> FileRating:
+    return rating_for(RatingTarget.of_change(change)).model_copy(
+        update={"annotations": annotations}
+    )
+
+
+BEFORE_BLOB = BlobSha("b" * 40)
+AFTER_BLOB = BlobSha("a" * 40)
+
+
+def test_annotations_on_existing_lines_have_no_problems() -> None:
+    change = modified(RepositoryPath.fake(), BEFORE_BLOB, AFTER_BLOB)
+    rating = annotated_rating(
+        change,
+        annotation_on(AnnotationSide.BEFORE, LineNumber(2)),
+        annotation_on(AnnotationSide.AFTER, LineNumber(3)),
+    )
+    line_counts = BlobLineCounts({BEFORE_BLOB: LineCount(2), AFTER_BLOB: LineCount(3)})
+
+    problems = find_rating_problems(
+        FileChanges((change,)), ratings_file_of(rating), line_counts
+    )
+
+    assert problems == RatingProblems(())
+
+
+@pytest.mark.parametrize(
+    "side", [AnnotationSide.BEFORE, AnnotationSide.AFTER], ids=["before", "after"]
+)
+def test_an_annotation_past_the_last_line_of_its_side_is_out_of_range(
+    side: AnnotationSide,
+) -> None:
+    change = modified(RepositoryPath.fake(), BEFORE_BLOB, AFTER_BLOB)
+    line_count = LineCount(2)
+    annotation = annotation_on(side, LineNumber(3))
+    rating = annotated_rating(change, annotation)
+    # Only the annotated side is too short.
+    longer = LineCount(10)
+    line_counts = BlobLineCounts(
+        {
+            BEFORE_BLOB: line_count if side is AnnotationSide.BEFORE else longer,
+            AFTER_BLOB: line_count if side is AnnotationSide.AFTER else longer,
+        }
+    )
+
+    problems = find_rating_problems(
+        FileChanges((change,)), ratings_file_of(rating), line_counts
+    )
+
+    assert problems == RatingProblems(
+        (
+            AnnotationLineOutOfRange(
+                target=rating.target(), annotation=annotation, line_count=line_count
+            ),
+        )
+    )
+
+
+def test_a_before_annotation_on_an_added_file_has_no_side() -> None:
+    change = added(RepositoryPath.fake(), AFTER_BLOB)
+    annotation = annotation_on(AnnotationSide.BEFORE, LineNumber.fake())
+    rating = annotated_rating(change, annotation)
+
+    problems = find_rating_problems(
+        FileChanges((change,)),
+        ratings_file_of(rating),
+        BlobLineCounts({AFTER_BLOB: LineCount(10)}),
+    )
+
+    assert problems == RatingProblems(
+        (AnnotationOnMissingSide(target=rating.target(), annotation=annotation),)
+    )
+
+
+def test_an_after_annotation_on_a_deleted_file_has_no_side() -> None:
+    change = FileChange(
+        before=FileVersion(path=RepositoryPath.fake(), blob=BEFORE_BLOB), after=None
+    )
+    annotation = annotation_on(AnnotationSide.AFTER, LineNumber.fake())
+    rating = annotated_rating(change, annotation)
+
+    problems = find_rating_problems(
+        FileChanges((change,)),
+        ratings_file_of(rating),
+        BlobLineCounts({BEFORE_BLOB: LineCount(10)}),
+    )
+
+    assert problems == RatingProblems(
+        (AnnotationOnMissingSide(target=rating.target(), annotation=annotation),)
+    )
+
+
+def test_annotations_on_an_unchanged_file_are_reported_only_as_the_unknown_rating() -> (
+    None
+):
+    change = FileChange.fake()
+    unchanged = added(RepositoryPath("unchanged.py"), AFTER_BLOB)
+    rating = annotated_rating(unchanged, LineAnnotation.fake())
+
+    problems = find_rating_problems(
+        FileChanges((change,)),
+        ratings_file_of(rating_for(RatingTarget.of_change(change)), rating),
+        BlobLineCounts({}),
+    )
+
+    assert problems == RatingProblems((UnknownRating(rating=rating.target()),))
+
+
+def test_annotation_problems_of_duplicate_ratings_are_reported_once() -> None:
+    change = added(RepositoryPath.fake(), AFTER_BLOB)
+    annotation = annotation_on(AnnotationSide.BEFORE, LineNumber.fake())
+    rating = annotated_rating(change, annotation)
+
+    problems = find_rating_problems(
+        FileChanges((change,)),
+        ratings_file_of(rating, rating),
+        BlobLineCounts({AFTER_BLOB: LineCount(10)}),
+    )
+
+    assert problems == RatingProblems(
+        (
+            DuplicateRating(target=rating.target()),
+            AnnotationOnMissingSide(target=rating.target(), annotation=annotation),
+        )
+    )
+
+
+def test_an_annotation_on_a_file_without_a_line_count_is_unreadable() -> None:
+    change = added(RepositoryPath.fake(), AFTER_BLOB)
+    annotation = annotation_on(AnnotationSide.AFTER, LineNumber.fake())
+    rating = annotated_rating(change, annotation)
+
+    problems = find_rating_problems(
+        FileChanges((change,)), ratings_file_of(rating), BlobLineCounts({})
+    )
+
+    assert problems == RatingProblems(
+        (AnnotationOnUnreadableFile(target=rating.target(), annotation=annotation),)
+    )
+
+
+def test_annotations_on_a_stale_rating_are_not_checked() -> None:
+    path = RepositoryPath.fake()
+    change = added(path, AFTER_BLOB)
+    old = RatingTarget(path=path, blob=BlobSha("0" * 40))
+    stale = rating_for(old).model_copy(
+        update={"annotations": (annotation_on(AnnotationSide.BEFORE, LineNumber(5)),)}
+    )
+
+    problems = find_rating_problems(
+        FileChanges((change,)), ratings_file_of(stale), BlobLineCounts({})
+    )
+
+    assert problems == RatingProblems(
+        (StaleRating(rating=old, current=RatingTarget.of_change(change)),)
+    )
+
+
+def test_annotated_blobs_are_the_annotated_sides_of_changed_files() -> None:
+    annotated = modified(RepositoryPath("annotated.py"), BEFORE_BLOB, AFTER_BLOB)
+    plain = modified(RepositoryPath("plain.py"), BlobSha("c" * 40), BlobSha("d" * 40))
+    ratings = ratings_file_of(
+        annotated_rating(
+            annotated, annotation_on(AnnotationSide.BEFORE, LineNumber(1))
+        ),
+        rating_for(RatingTarget.of_change(plain)),
+    )
+
+    blobs = annotated_blobs(FileChanges((annotated, plain)), ratings)
+
+    assert blobs == (BEFORE_BLOB,)
+
+
+def test_annotated_blobs_skip_duplicate_and_unknown_ratings() -> None:
+    first = modified(RepositoryPath("first.py"), BEFORE_BLOB, AFTER_BLOB)
+    unchanged = added(RepositoryPath("unchanged.py"), BlobSha("c" * 40))
+    rating = annotated_rating(first, annotation_on(AnnotationSide.AFTER, LineNumber(1)))
+    duplicate = rating.model_copy(
+        update={"annotations": (annotation_on(AnnotationSide.BEFORE, LineNumber(1)),)}
+    )
+    ratings = ratings_file_of(
+        rating,
+        duplicate,
+        annotated_rating(unchanged, annotation_on(AnnotationSide.AFTER, LineNumber(1))),
+    )
+
+    blobs = annotated_blobs(FileChanges((first,)), ratings)
+
+    assert blobs == (AFTER_BLOB,)
