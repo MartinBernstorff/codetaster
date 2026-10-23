@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
-import { AnnotatedFile, annotationPlacements } from './annotationThreads';
+import { AnnotatedFile, AnnotationPlacement, annotationPlacements, AnnotationThreadSet, placementChanges, placementKey } from './annotationThreads';
 import { AnnotationReport, CheckReport, FileReport } from './checkReport';
 
 function fileReport(path: string, annotations: readonly AnnotationReport[] | undefined): FileReport {
@@ -62,5 +62,116 @@ describe('annotationPlacements', () => {
 		const report = reportWith(fileReport('a.py', [{ side: 'after', line: 1, text: 'Note.' }]));
 
 		assert.deepStrictEqual(annotationPlacements(report, [bothSides('b.py')]), []);
+	});
+});
+
+describe('placementChanges', () => {
+	const uriKey = (uri: string) => uri;
+	const kept: AnnotationPlacement<string> = { uri: 'after:a.py', line: 0, text: 'Kept.' };
+	const dropped: AnnotationPlacement<string> = { uri: 'after:a.py', line: 1, text: 'Dropped.' };
+	const added: AnnotationPlacement<string> = { uri: 'file:a.py', line: 0, text: 'Kept.' };
+
+	it('adds only placements not shown yet and removes those no longer wanted', () => {
+		const shown = new Set([placementKey(kept, uriKey), placementKey(dropped, uriKey)]);
+
+		const changes = placementChanges(shown, [kept, added], uriKey);
+
+		assert.deepStrictEqual(changes, { added: [added], removed: [placementKey(dropped, uriKey)] });
+	});
+
+	it('changes nothing when the same placements are wanted again', () => {
+		const shown = new Set([placementKey(kept, uriKey)]);
+
+		const changes = placementChanges(shown, [kept], uriKey);
+
+		assert.deepStrictEqual(changes, { added: [], removed: [] });
+	});
+
+	it('adds a placement wanted twice, e.g. by both file lists, once', () => {
+		const changes = placementChanges(new Set(), [kept, kept], uriKey);
+
+		assert.deepStrictEqual(changes.added, [kept]);
+	});
+});
+
+interface FakeThread {
+	readonly placement: AnnotationPlacement<string>;
+	disposed: boolean;
+	dispose(): void;
+}
+
+/** An `AnnotationThreadSet` over string URIs and PR numbers, and every thread it created. */
+function threadSet(): { set: AnnotationThreadSet<number, string, FakeThread>, created: FakeThread[] } {
+	const created: FakeThread[] = [];
+	const set = new AnnotationThreadSet<number, string, FakeThread>(
+		placement => {
+			const thread: FakeThread = { placement, disposed: false, dispose() { thread.disposed = true; } };
+			created.push(thread);
+			return thread;
+		},
+		uri => uri,
+		(a, b) => a === b,
+	);
+	return { set, created };
+}
+
+function liveThreads(created: readonly FakeThread[]): AnnotationPlacement<string>[] {
+	return created.filter(thread => !thread.disposed).map(thread => thread.placement);
+}
+
+describe('AnnotationThreadSet', () => {
+	const owner = 'repository';
+	const checkedOut = 1;
+	const other = 2;
+	const localFile: AnnotationPlacement<string> = { uri: 'file:a.py', line: 0, text: 'Moved.' };
+	const prFile: AnnotationPlacement<string> = { uri: 'pr:a.py', line: 0, text: 'Moved.' };
+
+	it('shows the placements of every file list of the checked-out PR', () => {
+		const { set, created } = threadSet();
+
+		set.show(owner, checkedOut, 'local', [localFile]);
+		set.show(owner, checkedOut, 'pull request', [prFile]);
+
+		assert.deepStrictEqual(liveThreads(created), [localFile, prFile]);
+	});
+
+	it('does not recreate threads when the file lists refresh in turn', () => {
+		const { set, created } = threadSet();
+
+		set.show(owner, checkedOut, 'local', [localFile]);
+		set.show(owner, checkedOut, 'pull request', [prFile]);
+		set.show(owner, checkedOut, 'local', [localFile]);
+		set.show(owner, checkedOut, 'pull request', [prFile]);
+
+		assert.deepStrictEqual(created.map(thread => thread.placement), [localFile, prFile]);
+		assert.deepStrictEqual(liveThreads(created), [localFile, prFile]);
+	});
+
+	it('keeps the checked-out PR\'s threads when another PR\'s file list clears', () => {
+		const { set, created } = threadSet();
+		set.show(owner, checkedOut, 'local', [localFile]);
+
+		set.clearUnlessFor(owner, checkedOut);
+
+		assert.deepStrictEqual(liveThreads(created), [localFile]);
+	});
+
+	it('removes the threads once their PR is no longer checked out', () => {
+		const { set, created } = threadSet();
+		set.show(owner, checkedOut, 'local', [localFile]);
+
+		set.clearUnlessFor(owner, undefined);
+
+		assert.deepStrictEqual(liveThreads(created), []);
+	});
+
+	it('replaces another PR\'s threads, from every file list', () => {
+		const { set, created } = threadSet();
+		set.show(owner, other, 'local', [localFile]);
+		set.show(owner, other, 'pull request', [prFile]);
+
+		set.show(owner, checkedOut, 'local', [localFile]);
+
+		assert.deepStrictEqual(liveThreads(created), [localFile]);
 	});
 });

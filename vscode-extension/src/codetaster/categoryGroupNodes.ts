@@ -164,7 +164,7 @@ function refreshOnHeadChange(repository: Repository): void {
 	}));
 }
 
-/** The ratings file's annotations on the checked-out PRs' diffs. Created on activation. */
+/** The ratings file's annotations on the checked-out PRs' diffs, per repository. Created on activation. */
 let annotationComments: AnnotationComments | undefined;
 
 /** The documents `file`'s diff shows, as upstream opens them. */
@@ -438,7 +438,8 @@ function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: P
  * or an error and no files if the check fails. A summary node, which opens the PR
  * summary and category descriptions, precedes the categories when the ratings file
  * has them. Each file's icon shows its verdict.
- * The ratings file's annotations on the files show as read-only comment threads in their diffs.
+ * The ratings file's annotations on the files show as read-only comment threads in the
+ * diffs this file list opens, alongside those of other file lists of the same PR.
  * Warnings precede the groups when the check ran on a different commit than the PR
  * head, or ignored an invalid ratings file. Undefined if the PR is not checked out, so
  * the caller shows upstream's file list.
@@ -476,7 +477,8 @@ export function codetasterFileNodes(
 	if (!outcome) {
 		showUpstreamFileItems(shownFiles);
 		describeNode(describedNode, undefined);
-		annotationComments?.clear(folderRepoManager);
+		// Another PR's file list must not remove the checked-out PR's annotations.
+		annotationComments?.clearUnlessFor(folderRepoManager, folderRepoManager.activePullRequest);
 		return undefined;
 	}
 	let report: CheckReport;
@@ -503,7 +505,8 @@ export function codetasterFileNodes(
 		files: reviewOrder(allGroups, file => file.fileName, layout),
 	});
 	describeNode(describedNode, `${needsReviewRuleDescription(report)} · ${samplingDescription(report.sampling)}`);
-	annotationComments?.show(folderRepoManager, annotationPlacements(report, allFiles.map(annotatedFile)));
+	// Each kind of file list opens diffs at its own URIs, so each adds its own placements.
+	annotationComments?.show(folderRepoManager, pullRequest, parent.constructor, annotationPlacements(report, allFiles.map(annotatedFile)));
 	const shownGroups = groupFilesByCategory(report, shownFiles, file => file.fileName);
 	showFileRatings(report, shownGroups);
 	const groups = shownGroups.map(group => new CategoryGroupNode(parent, group, layout));
