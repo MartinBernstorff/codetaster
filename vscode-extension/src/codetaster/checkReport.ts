@@ -1,5 +1,5 @@
 /**
- * The JSON that `codetaster check --format json` prints, schema_version 4.
+ * The JSON that `codetaster check --format json` prints, schema_version 5.
  * The documented schema is the Python `CheckReport` in codetaster's check_report module.
  * New fields can appear without a version bump; they are kept on the parsed objects.
  */
@@ -14,7 +14,10 @@ export interface FileReport {
 	readonly path: string;
 	readonly previous_path: string | null;
 	readonly change_type: string;
+	/** Without evidence from the reviewer: the matching path rule's probability, or [review] base_probability. */
 	readonly base_probability: number;
+	/** base_probability raised by the reviewer's evidence. The file is sampled if draw < sampling_probability. */
+	readonly sampling_probability: number;
 	/** null when no AI rating matches this version of the file. */
 	readonly rating: RatingReport | null;
 	readonly unrated: boolean;
@@ -35,13 +38,27 @@ export interface OverviewReport {
 	readonly categories: readonly CategoryReport[];
 }
 
+/** How the reviewer's evidence raised the probability files are sampled at. */
+export interface SamplingReport {
+	/** [review] base_probability, before any evidence. */
+	readonly base_probability: number;
+	readonly base_probability_weight: number;
+	/** Sampled or needs-review files with a comment thread by the reviewer, as passed to the check. */
+	readonly commented_files: number;
+	/** Sampled or needs-review files the reviewer viewed without commenting, as passed to the check. */
+	readonly viewed_files: number;
+	/** The probability, from 0 to 1, files without a path rule are sampled at. base_probability without evidence. */
+	readonly effective_probability: number;
+}
+
 export interface CheckReport {
-	readonly schema_version: 4;
+	readonly schema_version: 5;
 	readonly needs_review: boolean;
 	readonly base: { readonly ref: string, readonly merge_base: string };
 	readonly head: { readonly commit: string };
 	/** The AI rating, from 0 to 1, at or above which a file is in needs-review. */
 	readonly needs_review_threshold: number;
+	readonly sampling: SamplingReport;
 	/** Why an invalid ratings file was ignored, leaving every file unrated. Absent from older codetaster versions. */
 	readonly ratings_error?: string | null;
 	/** null when the ratings file is missing or invalid. Absent from older codetaster versions. */
@@ -71,6 +88,12 @@ function isOverview(value: unknown): boolean {
 		&& value.categories.every(category => isRecord(category) && typeof category.name === 'string' && typeof category.description === 'string');
 }
 
+function isSampling(value: unknown): boolean {
+	return isRecord(value)
+		&& ['base_probability', 'base_probability_weight', 'commented_files', 'viewed_files', 'effective_probability']
+			.every(key => typeof value[key] === 'number');
+}
+
 function invalidReport(message: string): ParsedCheckReport {
 	return { kind: 'invalid', message };
 }
@@ -85,11 +108,14 @@ export function parseCheckReport(output: string): ParsedCheckReport {
 	if (!isRecord(json)) {
 		return invalidReport('Its output is not a JSON object.');
 	}
-	if (json.schema_version !== 4) {
-		return invalidReport(`Its output has schema_version ${JSON.stringify(json.schema_version)}; this extension reads schema_version 4.`);
+	if (json.schema_version !== 5) {
+		return invalidReport(`Its output has schema_version ${JSON.stringify(json.schema_version)}; this extension reads schema_version 5.`);
 	}
 	if (typeof json.needs_review_threshold !== 'number') {
 		return invalidReport('Its output has no "needs_review_threshold".');
+	}
+	if (!isSampling(json.sampling)) {
+		return invalidReport('Its output has no "sampling" with the base and effective probabilities and the evidence counts.');
 	}
 	if (!isRecord(json.head) || typeof json.head.commit !== 'string') {
 		return invalidReport('Its output has no "head.commit".');

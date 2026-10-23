@@ -5,14 +5,14 @@ import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
 
 function ratedFileReport(path: string, probability: number): FileReport {
 	return {
-		path, previous_path: null, change_type: 'modified', base_probability: 0.1,
+		path, previous_path: null, change_type: 'modified', base_probability: 0.1, sampling_probability: 0.1,
 		rating: { probability, category: 'Logic' }, unrated: false, draw: 0.5,
 	};
 }
 
 function unratedFileReport(path: string): FileReport {
 	return {
-		path, previous_path: null, change_type: 'modified', base_probability: 0.1,
+		path, previous_path: null, change_type: 'modified', base_probability: 0.1, sampling_probability: 0.1,
 		rating: null, unrated: true, draw: 0.5,
 	};
 }
@@ -77,11 +77,12 @@ describe('fileReportsByPath', () => {
 		const sampled = unratedFileReport('b.py');
 		const noReview = unratedFileReport('c.py');
 		const report: CheckReport = {
-			schema_version: 4,
+			schema_version: 5,
 			needs_review: true,
 			base: { ref: 'main', merge_base: 'a'.repeat(40) },
 			head: { commit: 'b'.repeat(40) },
 			needs_review_threshold: 0.6,
+			sampling: { base_probability: 0.1, base_probability_weight: 10, commented_files: 0, viewed_files: 0, effective_probability: 0.1 },
 			'needs-review': [needsReview],
 			sampled: [sampled],
 			'no-review': [noReview],

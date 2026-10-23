@@ -1,13 +1,14 @@
 import * as vscode from 'vscode';
 import { CategoryGroup, groupFilesByCategory, needsReviewRuleDescription } from './categoryGroups';
 import { CheckReport } from './checkReport';
-import { CheckOutcome, CodetasterChecks } from './codetasterCheck';
+import { CheckOutcome, CheckTarget, CodetasterChecks } from './codetasterCheck';
 import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
 import { headMismatchWarning } from './headMismatch';
 import { NodeCodetasterProcess } from './nodeCodetasterProcess';
 import { registerOverviewPreview, summaryNode } from './overviewPreview';
 import { ratingsErrorWarning } from './ratingsError';
 import { nextFileToReview, OrderedFile, reviewOrder } from './reviewOrder';
+import { countSamplingEvidence, NO_EVIDENCE, reviewablePaths, ReviewablePathsSeen, samplingDescription, SamplingEvidence } from './samplingEvidence';
 import { verdictIconPath } from './verdictIcons';
 import type { Repository } from '../api/api';
 import { ViewedState } from '../common/comment';
@@ -355,6 +356,50 @@ function fileListKey(files: readonly PullRequestFileNode[]): string {
 	return JSON.stringify([pullRequestHead(files) ?? '', files.map(file => file.fileName).sort()]);
 }
 
+/** The signed-in user's login per PR, or null if it could not be found. Absent while it is looked up. */
+const viewerLogins = new WeakMap<PullRequestModel, string | null>();
+const viewerLoginsLookedUp = new WeakSet<PullRequestModel>();
+
+/** The signed-in user's login, or undefined until it is known, when `parent` is refreshed. */
+function viewerLogin(pullRequest: PullRequestModel, parent: TreeNode): string | undefined {
+	const login = viewerLogins.get(pullRequest);
+	if (login !== undefined) {
+		return login ?? undefined;
+	}
+	if (!viewerLoginsLookedUp.has(pullRequest)) {
+		viewerLoginsLookedUp.add(pullRequest);
+		pullRequest.githubRepository.getAuthenticatedUser().then(
+			account => viewerLogins.set(pullRequest, account.login),
+			() => viewerLogins.set(pullRequest, null),
+		).then(() => parent.refresh(parent));
+	}
+	return undefined;
+}
+
+const reviewablePathsSeen = new ReviewablePathsSeen<PullRequestModel>();
+
+/**
+ * The signed-in user's comments and viewed files on the files the PR's latest report
+ * (or any earlier one this session) put in needs-review or sampled. None before the
+ * first report, or while the user's login is looked up.
+ */
+function samplingEvidenceFor(target: CheckTarget, pullRequest: PullRequestModel, parent: TreeNode): SamplingEvidence {
+	const latest = codetasterChecks.latestReport(target);
+	const login = latest && viewerLogin(pullRequest, parent);
+	if (!latest || login === undefined) {
+		return NO_EVIDENCE;
+	}
+	const viewedPaths = new Set(Object.entries(pullRequest.fileChangeViewedState)
+		.filter(([, state]) => state === ViewedState.VIEWED)
+		.map(([path]) => path));
+	return countSamplingEvidence({
+		reviewablePaths: reviewablePathsSeen.record(pullRequest, reviewablePaths(latest)),
+		threads: pullRequest.reviewThreadsCache.map(thread => ({ path: thread.path, authorLogin: thread.comments[0]?.user?.login })),
+		viewedPaths,
+		viewerLogin: login,
+	});
+}
+
 /** Shows `description` on `node`, refreshing it if that changes what it shows. */
 function describeNode(node: TreeNode | undefined, description: string | undefined): void {
 	if (node && node.description !== description) {
@@ -381,7 +426,10 @@ function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: P
  * the caller shows upstream's file list.
  * `allFiles` is the PR's whole file list, which decides when the check re-runs;
  * `shownFiles` are the ones to show, e.g. without viewed files.
- * `describedNode`, if given, shows which files are in needs-review as its description.
+ * `describedNode`, if given, shows which files are in needs-review and the sampling
+ * probability as its description.
+ * The check gets the signed-in user's comments and viewed files as evidence, and
+ * re-runs when they change, as the PR's file list views refresh then.
  */
 export function codetasterFileNodes(
 	parent: TreeNode,
@@ -393,13 +441,17 @@ export function codetasterFileNodes(
 	describedNode?: TreeNode,
 ): TreeNode[] | undefined {
 	const isCheckedOut = pullRequest.equals(folderRepoManager.activePullRequest);
-	const outcome = codetasterChecks.requestCheck({
+	const target: CheckTarget = {
 		checkout: isCheckedOut ? folderRepoManager.repository.rootUri.fsPath : undefined,
 		base: baseRevision(folderRepoManager, pullRequest),
 		fileListKey: fileListKey(allFiles),
 		localHead: folderRepoManager.repository.state.HEAD?.commit,
 		needsReviewThreshold: configuredNeedsReviewThreshold(),
-	});
+		evidence: NO_EVIDENCE,
+	};
+	const outcome = codetasterChecks.requestCheck(isCheckedOut
+		? { ...target, evidence: samplingEvidenceFor(target, pullRequest, parent) }
+		: target);
 	if (isCheckedOut) {
 		refreshOnHeadChange(folderRepoManager.repository);
 	}
@@ -430,7 +482,7 @@ export function codetasterFileNodes(
 		pullRequest,
 		files: reviewOrder(allGroups, file => file.fileName, layout),
 	});
-	describeNode(describedNode, needsReviewRuleDescription(report));
+	describeNode(describedNode, `${needsReviewRuleDescription(report)} · ${samplingDescription(report.sampling)}`);
 	const shownGroups = groupFilesByCategory(report, shownFiles, file => file.fileName);
 	showFileRatings(report, shownGroups);
 	const groups = shownGroups.map(group => new CategoryGroupNode(parent, group, layout));

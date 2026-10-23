@@ -10,7 +10,7 @@ interface FakeFile {
 /** A file the check rated in `category`, or left unrated without one. */
 function fakeFileReport(path: string, category: string | undefined): FileReport {
 	return {
-		path, previous_path: null, change_type: 'modified', base_probability: 0.1,
+		path, previous_path: null, change_type: 'modified', base_probability: 0.1, sampling_probability: 0.1,
 		rating: category === undefined ? null : { probability: 0.5, category },
 		unrated: category === undefined, draw: 0.5,
 	};
@@ -21,11 +21,12 @@ type FakeVerdictFiles = Record<string, string | undefined>;
 function fakeCheckReport(verdicts: { needsReview?: FakeVerdictFiles, sampled?: FakeVerdictFiles, noReview?: FakeVerdictFiles }): CheckReport {
 	const fileReports = (files: FakeVerdictFiles = {}) => Object.entries(files).map(([path, category]) => fakeFileReport(path, category));
 	return {
-		schema_version: 4,
+		schema_version: 5,
 		needs_review: false,
 		base: { ref: 'main', merge_base: 'a'.repeat(40) },
 		head: { commit: 'b'.repeat(40) },
 		needs_review_threshold: 0.6,
+		sampling: { base_probability: 0.1, base_probability_weight: 10, commented_files: 0, viewed_files: 0, effective_probability: 0.1 },
 		'needs-review': fileReports(verdicts.needsReview),
 		sampled: fileReports(verdicts.sampled),
 		'no-review': fileReports(verdicts.noReview),
