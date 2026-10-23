@@ -9,6 +9,9 @@ base_branch = "main"
 # The probability, from 0 to 1, that a changed file needs review.
 base_probability = 0.1
 
+# How many reviewed files base_probability counts as. Lower values let each comment or viewed file change the sampling probability more.
+# base_probability_weight = 10.0
+
 # The AI rating, from 0 to 1, at or above which a changed file needs review. `--needs-review-threshold` overrides it.
 needs_review_threshold = 0.6
 

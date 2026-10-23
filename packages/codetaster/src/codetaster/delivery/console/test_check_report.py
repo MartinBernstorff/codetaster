@@ -1,4 +1,5 @@
 from codetaster.delivery.console.check_report import check_report_from_result
+from codetaster.domain.domain_model.review.adaptive_sampling import AdaptiveSampling
 from codetaster.domain.domain_model.review.changes import (
     FileChange,
     FileVersion,
@@ -109,8 +110,8 @@ def test_no_ratings_file_is_no_overview() -> None:
     assert report["overview"] is None
 
 
-def test_schema_version_is_four() -> None:
-    expected = 4
+def test_schema_version_is_five() -> None:
+    expected = 5
 
     report = check_report_from_result(CheckResult.fake()).model_dump(
         mode="json", by_alias=True
@@ -136,6 +137,7 @@ def test_reports_each_files_decision_inputs() -> None:
         "previous_path": None,
         "change_type": assessment.change.change_type().value,
         "base_probability": assessment.base_probability.root,
+        "sampling_probability": assessment.sampling_probability.root,
         "path_rule": None,
         "rating": None,
         "unrated": True,
@@ -176,3 +178,19 @@ def test_reports_the_matching_path_rule() -> None:
 
     [file] = report["no-review"]
     assert file["path_rule"] == expected
+
+
+def test_reports_the_sampling_evidence_and_effective_probability() -> None:
+    sampling = AdaptiveSampling.fake()
+    result = CheckResult.fake().model_copy(update={"sampling": sampling})
+    expected = {
+        "base_probability": sampling.base_probability.root,
+        "base_probability_weight": sampling.weight.root,
+        "commented_files": sampling.evidence.commented_files.root,
+        "viewed_files": sampling.evidence.viewed_files.root,
+        "effective_probability": sampling.effective_probability().root,
+    }
+
+    report = check_report_from_result(result).model_dump(mode="json", by_alias=True)
+
+    assert report["sampling"] == expected

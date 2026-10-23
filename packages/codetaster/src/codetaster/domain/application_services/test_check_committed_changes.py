@@ -11,6 +11,10 @@ from codetaster.domain.domain_model.configuration.errors import (
 from codetaster.domain.domain_model.configuration.review_settings import (
     ReviewSettings,
 )
+from codetaster.domain.domain_model.review.adaptive_sampling import (
+    BaseProbabilityWeight,
+    SamplingEvidence,
+)
 from codetaster.domain.domain_model.review.changes import (
     BlobSha,
     ChangeType,
@@ -101,6 +105,25 @@ def test_every_changed_file_is_assessed_at_the_base_probability() -> None:
     assert {assessment.base_probability for assessment in result.assessments.root} == {
         configuration.review.base_probability
     }
+
+
+def test_the_evidence_and_configured_weight_decide_the_sampling() -> None:
+    weight = BaseProbabilityWeight(4)
+    review = ReviewSettings.fake().model_copy(
+        update={"base_probability": Probability(0.3), "base_probability_weight": weight}
+    )
+    configuration = Configuration.fake().model_copy(update={"review": review})
+    history = history_with_feature_branch(review.base_branch, RepositoryPath.fake())
+    evidence = SamplingEvidence.fake()
+    request = CheckRequest.fake().model_copy(update={"evidence": evidence})
+
+    result = checked_result(configuration, history, request)
+
+    assert result.sampling.weight == weight
+    assert result.sampling.evidence == evidence
+    assert {
+        assessment.sampling_probability for assessment in result.assessments.root
+    } == {result.sampling.adjusted(review.base_probability)}
 
 
 def test_reports_base_merge_base_and_head() -> None:
