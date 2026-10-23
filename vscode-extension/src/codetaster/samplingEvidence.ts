@@ -57,8 +57,8 @@ export function countSamplingEvidence(input: {
 export class ReviewablePathsSeen<PullRequest extends object> {
 	private readonly seen = new WeakMap<PullRequest, Set<string>>();
 
-	/** Adds `paths` to those seen for `pullRequest`, and returns them all. */
-	record(pullRequest: PullRequest, paths: Iterable<string>): ReadonlySet<string> {
+	/** Adds `paths` to those seen for `pullRequest`. */
+	recordPaths(pullRequest: PullRequest, paths: Iterable<string>): void {
 		let seen = this.seen.get(pullRequest);
 		if (!seen) {
 			seen = new Set();
@@ -67,7 +67,11 @@ export class ReviewablePathsSeen<PullRequest extends object> {
 		for (const path of paths) {
 			seen.add(path);
 		}
-		return seen;
+	}
+
+	/** Every path seen for `pullRequest` so far. */
+	pathsSeen(pullRequest: PullRequest): ReadonlySet<string> {
+		return this.seen.get(pullRequest) ?? new Set();
 	}
 }
 

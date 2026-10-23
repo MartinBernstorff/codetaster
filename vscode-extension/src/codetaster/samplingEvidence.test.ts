@@ -93,19 +93,21 @@ describe('ReviewablePathsSeen', () => {
 		const seen = new ReviewablePathsSeen<object>();
 		const pullRequest = {};
 
-		seen.record(pullRequest, ['a.py']);
-		const paths = seen.record(pullRequest, ['b.py']);
+		seen.recordPaths(pullRequest, ['a.py']);
+		seen.recordPaths(pullRequest, ['b.py']);
 
-		assert.deepStrictEqual([...paths].sort(), ['a.py', 'b.py']);
+		assert.deepStrictEqual([...seen.pathsSeen(pullRequest)].sort(), ['a.py', 'b.py']);
 	});
 
 	it('starts fresh for each pull request', () => {
 		const seen = new ReviewablePathsSeen<object>();
 
-		seen.record({}, ['a.py']);
-		const paths = seen.record({}, ['b.py']);
+		const pullRequest = {};
 
-		assert.deepStrictEqual([...paths], ['b.py']);
+		seen.recordPaths({}, ['a.py']);
+		seen.recordPaths(pullRequest, ['b.py']);
+
+		assert.deepStrictEqual([...seen.pathsSeen(pullRequest)], ['b.py']);
 	});
 });
 

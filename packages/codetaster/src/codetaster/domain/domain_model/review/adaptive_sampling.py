@@ -111,7 +111,5 @@ class AdaptiveSampling(BaseModel):
         # multiplied out so that a tiny base probability does not overflow.
         raised = effective * (1 - base) * original
         denominator = base * (1 - effective) * (1 - original) + raised
-        if denominator == 0:
-            return probability
         # Rounding must not lower a probability or push it above 1.
         return Probability(min(1, max(original, raised / denominator)))

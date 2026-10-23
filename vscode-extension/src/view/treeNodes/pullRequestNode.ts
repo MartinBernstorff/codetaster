@@ -69,6 +69,9 @@ export class PRNode extends TreeNode implements vscode.CommentingRangeProvider2 
 		}));
 		this.resolvePRCommentController();
 		this._register(codetasterChecks.onDidRefresh(() => this.refresh(this)));
+		// Comments and viewed files are codetaster's sampling evidence, so they change the file groups.
+		this._register(this.pullRequestModel.onDidChangeReviewThreads(() => this.refresh(this)));
+		this._register(this.pullRequestModel.onDidChangeFileViewedState(() => this.refresh(this)));
 	}
 
 	// #region Tree

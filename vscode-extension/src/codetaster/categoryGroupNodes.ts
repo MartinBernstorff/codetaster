@@ -409,8 +409,9 @@ function samplingEvidenceFor(target: CheckTarget, pullRequest: PullRequestModel,
 	const viewedPaths = new Set(Object.entries(pullRequest.fileChangeViewedState)
 		.filter(([, state]) => state === ViewedState.VIEWED)
 		.map(([path]) => path));
+	reviewablePathsSeen.recordPaths(pullRequest, reviewablePaths(latest));
 	return countSamplingEvidence({
-		reviewablePaths: reviewablePathsSeen.record(pullRequest, reviewablePaths(latest)),
+		reviewablePaths: reviewablePathsSeen.pathsSeen(pullRequest),
 		threads: pullRequest.reviewThreadsCache.map(thread => ({ path: thread.path, authorLogin: thread.comments[0]?.user?.login })),
 		viewedPaths,
 		viewerLogin: login,
