@@ -82,8 +82,14 @@ class AdaptiveSampling(BaseModel):
         )
 
     def effective_probability(self) -> Probability:
-        """The posterior mean, but never below the base probability."""
+        """The posterior mean, but never below the base probability.
+
+        A base probability of 0 or 1 is kept: no file's probability can be
+        adjusted from it, so the effective probability must not claim otherwise.
+        """
         base = self.base_probability.root
+        if base in (0, 1):
+            return self.base_probability
         weight = self.weight.root
         defects = self.evidence.commented_files.root
         clean = self.evidence.viewed_files.root
@@ -93,13 +99,13 @@ class AdaptiveSampling(BaseModel):
     def sampling_probability_for(self, probability: Probability) -> Probability:
         """`probability` with its odds scaled as the base probability's were.
 
-        0 and 1 stay as they are. So does everything if the base probability is
-        0 or 1, or the effective probability equals it.
+        0 and 1 stay as they are. So does everything if the effective probability
+        equals the base probability, as it does when that is 0 or 1.
         """
         base = self.base_probability.root
         effective = self.effective_probability().root
         original = probability.root
-        if effective == base or base in (0, 1) or original in (0, 1):
+        if effective == base or original in (0, 1):
             return probability
         # r·odds(q) / (1 + r·odds(q)), with r = odds(effective) / odds(base),
         # multiplied out so that a tiny base probability does not overflow.

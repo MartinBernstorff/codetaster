@@ -105,6 +105,15 @@ def test_a_base_probability_of_zero_or_one_adjusts_nothing(base: Probability) ->
     assert sampling.sampling_probability_for(probability) == probability
 
 
+@pytest.mark.parametrize("base", [Probability(0), Probability(1)])
+def test_a_base_probability_of_zero_or_one_is_the_effective_probability(
+    base: Probability,
+) -> None:
+    sampling = sampling_at(base, commented=CommentedFileCount(3))
+
+    assert sampling.effective_probability() == base
+
+
 def test_a_lower_weight_lets_each_comment_count_more() -> None:
     one = CommentedFileCount(1)
     light = sampling_at(Probability(0.1), one, weight=BaseProbabilityWeight(2))

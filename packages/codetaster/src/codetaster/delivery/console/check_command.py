@@ -136,7 +136,7 @@ def check_changes(
     report = check_report_from_result(result)
     if report.ratings_error is not None:
         typer.echo(f"Warning: {report.ratings_error}\nEvery file is unrated.", err=True)
-    if result.sampling.evidence != SamplingEvidence.none():
+    if result.sampling.effective_probability() != result.sampling.base_probability:
         typer.echo(str(sampling_summary(result.sampling)), err=True)
     match output_format:
         case OutputFormat.JSON:

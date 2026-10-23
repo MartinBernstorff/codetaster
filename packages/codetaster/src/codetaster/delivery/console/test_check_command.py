@@ -226,6 +226,7 @@ def test_commented_files_add_sampled_files(tmp_path: Path) -> None:
     commented = 3
     viewed = 1
     feature = "feature.py"
+    summary = "Sampling at"
 
     without = run_check(repository, CliOptions.fake())
     with_evidence = run_check(
@@ -241,6 +242,19 @@ def test_commented_files_add_sampled_files(tmp_path: Path) -> None:
     assert report["sampling"]["viewed_files"] == viewed
     [file] = report["sampled"]
     assert file["path"] == feature
+    assert summary in with_evidence.stderr
+
+
+def test_evidence_that_leaves_the_probability_unchanged_prints_no_summary(
+    repository: Repository,
+) -> None:
+    # Viewed files alone never move the probability below the base.
+    summary = "Sampling at"
+
+    result = run_check(repository, CliOptions(("--viewed-files", "3")))
+
+    assert result.exit_code == 0
+    assert summary not in result.stderr
 
 
 def test_a_negative_commented_file_count_is_an_error(repository: Repository) -> None:
