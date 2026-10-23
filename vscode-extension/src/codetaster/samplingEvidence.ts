@@ -76,10 +76,13 @@ function formatPercentage(probability: number): string {
 	return `${Number((probability * 100).toPrecision(2))}%`;
 }
 
-/** The file list's description of the sampling probability, e.g. `Sampling 10% → 18% (1 commented, 5 viewed)`. */
+/**
+ * The file list's description of the sampling probability, e.g. `Sampling 10% → 18% (1 commented, 5 viewed)`,
+ * or just `Sampling 10%` while the evidence leaves it unchanged.
+ */
 export function samplingDescription(sampling: SamplingReport): string {
 	const base = `Sampling ${formatPercentage(sampling.base_probability)}`;
-	if (sampling.commented_files === 0 && sampling.viewed_files === 0) {
+	if (sampling.effective_probability === sampling.base_probability) {
 		return base;
 	}
 	return `${base} → ${formatPercentage(sampling.effective_probability)} (${sampling.commented_files} commented, ${sampling.viewed_files} viewed)`;

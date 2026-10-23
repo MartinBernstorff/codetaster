@@ -1,3 +1,4 @@
+import pytest
 from safe_result import Err, Ok
 
 from codetaster.domain.application_services.check_committed_changes import (
@@ -13,7 +14,9 @@ from codetaster.domain.domain_model.configuration.review_settings import (
 )
 from codetaster.domain.domain_model.review.adaptive_sampling import (
     BaseProbabilityWeight,
+    CommentedFileCount,
     SamplingEvidence,
+    ViewedFileCount,
 )
 from codetaster.domain.domain_model.review.changes import (
     BlobSha,
@@ -108,22 +111,23 @@ def test_every_changed_file_is_assessed_at_the_base_probability() -> None:
 
 
 def test_the_evidence_and_configured_weight_decide_the_sampling() -> None:
+    # (0.3 * 4 + 1 commented) / (4 + 1 commented + 1 viewed)
+    expected = Probability(2.2 / 6)
     weight = BaseProbabilityWeight(4)
     review = ReviewSettings.fake().model_copy(
         update={"base_probability": Probability(0.3), "base_probability_weight": weight}
     )
     configuration = Configuration.fake().model_copy(update={"review": review})
     history = history_with_feature_branch(review.base_branch, RepositoryPath.fake())
-    evidence = SamplingEvidence.fake()
+    evidence = SamplingEvidence(
+        commented_files=CommentedFileCount(1), viewed_files=ViewedFileCount(1)
+    )
     request = CheckRequest.fake().model_copy(update={"evidence": evidence})
 
     result = checked_result(configuration, history, request)
 
-    assert result.sampling.weight == weight
-    assert result.sampling.evidence == evidence
-    assert {
-        assessment.sampling_probability for assessment in result.assessments.root
-    } == {result.sampling.adjusted(review.base_probability)}
+    [assessment] = result.assessments.root
+    assert assessment.sampling_probability.root == pytest.approx(expected.root)
 
 
 def test_reports_base_merge_base_and_head() -> None:

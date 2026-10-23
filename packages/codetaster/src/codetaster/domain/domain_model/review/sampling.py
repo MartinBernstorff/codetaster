@@ -115,7 +115,8 @@ def assess_file_changes(
         for rule in file_rules
     )
     file_sampling_probabilities = tuple(
-        sampling.adjusted(file_base) for file_base in file_base_probabilities
+        sampling.sampling_probability_for(file_base)
+        for file_base in file_base_probabilities
     )
     return FileAssessments(
         tuple(

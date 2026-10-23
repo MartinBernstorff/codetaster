@@ -114,6 +114,12 @@ describe('samplingDescription', () => {
 		assert.strictEqual(samplingDescription(fakeSampling()), 'Sampling 10%');
 	});
 
+	it('shows only the base probability when viewed files keep it at the floor', () => {
+		const sampling = fakeSampling({ viewed_files: 5, effective_probability: 0.1 });
+
+		assert.strictEqual(samplingDescription(sampling), 'Sampling 10%');
+	});
+
 	it('shows how the evidence changed the probability', () => {
 		const sampling = fakeSampling({ commented_files: 1, viewed_files: 5, effective_probability: 0.125 });
 

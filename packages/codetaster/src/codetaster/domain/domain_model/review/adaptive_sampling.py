@@ -76,7 +76,7 @@ class AdaptiveSampling(BaseModel):
     @staticmethod
     def fake() -> AdaptiveSampling:
         return AdaptiveSampling(
-            base_probability=Probability(0.1),
+            base_probability=Probability.fake(),
             weight=BaseProbabilityWeight.fake(),
             evidence=SamplingEvidence.fake(),
         )
@@ -90,7 +90,7 @@ class AdaptiveSampling(BaseModel):
         posterior_mean = (base * weight + defects) / (weight + defects + clean)
         return Probability(max(posterior_mean, base))
 
-    def adjusted(self, probability: Probability) -> Probability:
+    def sampling_probability_for(self, probability: Probability) -> Probability:
         """`probability` with its odds scaled as the base probability's were.
 
         0 and 1 stay as they are. So does everything if the base probability is

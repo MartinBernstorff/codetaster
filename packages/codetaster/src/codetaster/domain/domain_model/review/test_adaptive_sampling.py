@@ -68,14 +68,14 @@ def test_without_evidence_every_probability_is_unchanged() -> None:
 
     sampling = sampling_at(Probability(0.1))
 
-    assert sampling.adjusted(probability) == probability
+    assert sampling.sampling_probability_for(probability) == probability
 
 
 def test_the_base_probability_is_adjusted_to_the_effective_probability() -> None:
     base = Probability(0.1)
     sampling = sampling_at(base, commented=CommentedFileCount(1))
 
-    assert sampling.adjusted(base).root == pytest.approx(
+    assert sampling.sampling_probability_for(base).root == pytest.approx(
         sampling.effective_probability().root
     )
 
@@ -83,15 +83,18 @@ def test_the_base_probability_is_adjusted_to_the_effective_probability() -> None
 def test_a_path_rule_probability_is_adjusted_by_the_same_odds_ratio() -> None:
     # Base 0.1 -> 0.25 multiplies the odds by 3, so 0.5 (odds 1) becomes 0.75.
     sampling = sampling_at(Probability(0.1), commented=CommentedFileCount(2))
+    expected = Probability(0.75)
 
-    assert sampling.adjusted(Probability(0.5)).root == pytest.approx(0.75)
+    assert sampling.sampling_probability_for(Probability(0.5)).root == pytest.approx(
+        expected.root
+    )
 
 
 @pytest.mark.parametrize("unchanged", [Probability(0), Probability(1)])
 def test_zero_and_one_are_never_adjusted(unchanged: Probability) -> None:
     sampling = sampling_at(Probability(0.1), commented=CommentedFileCount(3))
 
-    assert sampling.adjusted(unchanged) == unchanged
+    assert sampling.sampling_probability_for(unchanged) == unchanged
 
 
 @pytest.mark.parametrize("base", [Probability(0), Probability(1)])
@@ -99,7 +102,7 @@ def test_a_base_probability_of_zero_or_one_adjusts_nothing(base: Probability) ->
     probability = Probability(0.3)
     sampling = sampling_at(base, commented=CommentedFileCount(3))
 
-    assert sampling.adjusted(probability) == probability
+    assert sampling.sampling_probability_for(probability) == probability
 
 
 def test_a_lower_weight_lets_each_comment_count_more() -> None:
@@ -124,7 +127,7 @@ def test_adjusting_never_lowers_a_probability(
 ) -> None:
     sampling = sampling_at(base, commented, viewed)
 
-    assert sampling.adjusted(probability).root >= probability.root
+    assert sampling.sampling_probability_for(probability).root >= probability.root
 
 
 @given(
@@ -142,7 +145,10 @@ def test_another_commented_file_never_lowers_a_probability(
     fewer = sampling_at(base, commented, viewed)
     more = sampling_at(base, CommentedFileCount(commented.root + 1), viewed)
 
-    assert more.adjusted(probability).root >= fewer.adjusted(probability).root
+    assert (
+        more.sampling_probability_for(probability).root
+        >= fewer.sampling_probability_for(probability).root
+    )
 
 
 def test_a_negative_count_is_invalid() -> None:

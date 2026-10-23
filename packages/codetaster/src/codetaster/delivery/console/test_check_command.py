@@ -225,6 +225,7 @@ def test_commented_files_add_sampled_files(tmp_path: Path) -> None:
     )
     commented = 3
     viewed = 1
+    feature = "feature.py"
 
     without = run_check(repository, CliOptions.fake())
     with_evidence = run_check(
@@ -234,12 +235,12 @@ def test_commented_files_add_sampled_files(tmp_path: Path) -> None:
         ),
     )
 
-    assert json.loads(without.stdout)["sampled"] == []
+    assert not json.loads(without.stdout)["sampled"]
     report = json.loads(with_evidence.stdout)
     assert report["sampling"]["commented_files"] == commented
     assert report["sampling"]["viewed_files"] == viewed
     [file] = report["sampled"]
-    assert file["path"] == "feature.py"
+    assert file["path"] == feature
 
 
 def test_a_negative_commented_file_count_is_an_error(repository: Repository) -> None:
