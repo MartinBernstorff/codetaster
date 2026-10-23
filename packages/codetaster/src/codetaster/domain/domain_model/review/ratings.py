@@ -15,15 +15,20 @@ The ratings file is JSON:
           "path": "src/module.py",
           "blob": "<after-blob SHA, or null for a deleted file>",
           "probability": 0.8,
-          "category": "Retry failed payments"
+          "category": "Retry failed payments",
+          "annotations": [
+            {"side": "after", "line": 12, "text": "Moved from old.py."}
+          ]
         }
       ]
     }
 
 A rating applies to a file's change only when both `path` and `blob` match it,
-so editing a file makes its rating stale.
+so editing a file makes its rating stale, and its annotations with it.
+`annotations` is optional.
 """
 
+from enum import StrEnum
 from typing import Annotated, override
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError
@@ -119,6 +124,67 @@ class PullRequestOverview(BaseModel):
         )
 
 
+class AnnotationSide(StrEnum):
+    """Which version of a file an annotation's line is in."""
+
+    BEFORE = "before"
+    AFTER = "after"
+
+
+class LineNumber(RootModel[Annotated[int, Field(ge=1)]]):
+    """A line in one version of a file, counting from 1."""
+
+    model_config = ConfigDict(frozen=True)
+
+    @override
+    def __str__(self) -> str:
+        return str(self.root)
+
+    @staticmethod
+    def fake() -> LineNumber:
+        return LineNumber(1)
+
+
+class AnnotationText(RootModel[Annotated[str, Field(min_length=1)]]):
+    """Markdown: a note for the reviewer about a line."""
+
+    model_config = ConfigDict(frozen=True)
+
+    @override
+    def __str__(self) -> str:
+        return self.root
+
+    @staticmethod
+    def fake() -> AnnotationText:
+        return AnnotationText("Moved from old.py.")
+
+
+class LineAnnotation(BaseModel):
+    """A note on one line of a rated file, shown to the reviewer in the diff."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    side: AnnotationSide = Field(
+        default=AnnotationSide.AFTER,
+        description="before or after: which version of the file `line` is in.",
+    )
+    line: LineNumber = Field(
+        description="The line, counting from 1, in that version of the file."
+    )
+    text: AnnotationText = Field(
+        description="Markdown: a note for the reviewer, e.g. that the content was "
+        "moved from another file."
+    )
+
+    @staticmethod
+    def fake() -> LineAnnotation:
+        return LineAnnotation(
+            side=AnnotationSide.AFTER,
+            line=LineNumber.fake(),
+            text=AnnotationText.fake(),
+        )
+
+
 class RatingTarget(BaseModel):
     """The file version a rating is for: the path and after-blob of a change.
 
@@ -162,15 +228,22 @@ class FileRating(BaseModel):
         description="Which part of the PR the file belongs to, e.g. a feature, "
         "refactor or move. The name of one of `categories`."
     )
+    annotations: tuple[LineAnnotation, ...] = Field(
+        default=(),
+        description="Notes for the reviewer on lines of this version of the file. "
+        "Optional.",
+    )
 
     @staticmethod
     def fake() -> FileRating:
+        """Without annotations, so the fake rating is valid for any change."""
         target = RatingTarget.fake()
         return FileRating(
             path=target.path,
             blob=target.blob,
             probability=Probability.fake(),
             category=RatingCategory.fake(),
+            annotations=(),
         )
 
     def target(self) -> RatingTarget:

@@ -12,12 +12,18 @@ from codetaster.domain.domain_model.review.changes import (
     FileChange,
     FileChanges,
     FileVersion,
+    LineCount,
     RepositoryPath,
     RevisionName,
     WorkingTreeState,
 )
 from codetaster.domain.domain_model.review.errors import UnknownRevisionError
-from codetaster.domain.domain_model.tool_errors import ToolError
+from codetaster.domain.domain_model.tool_errors import (
+    ExitCode,
+    ToolError,
+    ToolFailedError,
+    ToolInvocation,
+)
 from codetaster.domain.secondary_ports.committed_changes import (
     ChangeReadError,
     CommittedChanges,
@@ -36,7 +42,8 @@ class FakeCommittedChanges(CommittedChanges):
     """A linear history per branch, built with `commit`, `create_branch` and `switch_to`.
 
     Ignores the checkout: every directory is in the one at `repository_root`.
-    Detects renames only when the content is unchanged.
+    Detects renames only when the content is unchanged. Knows the line count of the
+    blobs in `line_counts`.
     """
 
     def __init__(self, initial_branch: RevisionName) -> None:
@@ -45,6 +52,7 @@ class FakeCommittedChanges(CommittedChanges):
         self.current_branch = initial_branch
         self.working_tree = WorkingTreeState.CLEAN
         self.repository_root = CheckoutPath.fake()
+        self.line_counts: dict[BlobSha, LineCount] = {}
 
     def commit(self, edits: Mapping[RepositoryPath, BlobSha | None]) -> CommitSha:
         """Commit on the current branch. A `None` blob deletes the file."""
@@ -104,6 +112,19 @@ class FakeCommittedChanges(CommittedChanges):
         self, checkout: CheckoutPath
     ) -> Result[CheckoutPath, ToolError]:
         return Ok(self.repository_root)
+
+    @override
+    def read_line_count(
+        self, checkout: CheckoutPath, blob: BlobSha
+    ) -> Result[LineCount, ToolError]:
+        count = self.line_counts.get(blob)
+        if count is None:
+            return Err(
+                ToolFailedError(
+                    ToolInvocation(f"git cat-file blob {blob.root}"), ExitCode(128)
+                )
+            )
+        return Ok(count)
 
     def ancestry(self, commit: CommitSha) -> list[CommitSha]:
         """`commit`, then its parent, and so on to the root."""

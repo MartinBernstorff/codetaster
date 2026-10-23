@@ -16,6 +16,12 @@ class TomlText(RootModel[str]):
         return TomlText('[review]\nbase_branch = "main"\nbase_probability = 1\n')
 
 
+class FeatureFileText(RootModel[str]):
+    @staticmethod
+    def fake() -> FeatureFileText:
+        return FeatureFileText("line\n")
+
+
 class Repository:
     """A repository with a commit on main, and a feature branch adding a file."""
 
@@ -30,6 +36,11 @@ class Repository:
         _ = (root / "feature.py").write_text("")
         self.git(GitArguments(("add", "--all")))
         self.git(GitArguments(("commit", "--quiet", "--message=feature")))
+
+    def commit_feature_file(self, text: FeatureFileText) -> None:
+        """Commit `text` as feature.py on the feature branch."""
+        _ = (self.root / "feature.py").write_text(text.root)
+        self.git(GitArguments(("commit", "--quiet", "--all", "--message=edit")))
 
     def git(self, arguments: GitArguments) -> None:
         _ = subprocess.run(

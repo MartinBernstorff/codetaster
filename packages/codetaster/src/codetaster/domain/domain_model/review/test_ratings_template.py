@@ -51,6 +51,19 @@ def test_shows_one_blank_category() -> None:
     assert json.loads(template.model_dump_json())["categories"] == [blank_category]
 
 
+def test_shows_one_blank_annotation_per_entry() -> None:
+    template = RatingsTemplate.of_changes(FileChanges.fake())
+
+    blank_annotation: dict[str, str | None] = {
+        "side": "after",
+        "line": None,
+        "text": None,
+    }
+
+    [entry] = json.loads(template.model_dump_json())["ratings"]
+    assert entry["annotations"] == [blank_annotation]
+
+
 def test_does_not_parse_as_a_ratings_file_until_filled() -> None:
     template = RatingsTemplate.of_changes(FileChanges.fake())
 
