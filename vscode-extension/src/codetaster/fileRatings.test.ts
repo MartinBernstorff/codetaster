@@ -6,7 +6,7 @@ import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
 function ratedFileReport(path: string, probability: number): FileReport {
 	return {
 		path, previous_path: null, change_type: 'modified', base_probability: 0.1,
-		rating: { probability, category: 'Logic' }, unrated: false, draw: 0.5,
+		rating: { probability, category: 'Logic', annotations: [] }, unrated: false, draw: 0.5,
 	};
 }
 
@@ -77,7 +77,7 @@ describe('fileReportsByPath', () => {
 		const sampled = unratedFileReport('b.py');
 		const noReview = unratedFileReport('c.py');
 		const report: CheckReport = {
-			schema_version: 4,
+			schema_version: 5,
 			needs_review: true,
 			base: { ref: 'main', merge_base: 'a'.repeat(40) },
 			head: { commit: 'b'.repeat(40) },

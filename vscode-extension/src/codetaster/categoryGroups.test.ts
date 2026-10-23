@@ -11,7 +11,7 @@ interface FakeFile {
 function fakeFileReport(path: string, category: string | undefined): FileReport {
 	return {
 		path, previous_path: null, change_type: 'modified', base_probability: 0.1,
-		rating: category === undefined ? null : { probability: 0.5, category },
+		rating: category === undefined ? null : { probability: 0.5, category, annotations: [] },
 		unrated: category === undefined, draw: 0.5,
 	};
 }
@@ -21,7 +21,7 @@ type FakeVerdictFiles = Record<string, string | undefined>;
 function fakeCheckReport(verdicts: { needsReview?: FakeVerdictFiles, sampled?: FakeVerdictFiles, noReview?: FakeVerdictFiles }): CheckReport {
 	const fileReports = (files: FakeVerdictFiles = {}) => Object.entries(files).map(([path, category]) => fakeFileReport(path, category));
 	return {
-		schema_version: 4,
+		schema_version: 5,
 		needs_review: false,
 		base: { ref: 'main', merge_base: 'a'.repeat(40) },
 		head: { commit: 'b'.repeat(40) },

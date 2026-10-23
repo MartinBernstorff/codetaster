@@ -1,13 +1,24 @@
 /**
- * The JSON that `codetaster check --format json` prints, schema_version 4.
+ * The JSON that `codetaster check --format json` prints, schema_version 5.
  * The documented schema is the Python `CheckReport` in codetaster's check_report module.
  * New fields can appear without a version bump; they are kept on the parsed objects.
  */
+
+/** A note the AI attached to a line of the rated file version. Never posted to GitHub. */
+export interface AnnotationReport {
+	/** Which version of the file `line` is in. */
+	readonly side: 'before' | 'after';
+	/** Counting from 1. */
+	readonly line: number;
+	/** Markdown. */
+	readonly text: string;
+}
 
 export interface RatingReport {
 	readonly probability: number;
 	/** The category the file is grouped under in the file list. */
 	readonly category: string;
+	readonly annotations: readonly AnnotationReport[];
 }
 
 export interface FileReport {
@@ -36,7 +47,7 @@ export interface OverviewReport {
 }
 
 export interface CheckReport {
-	readonly schema_version: 4;
+	readonly schema_version: 5;
 	readonly needs_review: boolean;
 	readonly base: { readonly ref: string, readonly merge_base: string };
 	readonly head: { readonly commit: string };
@@ -71,6 +82,19 @@ function isOverview(value: unknown): boolean {
 		&& value.categories.every(category => isRecord(category) && typeof category.name === 'string' && typeof category.description === 'string');
 }
 
+function isAnnotation(value: unknown): boolean {
+	return isRecord(value)
+		&& (value.side === 'before' || value.side === 'after')
+		&& Number.isInteger(value.line) && (value.line as number) >= 1
+		&& typeof value.text === 'string';
+}
+
+/** Whether `file` has no rating, or a rating whose annotations are well-formed. */
+function hasValidAnnotations(file: Record<string, unknown>): boolean {
+	const rating = file.rating;
+	return !isRecord(rating) || (Array.isArray(rating.annotations) && rating.annotations.every(isAnnotation));
+}
+
 function invalidReport(message: string): ParsedCheckReport {
 	return { kind: 'invalid', message };
 }
@@ -85,8 +109,8 @@ export function parseCheckReport(output: string): ParsedCheckReport {
 	if (!isRecord(json)) {
 		return invalidReport('Its output is not a JSON object.');
 	}
-	if (json.schema_version !== 4) {
-		return invalidReport(`Its output has schema_version ${JSON.stringify(json.schema_version)}; this extension reads schema_version 4.`);
+	if (json.schema_version !== 5) {
+		return invalidReport(`Its output has schema_version ${JSON.stringify(json.schema_version)}; this extension reads schema_version 5.`);
 	}
 	if (typeof json.needs_review_threshold !== 'number') {
 		return invalidReport('Its output has no "needs_review_threshold".');
@@ -98,6 +122,9 @@ export function parseCheckReport(output: string): ParsedCheckReport {
 		const files = json[key];
 		if (!Array.isArray(files) || !files.every(file => isRecord(file) && typeof file.path === 'string')) {
 			return invalidReport(`Its output has no "${key}" list of files with paths.`);
+		}
+		if (!files.every(hasValidAnnotations)) {
+			return invalidReport(`Its output has a file in "${key}" whose rating has malformed "annotations".`);
 		}
 	}
 	if (json.overview !== undefined && json.overview !== null && !isOverview(json.overview)) {

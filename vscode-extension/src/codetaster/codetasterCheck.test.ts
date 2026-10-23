@@ -3,7 +3,7 @@ import { describe, it } from 'mocha';
 import { CheckState, CheckTarget, CodetasterChecks, CodetasterProcess, ProcessOutcome, runCodetasterCheck } from './codetasterCheck';
 
 const validReport = {
-	schema_version: 4,
+	schema_version: 5,
 	needs_review: true,
 	override_label_applied: false,
 	base: { ref: 'main', merge_base: 'a'.repeat(40) },
@@ -107,6 +107,24 @@ describe('runCodetasterCheck', () => {
 		const outcome = await runCodetasterCheck(process, 'codetaster', '/repo', 'origin/main');
 
 		assert.deepStrictEqual(outcome.kind === 'report' && outcome.report.overview, overview);
+	});
+
+	it('returns each rating\'s annotations', async () => {
+		const annotations = [{ side: 'before', line: 3, text: 'Moved to `b.py`.' }];
+		const rated = { ...validReport.sampled[0], rating: { probability: 0.2, category: 'Moves', annotations }, unrated: false };
+		const process = new FakeCodetasterProcess(exitedWith(0, JSON.stringify({ ...validReport, sampled: [rated] })));
+
+		const outcome = await runCodetasterCheck(process, 'codetaster', '/repo', 'origin/main');
+
+		assert.deepStrictEqual(outcome.kind === 'report' && outcome.report.sampled[0].rating?.annotations, annotations);
+	});
+
+	it('rejects an annotation without a line', async () => {
+		const rated = { ...validReport.sampled[0], rating: { probability: 0.2, category: 'Moves', annotations: [{ side: 'after', text: 'Moved.' }] }, unrated: false };
+
+		const message = await errorMessageFrom(new FakeCodetasterProcess(exitedWith(0, JSON.stringify({ ...validReport, sampled: [rated] }))));
+
+		assert.match(message, /"annotations"/);
 	});
 
 	it('rejects an overview whose categories have no descriptions', async () => {

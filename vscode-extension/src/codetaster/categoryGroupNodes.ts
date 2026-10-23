@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import { AnnotationComments } from './annotationComments';
+import { AnnotatedFile, annotationPlacements } from './annotationThreads';
 import { CategoryGroup, groupFilesByCategory, needsReviewRuleDescription } from './categoryGroups';
 import { CheckReport } from './checkReport';
 import { CheckOutcome, CodetasterChecks } from './codetasterCheck';
@@ -11,6 +13,7 @@ import { nextFileToReview, OrderedFile, reviewOrder } from './reviewOrder';
 import { verdictIconPath } from './verdictIcons';
 import type { Repository } from '../api/api';
 import { ViewedState } from '../common/comment';
+import { GitChangeType } from '../common/file';
 import { findLocalRepoRemoteFromGitHubRef } from '../common/githubRef';
 import { disposeAll } from '../common/lifecycle';
 import { compareIgnoreCase } from '../common/utils';
@@ -160,8 +163,22 @@ function refreshOnHeadChange(repository: Repository): void {
 	}));
 }
 
+/** The ratings file's annotations on the checked-out PRs' diffs. Created on activation. */
+let annotationComments: AnnotationComments | undefined;
+
+/** The documents `file`'s diff shows, as upstream opens them. */
+function annotatedFile(file: PullRequestFileNode): AnnotatedFile<vscode.Uri> {
+	return {
+		path: file.fileName,
+		beforeUri: file.status === GitChangeType.ADD ? undefined : file.changeModel.parentFilePath,
+		afterUri: file.status === GitChangeType.DELETE ? undefined : file.changeModel.filePath,
+	};
+}
+
 export function registerCodetaster(context: vscode.ExtensionContext): void {
 	registerOverviewPreview(context);
+	annotationComments = new AnnotationComments();
+	context.subscriptions.push(annotationComments);
 	if (vscode.workspace.getConfiguration(CODETASTER_SETTINGS_NAMESPACE).get<boolean>(OPEN_ON_STARTUP_SETTING, false)) {
 		vscode.commands.executeCommand(OPEN_CODETASTER_CONTAINER_COMMAND);
 	}
@@ -376,6 +393,7 @@ function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: P
  * or an error and no files if the check fails. A summary node, which opens the PR
  * summary and category descriptions, precedes the categories when the ratings file
  * has them. Each file's icon shows its verdict.
+ * The ratings file's annotations on the files show as read-only comment threads in their diffs.
  * Warnings precede the groups when the check ran on a different commit than the PR
  * head, or ignored an invalid ratings file. Undefined if the PR is not checked out, so
  * the caller shows upstream's file list.
@@ -406,6 +424,7 @@ export function codetasterFileNodes(
 	if (!outcome) {
 		showUpstreamFileItems(shownFiles);
 		describeNode(describedNode, undefined);
+		annotationComments?.clear(folderRepoManager);
 		return undefined;
 	}
 	let report: CheckReport;
@@ -418,6 +437,7 @@ export function codetasterFileNodes(
 		report = outcome.previousReport;
 	} else if (outcome.kind === 'error') {
 		reviewOrders.delete(folderRepoManager);
+		annotationComments?.clear(folderRepoManager);
 		describeNode(describedNode, undefined);
 		return [new CodetasterErrorNode(parent, outcome.message)];
 	} else {
@@ -431,6 +451,7 @@ export function codetasterFileNodes(
 		files: reviewOrder(allGroups, file => file.fileName, layout),
 	});
 	describeNode(describedNode, needsReviewRuleDescription(report));
+	annotationComments?.show(folderRepoManager, annotationPlacements(report, allFiles.map(annotatedFile)));
 	const shownGroups = groupFilesByCategory(report, shownFiles, file => file.fileName);
 	showFileRatings(report, shownGroups);
 	const groups = shownGroups.map(group => new CategoryGroupNode(parent, group, layout));
