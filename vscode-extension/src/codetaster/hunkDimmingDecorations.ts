@@ -2,8 +2,26 @@ import * as vscode from 'vscode';
 import { DimmedLines, DimmedLinesSet } from './hunkDimming';
 import { PullRequestModel } from '../github/pullRequestModel';
 
-/** How opaque the text of a dimmed hunk is. */
-const DIMMED_OPACITY = '0.4';
+/** How much of a dimmed line the editor background covers. */
+const DIMMED_COVERAGE = '60%';
+
+/**
+ * A pane of the editor background over each dimmed line, through the CSS of an empty
+ * attachment before the line, as the decoration API cannot otherwise draw above text.
+ * It covers both the text and the diff's red and green backgrounds, which are drawn
+ * above any background color a decoration sets. It does not catch the pointer, and the
+ * cursor and the gutter are drawn above it.
+ */
+const DIMMED_LINE_COVER: vscode.ThemableDecorationAttachmentRenderOptions = {
+	contentText: ' ',
+	textDecoration: [
+		'none',
+		'position: absolute',
+		'inset: 0',
+		'pointer-events: none',
+		`background-color: color-mix(in srgb, var(--vscode-editor-background) ${DIMMED_COVERAGE}, transparent)`,
+	].join('; '),
+};
 
 /**
  * Dims the hunks of needs-review files that are rated below the needs-review threshold,
@@ -12,7 +30,7 @@ const DIMMED_OPACITY = '0.4';
  * file list that shows it (see `DimmedLinesSet`).
  */
 export class HunkDimmingDecorations implements vscode.Disposable {
-	private readonly decorationType = vscode.window.createTextEditorDecorationType({ opacity: DIMMED_OPACITY, isWholeLine: true });
+	private readonly decorationType = vscode.window.createTextEditorDecorationType({ before: DIMMED_LINE_COVER });
 	private readonly lines = new DimmedLinesSet<PullRequestModel, vscode.Uri>((a, b) => a.equals(b), () => this.apply());
 	private readonly visibleEditorsListener = vscode.window.onDidChangeVisibleTextEditors(() => this.apply());
 
@@ -37,15 +55,16 @@ export class HunkDimmingDecorations implements vscode.Disposable {
 		const byUri = this.lines.linesByUri(uri => uri.toString());
 		for (const editor of vscode.window.visibleTextEditors) {
 			const document = editor.document;
-			// To the end of the last line, as opacity only applies to the text the range covers.
+			// The cover is positioned in the line, so each line needs its own.
 			// Lines past the end of the document are left out.
 			const ranges = (byUri.get(document.uri.toString()) ?? [])
-				.filter(({ firstLine }) => firstLine < document.lineCount)
-				.map(({ firstLine, lastLine }) => new vscode.Range(
-					firstLine, 0, Math.min(lastLine, document.lineCount - 1), Number.MAX_SAFE_INTEGER,
-				))
-				.map(range => document.validateRange(range));
+				.flatMap(({ firstLine, lastLine }) => linesBetween(firstLine, Math.min(lastLine, document.lineCount - 1)))
+				.map(line => new vscode.Range(line, 0, line, 0));
 			editor.setDecorations(this.decorationType, ranges);
 		}
 	}
+}
+
+function linesBetween(firstLine: number, lastLine: number): number[] {
+	return Array.from({ length: Math.max(lastLine - firstLine + 1, 0) }, (_, index) => firstLine + index);
 }
