@@ -31,6 +31,7 @@ from codetaster.domain.domain_model.review.ratings_validation import (
     DuplicateCategory,
     DuplicateRating,
     FileRatingProblem,
+    HunkMismatch,
     InvalidRatingsFile,
     MissingRatingsFile,
     RatingProblem,
@@ -79,8 +80,9 @@ def validate_ratings(
     checkout: CheckoutArgument,
     base: BaseOption = None,
 ) -> None:
-    """Check the ratings file rates every changed file once and nothing else,
-    describes every category it uses once, and annotates only lines that exist.
+    """Check the ratings file rates every changed file once, hunk by hunk, and
+    nothing else, describes every category it uses once, and annotates only lines
+    that exist.
 
     Exits 1 and lists every problem if it does not.
     """
@@ -132,6 +134,19 @@ def describe_rating_problem(
             | AnnotationOnUnreadableFile()
         ):
             return describe_annotation_problem(problem)
+        case HunkMismatch(target=target, rated=rated, changed=changed):
+            template = ratings_template_command_line(checkout, base)
+            mismatch = (
+                f"The rating for {target.path} has {len(rated)} hunks, but the "
+                f"file's change has {len(changed)}."
+                if len(rated) != len(changed)
+                else f"The hunks in the rating for {target.path} are not the lines "
+                "the file's change has."
+            )
+            return RatingProblemDescription(
+                f"{mismatch} Copy its hunks from the output of `{template.root}` "
+                "and rate each."
+            )
         case _:
             return describe_file_rating_problem(problem, checkout, base)
 

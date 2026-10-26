@@ -1,7 +1,8 @@
+import re
 from pathlib import Path
 from typing import override
 
-from pydantic import ConfigDict, RootModel
+from pydantic import BaseModel, ConfigDict, RootModel
 from safe_result import Err, Ok, Result
 
 from codetaster.domain.domain_model.checkout import CheckoutPath
@@ -9,12 +10,16 @@ from codetaster.domain.domain_model.review.changes import (
     BlobContent,
     BlobLineCounts,
     BlobSha,
+    ChangeLineHunks,
     CommitSha,
     CommittedChange,
     FileChange,
     FileChanges,
     FileVersion,
+    HunkStart,
     LineCount,
+    LineHunk,
+    LineSpan,
     RepositoryPath,
     RevisionName,
     WorkingTreeState,
@@ -121,6 +126,37 @@ class GitCommittedChanges(CommittedChanges):
             return output
         return Ok(parse_batch_line_counts(output.value))
 
+    @override
+    def read_line_hunks(
+        self, checkout: CheckoutPath, change: CommittedChange
+    ) -> Result[ChangeLineHunks, ToolError]:
+        # The raw records name each file, unquoted with -z, and come in the same
+        # order as the patches. Bytes, as file content need not be UTF-8.
+        output = run_external_tool_on_input(
+            ToolArguments(
+                (
+                    "git",
+                    "diff-tree",
+                    "-r",
+                    "-z",
+                    "--find-renames",
+                    "--raw",
+                    "--patch",
+                    "--unified=0",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    change.merge_base.root,
+                    change.head.root,
+                )
+            ),
+            checkout,
+            ToolInput(b""),
+            git_installation_hint(),
+        )
+        if isinstance(output, Err):
+            return output
+        return Ok(parse_raw_diff_with_patches(output.value))
+
 
 def resolve_commit(
     checkout: CheckoutPath, revision: RevisionName
@@ -172,22 +208,54 @@ def run_git(
     )
 
 
+class RawDiffFields(RootModel[tuple[bytes, ...]]):
+    """The NUL-separated fields of `git diff-tree -z` output."""
+
+    model_config = ConfigDict(frozen=True)
+
+    @staticmethod
+    def fake() -> RawDiffFields:
+        return RawDiffFields(())
+
+
+class RawRecords(BaseModel):
+    """The changes in the raw records at the start of some fields, in git's order,
+    and the fields after them."""
+
+    model_config = ConfigDict(frozen=True)
+
+    changes: tuple[FileChange, ...]
+    rest: RawDiffFields
+
+    @staticmethod
+    def fake() -> RawRecords:
+        return RawRecords(changes=(), rest=RawDiffFields.fake())
+
+
 def parse_raw_diff(output: ToolOutput) -> FileChanges:
-    """Parse `git diff-tree -r -z` output.
+    """Parse `git diff-tree -r -z` output, ordering the changes by path."""
+    records = parse_raw_records(RawDiffFields(tuple(output.root.encode().split(b"\0"))))
+    return FileChanges(
+        tuple(sorted(records.changes, key=lambda change: change.path().root))
+    )
+
+
+def parse_raw_records(fields: RawDiffFields) -> RawRecords:
+    """Parse the raw records at the start of `fields`.
 
     Each record is `:<old mode> <new mode> <old blob> <new blob> <status>`, then
     the path, then for a rename (status `R<score>`) the new path.
     """
-    fields = output.root.split("\0")
+    texts = tuple(field.decode() for field in fields.root)
     changes: list[FileChange] = []
     index = 0
-    while index < len(fields) and fields[index].startswith(":"):
-        _, _, old_blob, new_blob, status = fields[index].removeprefix(":").split(" ")
-        old_path = RepositoryPath(fields[index + 1])
+    while index < len(texts) and texts[index].startswith(":"):
+        _, _, old_blob, new_blob, status = texts[index].removeprefix(":").split(" ")
+        old_path = RepositoryPath(texts[index + 1])
         new_path = old_path
         index += 2
         if status.startswith("R"):
-            new_path = RepositoryPath(fields[index])
+            new_path = RepositoryPath(texts[index])
             index += 1
         changes.append(
             FileChange(
@@ -199,7 +267,51 @@ def parse_raw_diff(output: ToolOutput) -> FileChanges:
                 else FileVersion(path=new_path, blob=BlobSha(new_blob)),
             )
         )
-    return FileChanges(tuple(sorted(changes, key=lambda change: change.path().root)))
+    return RawRecords(changes=tuple(changes), rest=RawDiffFields(fields.root[index:]))
+
+
+def parse_raw_diff_with_patches(output: BinaryToolOutput) -> ChangeLineHunks:
+    """Parse `git diff-tree -r -z --raw --patch --unified=0` output.
+
+    The raw records come first, then an empty field, then one patch per record, in
+    the same order, each starting with a `diff --git` line. Its other lines are
+    headers, or content lines that start with ` `, `-`, `+` or `\\`, so only real
+    headers start with `diff --git` or `@@`.
+    """
+    records = parse_raw_records(RawDiffFields(tuple(output.root.split(b"\0"))))
+    patch_lines = b"\0".join(records.rest.root[1:]).split(b"\n")
+    hunks_per_file: list[list[LineHunk]] = []
+    for line in patch_lines:
+        if line.startswith(b"diff --git "):
+            hunks_per_file.append([])
+            continue
+        header = HUNK_HEADER.match(line)
+        if header is None or not hunks_per_file:
+            continue
+        # A missing count means 1 line.
+        before_start, before_count, after_start, after_count = header.groups()
+        hunks_per_file[-1].append(
+            LineHunk(
+                before=LineSpan(
+                    start=HunkStart(int(before_start)),
+                    count=LineCount(1 if before_count is None else int(before_count)),
+                ),
+                after=LineSpan(
+                    start=HunkStart(int(after_start)),
+                    count=LineCount(1 if after_count is None else int(after_count)),
+                ),
+            )
+        )
+    return ChangeLineHunks(
+        {
+            change.path(): tuple(hunks)
+            for change, hunks in zip(records.changes, hunks_per_file, strict=True)
+            if hunks
+        }
+    )
+
+
+HUNK_HEADER = re.compile(rb"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 
 def parse_batch_line_counts(output: BinaryToolOutput) -> BlobLineCounts:

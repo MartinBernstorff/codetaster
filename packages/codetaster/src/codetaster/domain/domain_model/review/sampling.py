@@ -128,7 +128,7 @@ def assess_file_changes(
                 rating=rating,
                 draw=draw,
                 verdict=Verdict.NEEDS_REVIEW
-                if rating is not None and rating.probability.root >= threshold.root
+                if rating is not None and rating.probability().root >= threshold.root
                 else Verdict.SAMPLED
                 if draw.root < file_sampling.root
                 else Verdict.NO_REVIEW,

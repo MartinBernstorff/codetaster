@@ -115,8 +115,14 @@ def write_feature_rating(
                     {
                         "path": "feature.py",
                         "blob": empty_blob,
-                        "probability": probability.root,
                         "category": category.root,
+                        "hunks": [
+                            {
+                                "before": None,
+                                "after": None,
+                                "probability": probability.root,
+                            }
+                        ],
                     }
                 ],
             }

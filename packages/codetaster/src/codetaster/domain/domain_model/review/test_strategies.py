@@ -8,6 +8,10 @@ from codetaster.domain.domain_model.review.changes import (
     BlobSha,
     FileChange,
     FileVersion,
+    HunkStart,
+    LineCount,
+    LineHunk,
+    LineSpan,
     RepositoryPath,
 )
 from codetaster.domain.domain_model.review.needs_review_threshold import (
@@ -20,6 +24,7 @@ from codetaster.domain.domain_model.review.ratings import (
     FileRating,
     FileRatings,
     PullRequestSummary,
+    RatedHunk,
     RatingCategory,
     RatingsFile,
     RatingsFileContent,
@@ -66,15 +71,45 @@ def probabilities() -> st.SearchStrategy[Probability]:
     return st.builds(Probability, st.floats(min_value=0, max_value=1))
 
 
-def ratings_of(change: FileChange) -> st.SearchStrategy[FileRating]:
-    """Ratings whose path and blob match `change`."""
+def line_hunks() -> st.SearchStrategy[tuple[LineHunk, ...]]:
+    """The changed lines of a file, as a diff could report them."""
+    spans = st.builds(
+        LineSpan,
+        start=st.builds(HunkStart, st.integers(min_value=0, max_value=1000)),
+        count=st.builds(LineCount, st.integers(min_value=0, max_value=50)),
+    )
+    return st.lists(st.builds(LineHunk, before=spans, after=spans), max_size=5).map(
+        tuple
+    )
+
+
+def rated_hunks_of(
+    hunks: tuple[LineHunk, ...],
+) -> st.SearchStrategy[tuple[RatedHunk, ...]]:
+    """`hunks` rated, or one hunk for the whole change if there are none."""
+    if not hunks:
+        return st.tuples(probabilities().map(RatedHunk.of_whole_change))
+    return st.tuples(
+        *(
+            probabilities().map(
+                lambda probability, hunk=hunk: RatedHunk.of_line_hunk(hunk, probability)
+            )
+            for hunk in hunks
+        )
+    )
+
+
+def ratings_of(
+    change: FileChange, hunks: tuple[LineHunk, ...] = ()
+) -> st.SearchStrategy[FileRating]:
+    """Ratings whose path and blob match `change`, rating its `hunks`."""
     target = RatingTarget.of_change(change)
     return st.builds(
         FileRating,
         path=st.just(target.path),
         blob=st.just(target.blob),
-        probability=probabilities(),
         category=st.builds(RatingCategory, st.text(min_size=1)),
+        hunks=rated_hunks_of(hunks),
     )
 
 
@@ -98,8 +133,11 @@ def fill_template(
     filled["ratings"] = [
         entry.model_dump(mode="json")
         | {
-            "probability": rating.probability.root,
             "category": rating.category.root,
+            "hunks": [
+                hunk.model_dump(mode="json") | {"probability": rated.probability.root}
+                for hunk, rated in zip(entry.hunks, rating.hunks, strict=True)
+            ],
             "annotations": [
                 annotation.model_dump(mode="json") for annotation in rating.annotations
             ],

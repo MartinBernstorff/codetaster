@@ -14,10 +14,29 @@ export interface AnnotationReport {
 	readonly text: string;
 }
 
+/** Lines in one version of a file, numbered as in a diff's `@@ -start,count +start,count @@` header. */
+export interface LineSpanReport {
+	/** The first line, counting from 1. With a count of 0, the line before the gap, or 0 at the top of the file. */
+	readonly start: number;
+	/** How many lines. 0 if the hunk has none in this version. */
+	readonly count: number;
+}
+
+/** A run of changed lines and the AI's rating of it. */
+export interface HunkReport {
+	/** null, as is `after`, for a hunk for the whole change of a file without changed lines, e.g. a binary file. */
+	readonly before: LineSpanReport | null;
+	readonly after: LineSpanReport | null;
+	readonly probability: number;
+}
+
 export interface RatingReport {
+	/** The highest of the hunks' probabilities. */
 	readonly probability: number;
 	/** The category the file is grouped under in the file list. */
 	readonly category: string;
+	/** In order, as `git diff --unified=0` reports them. */
+	readonly hunks: readonly HunkReport[];
 	readonly annotations: readonly AnnotationReport[];
 }
 
@@ -118,6 +137,24 @@ function hasValidAnnotations(file: Record<string, unknown>): boolean {
 	return !isRecord(rating) || (Array.isArray(rating.annotations) && rating.annotations.every(isAnnotation));
 }
 
+function isLineSpan(value: unknown): boolean {
+	return isRecord(value)
+		&& Number.isInteger(value.start) && (value.start as number) >= 0
+		&& Number.isInteger(value.count) && (value.count as number) >= 0;
+}
+
+function isHunk(value: unknown): boolean {
+	return isRecord(value)
+		&& typeof value.probability === 'number'
+		&& ((value.before === null && value.after === null) || (isLineSpan(value.before) && isLineSpan(value.after)));
+}
+
+/** Whether `file` has no rating, or a rating whose hunks are well-formed. */
+function hasValidHunks(file: Record<string, unknown>): boolean {
+	const rating = file.rating;
+	return !isRecord(rating) || (Array.isArray(rating.hunks) && rating.hunks.every(isHunk));
+}
+
 function invalidReport(message: string): ParsedCheckReport {
 	return { kind: 'invalid', message };
 }
@@ -151,6 +188,9 @@ export function parseCheckReport(output: string): ParsedCheckReport {
 		}
 		if (!files.every(hasValidAnnotations)) {
 			return invalidReport(`Its output has a file in "${key}" whose rating has malformed "annotations".`);
+		}
+		if (!files.every(hasValidHunks)) {
+			return invalidReport(`Its output has a file in "${key}" whose rating has malformed "hunks". Update codetaster if it predates hunk ratings.`);
 		}
 	}
 	if (json.overview !== undefined && json.overview !== null && !isOverview(json.overview)) {

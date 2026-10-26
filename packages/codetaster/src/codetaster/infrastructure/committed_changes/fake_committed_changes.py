@@ -1,19 +1,27 @@
+import difflib
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import override
 
+from pydantic import ConfigDict, RootModel
 from safe_result import Err, Ok, Result
 
 from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.review.changes import (
+    BlobContent,
     BlobLineCounts,
     BlobSha,
+    ChangeLineHunks,
     CommitSha,
     CommittedChange,
     FileChange,
     FileChanges,
     FileVersion,
+    HunkStart,
     LineCount,
+    LineHunk,
+    LineSpan,
     RepositoryPath,
     RevisionName,
     WorkingTreeState,
@@ -28,6 +36,16 @@ from codetaster.domain.secondary_ports.committed_changes import (
 type Tree = Mapping[RepositoryPath, BlobSha]
 
 
+class FileLines(RootModel[tuple[bytes, ...]]):
+    """A file's lines, each with its line break."""
+
+    model_config = ConfigDict(frozen=True)
+
+    @staticmethod
+    def fake() -> FileLines:
+        return FileLines((b"content\n",))
+
+
 @dataclass(frozen=True)
 class FakeCommit:
     parent: CommitSha | None
@@ -39,7 +57,9 @@ class FakeCommittedChanges(CommittedChanges):
 
     Ignores the checkout: every directory is in the one at `repository_root`.
     Detects renames only when the content is unchanged. Knows the line count of the
-    blobs in `line_counts`.
+    blobs in `line_counts`, and diffs the blobs in `contents`, finding the changed
+    lines with difflib rather than git's algorithm. A blob it has no content for, or
+    whose content git would deem binary, has no changed lines.
     """
 
     def __init__(self, initial_branch: RevisionName) -> None:
@@ -49,6 +69,7 @@ class FakeCommittedChanges(CommittedChanges):
         self.working_tree = WorkingTreeState.CLEAN
         self.repository_root = CheckoutPath.fake()
         self.line_counts: dict[BlobSha, LineCount] = {}
+        self.contents: dict[BlobSha, BlobContent] = {}
 
     def commit(self, edits: Mapping[RepositoryPath, BlobSha | None]) -> CommitSha:
         """Commit on the current branch. A `None` blob deletes the file."""
@@ -122,6 +143,49 @@ class FakeCommittedChanges(CommittedChanges):
                 }
             )
         )
+
+    @override
+    def read_line_hunks(
+        self, checkout: CheckoutPath, change: CommittedChange
+    ) -> Result[ChangeLineHunks, ToolError]:
+        hunks = {file.path(): self.diff_lines(file) for file in change.files.root}
+        return Ok(
+            ChangeLineHunks({path: found for path, found in hunks.items() if found})
+        )
+
+    def diff_lines(self, change: FileChange) -> tuple[LineHunk, ...]:
+        before = self.lines_of(None if change.before is None else change.before.blob)
+        after = self.lines_of(None if change.after is None else change.after.blob)
+        if before is None or after is None:
+            return ()
+        opcodes = difflib.SequenceMatcher(
+            None, before.root, after.root, autojunk=False
+        ).get_opcodes()
+        # As in a diff's hunk header, an empty span starts at the line before it.
+        return tuple(
+            LineHunk(
+                before=LineSpan(
+                    start=HunkStart(before_start + (before_end > before_start)),
+                    count=LineCount(before_end - before_start),
+                ),
+                after=LineSpan(
+                    start=HunkStart(after_start + (after_end > after_start)),
+                    count=LineCount(after_end - after_start),
+                ),
+            )
+            for tag, before_start, before_end, after_start, after_end in opcodes
+            if tag != "equal"
+        )
+
+    def lines_of(self, blob: BlobSha | None) -> FileLines | None:
+        """Each line with its line break. Empty for a missing side, `None` if the
+        content is unknown or binary, as git deems a NUL in the first 8000 bytes."""
+        if blob is None:
+            return FileLines(())
+        content = self.contents.get(blob)
+        if content is None or b"\0" in content.root[:8000]:
+            return None
+        return FileLines(tuple(re.findall(rb"[^\n]*\n|[^\n]+$", content.root)))
 
     def ancestry(self, commit: CommitSha) -> list[CommitSha]:
         """`commit`, then its parent, and so on to the root."""

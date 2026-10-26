@@ -155,10 +155,14 @@ def test_reports_each_files_decision_inputs() -> None:
 
 def test_reports_a_rated_files_rating_and_category() -> None:
     rating = FileRating.fake()
+    [hunk] = rating.hunks
     assessment = FileAssessment.fake().model_copy(update={"rating": rating})
     expected: JsonValue = {
-        "probability": rating.probability.root,
+        "probability": hunk.probability.root,
         "category": rating.category.root,
+        "hunks": [
+            {"before": None, "after": None, "probability": hunk.probability.root}
+        ],
         "annotations": [],
     }
 

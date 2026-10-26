@@ -6,6 +6,7 @@ from codetaster.domain.domain_model.checkout import CheckoutPath
 from codetaster.domain.domain_model.review.changes import (
     BlobLineCounts,
     BlobSha,
+    ChangeLineHunks,
     CommittedChange,
     RevisionName,
     WorkingTreeState,
@@ -48,5 +49,16 @@ class CommittedChanges(Protocol):
 
         A blob that does not exist, or names something other than a file's
         content (such as a submodule's commit), is left out.
+        """
+        ...
+
+    def read_line_hunks(
+        self, checkout: CheckoutPath, change: CommittedChange
+    ) -> Result[ChangeLineHunks, ToolError]:
+        """The changed lines of each file in `change`, as `git diff --unified=0`
+        reports them, in order.
+
+        A file whose change has no lines, such as a binary file, a pure rename or
+        an empty new file, has none.
         """
         ...

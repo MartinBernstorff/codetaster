@@ -11,6 +11,7 @@ from codetaster.domain.domain_model.review.changes import (
     BlobSha,
     FileChange,
     FileVersion,
+    LineHunk,
     RepositoryPath,
 )
 from codetaster.domain.domain_model.review.probability import Probability
@@ -20,6 +21,7 @@ from codetaster.domain.domain_model.review.ratings import (
     FileRating,
     FileRatings,
     LineAnnotation,
+    RatedHunk,
     RatingsFile,
     RatingsFileContent,
     RatingTarget,
@@ -43,8 +45,9 @@ def test_parses_the_documented_format() -> None:
     content = RatingsFileContent(
         '{"summary": "Retries payments.", '
         '"categories": [{"name": "Payments", "description": "Retries."}], '
-        '"ratings": [{"path": "a.py", "blob": null, "probability": 1, '
-        '"category": "Payments"}]}'
+        '"ratings": [{"path": "a.py", "blob": null, "category": "Payments", '
+        '"hunks": [{"before": {"start": 1, "count": 3}, '
+        '"after": {"start": 0, "count": 0}, "probability": 1}]}]}'
     )
 
     assert isinstance(parse_ratings_file(content, Location.fake()), Ok)
@@ -96,6 +99,12 @@ def fake_annotation_with(**fields: JsonValue) -> RatingsFileContent:
     )
 
 
+def fake_hunk_with(**fields: JsonValue) -> RatingsFileContent:
+    """The fake ratings file, with `fields` replaced in its rating's one hunk."""
+    hunk = RatedHunk.of_line_hunk(LineHunk.fake(), Probability.fake())
+    return fake_rating_with(hunks=[hunk.model_dump(mode="json") | fields])
+
+
 class FieldName(RootModel[str]):
     @staticmethod
     def fake() -> FieldName:
@@ -113,7 +122,14 @@ def fake_file_without(field: FieldName) -> RatingsFileContent:
     [
         RatingsFileContent("not json"),
         RatingsFileContent("[]"),
-        fake_rating_with(probability=1.5),
+        fake_hunk_with(probability=1.5),
+        fake_hunk_with(probability=None),
+        fake_hunk_with(before=None),
+        fake_hunk_with(after={"start": -1, "count": 1}),
+        fake_hunk_with(after={"start": 1}),
+        fake_hunk_with(extra=1),
+        fake_rating_with(hunks=[]),
+        fake_rating_with(probability=1),
         fake_rating_with(category=""),
         fake_rating_with(category=None),
         fake_rating_with(extra=1),
@@ -133,6 +149,13 @@ def fake_file_without(field: FieldName) -> RatingsFileContent:
         "not-json",
         "not-an-object",
         "probability-above-one",
+        "hunk-without-probability",
+        "hunk-with-one-span",
+        "negative-hunk-start",
+        "span-without-count",
+        "unknown-hunk-field",
+        "no-hunks",
+        "file-probability",
         "empty-category",
         "no-category",
         "unknown-rating-field",
@@ -175,12 +198,32 @@ def test_a_deleted_file_is_rated_with_a_null_blob() -> None:
     assert FileRatings((rating,)).rating_for(change) == rating
 
 
+def rated_with(*probabilities: Probability) -> FileRating:
+    """The fake rating, with one hunk per probability."""
+    return FileRating.fake().model_copy(
+        update={
+            "hunks": tuple(
+                RatedHunk.of_line_hunk(LineHunk.fake(), probability)
+                for probability in probabilities
+            )
+        }
+    )
+
+
 def test_the_highest_of_several_matching_ratings_applies() -> None:
     change = FileChange.fake()
-    low = FileRating.fake().model_copy(update={"probability": Probability(0.1)})
-    high = FileRating.fake().model_copy(update={"probability": Probability(0.9)})
+    low = rated_with(Probability(0.1))
+    high = rated_with(Probability(0.9))
 
     assert FileRatings((low, high)).rating_for(change) == high
+
+
+def test_a_file_is_as_likely_to_need_review_as_its_highest_rated_hunk() -> None:
+    highest = Probability(0.8)
+
+    rating = rated_with(Probability(0.2), highest, Probability(0.5))
+
+    assert rating.probability() == highest
 
 
 @given(change=file_changes(), data=st.data())

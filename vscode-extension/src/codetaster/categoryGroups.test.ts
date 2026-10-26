@@ -11,7 +11,7 @@ interface FakeFile {
 function fakeFileReport(path: string, category: string | undefined): FileReport {
 	return {
 		path, previous_path: null, change_type: 'modified', base_probability: 0.1, sampling_probability: 0.1,
-		rating: category === undefined ? null : { probability: 0.5, category, annotations: [] },
+		rating: category === undefined ? null : { probability: 0.5, category, hunks: [], annotations: [] },
 		unrated: category === undefined, draw: 0.5,
 	};
 }

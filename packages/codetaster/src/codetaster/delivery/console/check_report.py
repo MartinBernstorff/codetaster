@@ -13,6 +13,9 @@ from codetaster.domain.domain_model.review.adaptive_sampling import (
 from codetaster.domain.domain_model.review.changes import (
     ChangeType,
     CommitSha,
+    HunkStart,
+    LineCount,
+    LineSpan,
     RepositoryPath,
     RevisionName,
 )
@@ -32,6 +35,7 @@ from codetaster.domain.domain_model.review.ratings import (
     LineNumber,
     PullRequestOverview,
     PullRequestSummary,
+    RatedHunk,
     RatingCategory,
 )
 from codetaster.domain.domain_model.review.ratings_validation import (
@@ -115,14 +119,53 @@ class AnnotationReport(BaseModel):
         return annotation_report_from_annotation(LineAnnotation.fake())
 
 
+class LineSpanReport(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    start: HunkStart = Field(
+        description="The first line, counting from 1. With a count of 0, the line "
+        "before the gap, or 0 at the top of the file."
+    )
+    count: LineCount = Field(description="How many lines. 0 if there are none.")
+
+    @staticmethod
+    def fake() -> LineSpanReport:
+        return line_span_report_from_span(LineSpan.fake())
+
+
+class HunkReport(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    before: LineSpanReport | None = Field(
+        description="The hunk's lines in the before version, as in a diff's hunk "
+        "header. null if the hunk is for the whole change of a file without "
+        "changed lines, e.g. a binary file."
+    )
+    after: LineSpanReport | None = Field(
+        description="The hunk's lines in the after version. null when `before` is."
+    )
+    probability: Probability = Field(
+        description="The AI's probability, from 0 to 1, that this hunk needs review."
+    )
+
+    @staticmethod
+    def fake() -> HunkReport:
+        return hunk_report_from_hunk(RatedHunk.fake())
+
+
 class RatingReport(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     probability: Probability = Field(
-        description="The AI's probability, from 0 to 1, that this file needs review."
+        description="The AI's probability, from 0 to 1, that this file needs review: "
+        "the highest of its hunks'."
     )
     category: RatingCategory = Field(
         description="Which part of the PR the AI put this file in.",
+    )
+    hunks: tuple[HunkReport, ...] = Field(
+        description="Each run of changed lines and its AI rating, in order, as "
+        "`git diff --unified=0` reports them."
     )
     annotations: tuple[AnnotationReport, ...] = Field(
         description="The AI's notes on lines of this version of the file, from the "
@@ -257,7 +300,8 @@ class CheckReport(BaseModel):
     """Which changed files need human review, in three groups. Every changed file
     is in exactly one group. Files are ordered by path.
 
-    Schema version 6 samples files at `sampling_probability`, which evidence from
+    Each rating's `hunks` were added within version 6; its `probability` is the
+    highest of theirs. Schema version 6 samples files at `sampling_probability`, which evidence from
     the reviewer raises above `base_probability`, and adds `sampling`. Version 5
     adds each rating's `annotations`. Version 4 picks needs-review by
     `needs_review_threshold`, replacing
@@ -385,13 +429,26 @@ def path_rule_report_from_rule(rule: PathRule) -> PathRuleReport:
 
 def rating_report_from_rating(rating: FileRating) -> RatingReport:
     return RatingReport(
-        probability=rating.probability,
+        probability=rating.probability(),
         category=rating.category,
+        hunks=tuple(hunk_report_from_hunk(hunk) for hunk in rating.hunks),
         annotations=tuple(
             annotation_report_from_annotation(annotation)
             for annotation in rating.annotations
         ),
     )
+
+
+def hunk_report_from_hunk(hunk: RatedHunk) -> HunkReport:
+    return HunkReport(
+        before=None if hunk.before is None else line_span_report_from_span(hunk.before),
+        after=None if hunk.after is None else line_span_report_from_span(hunk.after),
+        probability=hunk.probability,
+    )
+
+
+def line_span_report_from_span(span: LineSpan) -> LineSpanReport:
+    return LineSpanReport(start=span.start, count=span.count)
 
 
 def annotation_report_from_annotation(annotation: LineAnnotation) -> AnnotationReport:
