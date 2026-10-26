@@ -10,9 +10,11 @@ from codetaster.domain.domain_model.filesystem import Location
 from codetaster.domain.domain_model.review.changes import (
     BlobLineCounts,
     BlobSha,
+    ChangeLineHunks,
     FileChange,
     FileChanges,
     LineCount,
+    LineHunk,
 )
 from codetaster.domain.domain_model.review.ratings import (
     AnnotationSide,
@@ -190,6 +192,26 @@ class AnnotationOnUnreadableFile(BaseModel):
         )
 
 
+class HunkMismatch(BaseModel):
+    """A rating whose hunks are not the changed lines of its file, as the template
+    lists them.
+
+    `None` stands for a hunk for the whole change, of a file without changed lines.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    target: RatingTarget
+    rated: tuple[LineHunk | None, ...]
+    changed: tuple[LineHunk | None, ...]
+
+    @staticmethod
+    def fake() -> HunkMismatch:
+        return HunkMismatch(
+            target=RatingTarget.fake(), rated=(None,), changed=(LineHunk.fake(),)
+        )
+
+
 FileRatingProblem = (
     MissingRatingsFile
     | InvalidRatingsFile
@@ -205,7 +227,7 @@ AnnotationProblem = (
     AnnotationOnMissingSide | AnnotationLineOutOfRange | AnnotationOnUnreadableFile
 )
 
-RatingProblem = FileRatingProblem | CategoryProblem | AnnotationProblem
+RatingProblem = FileRatingProblem | HunkMismatch | CategoryProblem | AnnotationProblem
 
 
 class RatingProblems(RootModel[tuple[RatingProblem, ...]]):
@@ -217,14 +239,18 @@ class RatingProblems(RootModel[tuple[RatingProblem, ...]]):
 
 
 def find_rating_problems(
-    changes: FileChanges, ratings: RatingsFile, line_counts: BlobLineCounts
+    changes: FileChanges,
+    ratings: RatingsFile,
+    hunks: ChangeLineHunks,
+    line_counts: BlobLineCounts,
 ) -> RatingProblems:
     """Compare the ratings with the changes, which should be rated exactly once each,
-    check every category is declared once and used, and every annotation is on a
-    line of its file.
+    hunk by hunk, check every category is declared once and used, and every
+    annotation is on a line of its file.
 
     A changed file with a stale rating is reported as stale, not also as unrated.
-    `line_counts` needs the blobs `annotated_blobs` lists.
+    `hunks` has the changed lines of `changes`. `line_counts` needs the blobs
+    `annotated_blobs` lists.
     """
     current_by_path = {
         target.path: target
@@ -256,10 +282,27 @@ def find_rating_problems(
             *stale,
             *unknown,
             *duplicates,
+            *find_hunk_problems(changes, ratings, hunks),
             *find_category_problems(ratings),
             *find_annotation_problems(changes, ratings, line_counts),
         )
     )
+
+
+def find_hunk_problems(
+    changes: FileChanges, ratings: RatingsFile, hunks: ChangeLineHunks
+) -> tuple[HunkMismatch, ...]:
+    """Only the ratings `checked_ratings` lists are checked."""
+    problems: list[HunkMismatch] = []
+    for rating, change in checked_ratings(changes, ratings):
+        changed = hunks.hunks_to_rate(change)
+        if rating.line_hunks() != changed:
+            problems.append(
+                HunkMismatch(
+                    target=rating.target(), rated=rating.line_hunks(), changed=changed
+                )
+            )
+    return tuple(problems)
 
 
 def find_category_problems(ratings: RatingsFile) -> tuple[CategoryProblem, ...]:
@@ -286,7 +329,7 @@ def find_category_problems(ratings: RatingsFile) -> tuple[CategoryProblem, ...]:
 def find_annotation_problems(
     changes: FileChanges, ratings: RatingsFile, line_counts: BlobLineCounts
 ) -> tuple[AnnotationProblem, ...]:
-    """Only the annotations `checked_ratings` lists are checked."""
+    """Only the annotations of the ratings `checked_ratings` lists are checked."""
     problems: list[AnnotationProblem] = []
     for rating, change in checked_ratings(changes, ratings):
         for annotation in rating.annotations:
@@ -333,12 +376,11 @@ def annotated_blobs(changes: FileChanges, ratings: RatingsFile) -> tuple[BlobSha
 def checked_ratings(
     changes: FileChanges, ratings: RatingsFile
 ) -> Iterator[tuple[FileRating, FileChange]]:
-    """The annotated ratings whose annotations are checked, with their changes.
+    """The ratings whose hunks and annotations are checked, with their changes.
 
-    Annotations on a stale rating are not checked: the file is to be re-rated.
-    Nor are those on a rating for an unchanged file, which is reported as unknown
-    already. Of duplicate ratings, only the first's are checked, so that its
-    problems are reported once.
+    A stale rating is not checked: the file is to be re-rated. Nor is a rating for
+    an unchanged file, which is reported as unknown already. Of duplicate ratings,
+    only the first is checked, so that its problems are reported once.
     """
     seen: set[RatingTarget] = set()
     for rating in ratings.ratings.root:
@@ -346,8 +388,6 @@ def checked_ratings(
         if target in seen:
             continue
         seen.add(target)
-        if not rating.annotations:
-            continue
         change = changed_file_rated_by(changes, rating)
         if change is not None:
             yield rating, change

@@ -136,7 +136,7 @@ describe('runCodetasterCheck', () => {
 
 	it('returns each rating\'s annotations', async () => {
 		const annotations = [{ side: 'before', line: 3, text: 'Moved to `b.py`.' }];
-		const rated = { ...validReport.sampled[0], rating: { probability: 0.2, category: 'Moves', annotations }, unrated: false };
+		const rated = { ...validReport.sampled[0], rating: { probability: 0.2, category: 'Moves', hunks: [], annotations }, unrated: false };
 		const process = new FakeCodetasterProcess(exitedWith(0, JSON.stringify({ ...validReport, sampled: [rated] })));
 
 		const outcome = await runCodetasterCheck(process, 'codetaster', '/repo', 'origin/main');
@@ -145,11 +145,42 @@ describe('runCodetasterCheck', () => {
 	});
 
 	it('rejects an annotation without a line', async () => {
-		const rated = { ...validReport.sampled[0], rating: { probability: 0.2, category: 'Moves', annotations: [{ side: 'after', text: 'Moved.' }] }, unrated: false };
+		const rated = { ...validReport.sampled[0], rating: { probability: 0.2, category: 'Moves', hunks: [], annotations: [{ side: 'after', text: 'Moved.' }] }, unrated: false };
 
 		const message = await errorMessageFrom(new FakeCodetasterProcess(exitedWith(0, JSON.stringify({ ...validReport, sampled: [rated] }))));
 
 		assert.match(message, /"annotations"/);
+	});
+
+	it('returns each rating\'s hunks', async () => {
+		const hunks = [
+			{ before: { start: 3, count: 0 }, after: { start: 4, count: 2 }, probability: 0.2 },
+			{ before: null, after: null, probability: 0.1 },
+		];
+		const rated = { ...validReport.sampled[0], rating: { probability: 0.2, category: 'Moves', hunks, annotations: [] }, unrated: false };
+		const process = new FakeCodetasterProcess(exitedWith(0, JSON.stringify({ ...validReport, sampled: [rated] })));
+
+		const outcome = await runCodetasterCheck(process, 'codetaster', '/repo', 'origin/main');
+
+		assert.deepStrictEqual(outcome.kind === 'report' && outcome.report.sampled[0].rating?.hunks, hunks);
+	});
+
+	it('accepts a rating without hunks, from a codetaster that predates them', async () => {
+		const rated = { ...validReport.sampled[0], rating: { probability: 0.2, category: 'Moves', annotations: [] }, unrated: false };
+		const process = new FakeCodetasterProcess(exitedWith(0, JSON.stringify({ ...validReport, sampled: [rated] })));
+
+		const outcome = await runCodetasterCheck(process, 'codetaster', '/repo', 'origin/main');
+
+		assert.strictEqual(outcome.kind, 'report');
+	});
+
+	it('rejects a hunk with only one side\'s lines', async () => {
+		const hunks = [{ before: null, after: { start: 1, count: 2 }, probability: 0.2 }];
+		const rated = { ...validReport.sampled[0], rating: { probability: 0.2, category: 'Moves', hunks, annotations: [] }, unrated: false };
+
+		const message = await errorMessageFrom(new FakeCodetasterProcess(exitedWith(0, JSON.stringify({ ...validReport, sampled: [rated] }))));
+
+		assert.match(message, /"hunks"/);
 	});
 
 	it('rejects an overview whose categories have no descriptions', async () => {

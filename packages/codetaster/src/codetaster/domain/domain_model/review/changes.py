@@ -84,6 +84,54 @@ class BlobLineCounts(RootModel[dict[BlobSha, LineCount]]):
         return BlobLineCounts({BlobSha.fake(): LineCount.fake()})
 
 
+class HunkStart(RootModel[Annotated[int, Field(ge=0)]]):
+    """Where a hunk's lines start in one version of a file, as a diff numbers them.
+
+    Counting from 1. A hunk with no lines in that version starts at the line
+    before the gap, which is 0 at the top of the file.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    @override
+    def __str__(self) -> str:
+        return str(self.root)
+
+    @staticmethod
+    def fake() -> HunkStart:
+        return HunkStart(1)
+
+
+class LineSpan(BaseModel):
+    """The lines a hunk covers in one version of a file, as in a diff's
+    `@@ -start,count +start,count @@` header."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    start: HunkStart = Field(
+        description="The first line, counting from 1. With a count of 0, the line "
+        "before the gap, or 0 at the top of the file."
+    )
+    count: LineCount = Field(description="How many lines. 0 if there are none.")
+
+    @staticmethod
+    def fake() -> LineSpan:
+        return LineSpan(start=HunkStart.fake(), count=LineCount.fake())
+
+
+class LineHunk(BaseModel):
+    """A run of changed lines, as `git diff --unified=0` reports it."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    before: LineSpan = Field(description="The lines in the before version.")
+    after: LineSpan = Field(description="The lines in the after version.")
+
+    @staticmethod
+    def fake() -> LineHunk:
+        return LineHunk(before=LineSpan.fake(), after=LineSpan.fake())
+
+
 class RepositoryPath(RootModel[str]):
     """A file's path relative to the repository root, with `/` separators."""
 
@@ -182,6 +230,28 @@ class FileChanges(RootModel[tuple[FileChange, ...]]):
                 change for change in self.root if change.path().normalised() != dropped
             )
         )
+
+
+class ChangeLineHunks(RootModel[dict[RepositoryPath, tuple[LineHunk, ...]]]):
+    """The changed lines of each file in a change, by the file's path.
+
+    A file whose change has no lines, e.g. a binary file or a pure rename, has no
+    hunks.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    @staticmethod
+    def fake() -> ChangeLineHunks:
+        return ChangeLineHunks({RepositoryPath.fake(): (LineHunk.fake(),)})
+
+    def hunks_of(self, change: FileChange) -> tuple[LineHunk, ...]:
+        return self.root.get(change.path(), ())
+
+    def hunks_to_rate(self, change: FileChange) -> tuple[LineHunk | None, ...]:
+        """The hunks a rating of `change` rates: its hunks, or one `None` for the
+        whole change if it has no changed lines."""
+        return self.hunks_of(change) or (None,)
 
 
 class CommittedChange(BaseModel):

@@ -47,7 +47,8 @@ def create_ratings_template(
     configuration: Configuration,
     committed_changes: CommittedChanges,
 ) -> Result[RatingsTemplateResult, BranchChangeError]:
-    """List every file changed since the merge base with the base, to be rated.
+    """List every file changed since the merge base with the base, and its hunks,
+    to be rated.
 
     The ratings file itself is left out, as `check` never assesses it.
     """
@@ -56,9 +57,13 @@ def create_ratings_template(
     )
     if isinstance(branch, Err):
         return branch
+    change = branch.value.change
+    hunks = committed_changes.read_line_hunks(request.checkout, change)
+    if isinstance(hunks, Err):
+        return hunks
     return Ok(
         RatingsTemplateResult(
-            template=RatingsTemplate.of_changes(branch.value.change.files),
+            template=RatingsTemplate.of_changes(change.files, hunks.value),
             working_tree=branch.value.working_tree,
         )
     )

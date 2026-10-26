@@ -15,9 +15,11 @@ from codetaster.delivery.console.test_repositories import (
     TomlText,
 )
 from codetaster.domain.domain_model.review.changes import BlobSha, RepositoryPath
+from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import (
     FileRating,
     LineAnnotation,
+    RatedHunk,
     RatingsFile,
 )
 from codetaster.domain.domain_model.review.ratings_template import RatingsTemplate
@@ -51,8 +53,8 @@ def test_prints_a_template_entry_for_the_changed_file(
             {
                 "path": "feature.py",
                 "blob": empty_blob,
-                "probability": None,
                 "category": None,
+                "hunks": [{"before": None, "after": None, "probability": None}],
                 "annotations": [{"side": "after", "line": None, "text": None}],
             }
         ],
@@ -62,6 +64,21 @@ def test_prints_a_template_entry_for_the_changed_file(
 
     assert result.exit_code == 0
     assert json.loads(result.stdout) == expected_template
+
+
+def test_lists_the_hunks_of_the_changed_file(repository: Repository) -> None:
+    repository.commit_feature_file(FeatureFileText("one\ntwo\n"))
+    # feature.py is added, so its two lines are one hunk, with none before.
+    added_lines: JsonValue = {
+        "before": {"start": 0, "count": 0},
+        "after": {"start": 1, "count": 2},
+        "probability": None,
+    }
+
+    result = run_template(repository, CliOptions.fake())
+
+    [entry] = json.loads(result.stdout)["ratings"]
+    assert entry["hunks"] == [added_lines]
 
 
 def test_unknown_base_exits_non_zero(tmp_path: Path) -> None:
@@ -106,12 +123,23 @@ def write_ratings(
 
 
 def filled_template(repository: Repository) -> RatingsFile:
-    """The template from `ratings template`, with every entry rated."""
+    """The template from `ratings template`, with every entry and hunk rated."""
     template = printed_template(run_template(repository, CliOptions.fake()))
     return ratings_file_of(
         *(
             FileRating.fake().model_copy(
-                update={"path": entry.path, "blob": entry.blob}
+                update={
+                    "path": entry.path,
+                    "blob": entry.blob,
+                    "hunks": tuple(
+                        RatedHunk(
+                            before=hunk.before,
+                            after=hunk.after,
+                            probability=Probability.fake(),
+                        )
+                        for hunk in entry.hunks
+                    ),
+                }
             )
             for entry in template.ratings
         )
@@ -172,6 +200,26 @@ def test_a_duplicate_rating_exits_non_zero(repository: Repository) -> None:
     result = run_validate(repository, CliOptions.fake())
 
     assert result.exit_code == 1
+
+
+def test_a_rating_of_other_hunks_exits_non_zero_and_names_the_file(
+    repository: Repository,
+) -> None:
+    path = "feature.py"
+    [rating] = filled_template(repository).ratings.root
+    repository.commit_feature_file(FeatureFileText.fake())
+    # Rated while feature.py was empty, with one hunk for the whole change.
+    current = filled_template(repository)
+    [current_rating] = current.ratings.root
+    write_ratings(
+        repository,
+        ratings_file_of(current_rating.model_copy(update={"hunks": rating.hunks})),
+    )
+
+    result = run_validate(repository, CliOptions.fake())
+
+    assert result.exit_code == 1
+    assert f"rating for {path}" in result.stderr
 
 
 def test_an_annotation_past_the_last_line_exits_non_zero_and_names_the_file(

@@ -29,6 +29,7 @@ from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import (
     FileRating,
     FileRatings,
+    RatedHunk,
     RatingTarget,
 )
 from codetaster.domain.domain_model.review.sampling import (
@@ -62,7 +63,11 @@ def changes_with_distinct_blobs() -> list[FileChange]:
 def rating_of(change: FileChange, probability: Probability) -> FileRating:
     target = RatingTarget.of_change(change)
     return FileRating.fake().model_copy(
-        update={"path": target.path, "blob": target.blob, "probability": probability}
+        update={
+            "path": target.path,
+            "blob": target.blob,
+            "hunks": (RatedHunk.of_whole_change(probability),),
+        }
     )
 
 
@@ -288,9 +293,8 @@ def test_raising_a_rating_never_lowers_the_group(
     ratings = [data.draw(ratings_of(change)) for change in changes]
     raised = data.draw(probabilities())
     first = ratings[0]
-    higher = first.model_copy(
-        update={"probability": Probability(max(first.probability.root, raised.root))}
-    )
+    highest = Probability(max(first.probability().root, raised.root))
+    higher = first.model_copy(update={"hunks": (RatedHunk.of_whole_change(highest),)})
 
     [before, *_] = assessments_of(
         changes,

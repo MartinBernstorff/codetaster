@@ -33,6 +33,7 @@ from codetaster.domain.domain_model.review.needs_review_threshold import (
 from codetaster.domain.domain_model.review.probability import Probability
 from codetaster.domain.domain_model.review.ratings import (
     FileRating,
+    RatedHunk,
     RatingsFileContent,
     ratings_file_location,
 )
@@ -221,7 +222,11 @@ def certain_rating_at_head(
     """A rating of 1 for `path` as it is at the head of the current branch."""
     head = history.commits[history.branches[history.current_branch]]
     return FileRating.fake().model_copy(
-        update={"path": path, "blob": head.tree[path], "probability": Probability(1)}
+        update={
+            "path": path,
+            "blob": head.tree[path],
+            "hunks": (RatedHunk.of_whole_change(Probability(1)),),
+        }
     )
 
 
@@ -320,7 +325,7 @@ def rating_below_one_at_head(
     history: FakeCommittedChanges, path: RepositoryPath
 ) -> FileRating:
     return certain_rating_at_head(history, path).model_copy(
-        update={"probability": Probability(0.9)}
+        update={"hunks": (RatedHunk.of_whole_change(Probability(0.9)),)}
     )
 
 

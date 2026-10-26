@@ -15,10 +15,14 @@ from codetaster.domain.domain_model.review.changes import (
     BlobContent,
     BlobLineCounts,
     BlobSha,
+    ChangeLineHunks,
     ChangeType,
     CommitSha,
     CommittedChange,
+    HunkStart,
     LineCount,
+    LineHunk,
+    LineSpan,
     RepositoryPath,
     RevisionName,
     WorkingTreeState,
@@ -153,9 +157,9 @@ class InMemoryRepository(Repository):
                 blobs[path] = None
                 continue
             blob = BlobSha(hashlib.sha1(text.root.encode()).hexdigest())
-            self.fake.line_counts[blob] = LineCount.of_content(
-                BlobContent(text.root.encode())
-            )
+            content = BlobContent(text.root.encode())
+            self.fake.line_counts[blob] = LineCount.of_content(content)
+            self.fake.contents[blob] = content
             blobs[path] = blob
         return self.fake.commit(blobs)
 
@@ -405,3 +409,105 @@ def test_no_blobs_have_no_line_counts(repository: Repository) -> None:
     result = repository.changes.read_line_counts(repository.checkout, ())
 
     assert result == Ok(BlobLineCounts({}))
+
+
+class HunkHeader(RootModel[str]):
+    """The middle of a diff's hunk header, e.g. `-2,1 +2,1`."""
+
+    model_config = ConfigDict(frozen=True)
+
+    @staticmethod
+    def fake() -> HunkHeader:
+        return HunkHeader("-1,1 +1,1")
+
+
+def line_hunk_from_header(header: HunkHeader) -> LineHunk:
+    before, after = (side.lstrip("-+").split(",") for side in header.root.split(" "))
+    return LineHunk(
+        before=LineSpan(
+            start=HunkStart(int(before[0])), count=LineCount(int(before[1]))
+        ),
+        after=LineSpan(start=HunkStart(int(after[0])), count=LineCount(int(after[1]))),
+    )
+
+
+def line_hunks_of(repository: Repository, change: CommittedChange) -> ChangeLineHunks:
+    match repository.changes.read_line_hunks(repository.checkout, change):
+        case Ok(hunks):
+            return hunks
+        case Err(error):
+            raise error
+
+
+def test_hunks_are_the_changed_lines_of_a_modified_file(
+    repository: Repository,
+) -> None:
+    path = RepositoryPath("module.py")
+    # Line 2 replaced, a line inserted after line 4, and line 6 deleted.
+    expected = (
+        line_hunk_from_header(HunkHeader("-2,1 +2,1")),
+        line_hunk_from_header(HunkHeader("-4,0 +5,1")),
+        line_hunk_from_header(HunkHeader("-6,1 +6,0")),
+    )
+    change = change_from_main(
+        repository,
+        edits={path: FileText("1\nTWO\n3\n4\nnew\n5\n7\n")},
+        base_edits={path: FileText("1\n2\n3\n4\n5\n6\n7\n")},
+    )
+
+    hunks = line_hunks_of(repository, change)
+
+    assert hunks == ChangeLineHunks({path: expected})
+
+
+def test_an_added_file_is_one_hunk_of_all_its_lines(repository: Repository) -> None:
+    path = RepositoryPath("added.py")
+    expected = (line_hunk_from_header(HunkHeader("-0,0 +1,2")),)
+    change = change_from_main(repository, edits={path: FileText("one\ntwo\n")})
+
+    hunks = line_hunks_of(repository, change)
+
+    assert hunks == ChangeLineHunks({path: expected})
+
+
+def test_a_deleted_file_is_one_hunk_of_all_its_lines(repository: Repository) -> None:
+    path = RepositoryPath("deleted.py")
+    expected = (line_hunk_from_header(HunkHeader("-1,3 +0,0")),)
+    change = change_from_main(
+        repository,
+        edits={path: None},
+        base_edits={path: FileText("1\n2\n3\n")},
+    )
+
+    hunks = line_hunks_of(repository, change)
+
+    assert hunks == ChangeLineHunks({path: expected})
+
+
+def test_a_pure_rename_has_no_hunks(repository: Repository) -> None:
+    old = RepositoryPath("old.py")
+    new = RepositoryPath("new.py")
+    change = change_from_main(
+        repository,
+        edits={old: None, new: FileText("1\n2\n3\n")},
+        base_edits={old: FileText("1\n2\n3\n")},
+    )
+
+    hunks = line_hunks_of(repository, change)
+
+    assert hunks == ChangeLineHunks({})
+
+
+def test_files_without_changed_lines_have_no_hunks(repository: Repository) -> None:
+    change = change_from_main(
+        repository,
+        edits={
+            RepositoryPath("empty.py"): FileText(""),
+            # git deems a file with a NUL binary.
+            RepositoryPath("binary.dat"): FileText("one\0two\n"),
+        },
+    )
+
+    hunks = line_hunks_of(repository, change)
+
+    assert hunks == ChangeLineHunks({})

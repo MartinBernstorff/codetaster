@@ -6,7 +6,7 @@ import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
 function ratedFileReport(path: string, probability: number): FileReport {
 	return {
 		path, previous_path: null, change_type: 'modified', base_probability: 0.1, sampling_probability: 0.1,
-		rating: { probability, category: 'Logic', annotations: [] }, unrated: false, draw: 0.5,
+		rating: { probability, category: 'Logic', hunks: [], annotations: [] }, unrated: false, draw: 0.5,
 	};
 }
 
@@ -22,6 +22,16 @@ describe('fileHover', () => {
 		const hover = fileHover('/repo/src/a.py', 'needs-review', ratedFileReport('src/a.py', 0.8));
 
 		assert.strictEqual(hover, '/repo/src/a.py\n\nVerdict: Needs review\nAI rating: 80%');
+	});
+
+	it('says the rating of a file with several hunks is the highest of theirs', () => {
+		const hunks = [
+			{ before: { start: 1, count: 1 }, after: { start: 1, count: 1 }, probability: 0.8 },
+			{ before: { start: 9, count: 0 }, after: { start: 10, count: 2 }, probability: 0.1 },
+		];
+		const report = { ...ratedFileReport('a.py', 0.8), rating: { probability: 0.8, category: 'Logic', hunks, annotations: [] } };
+
+		assert.match(fileHover('a.py', 'needs-review', report), /\nAI rating: 80%, the highest of 2 hunks$/);
 	});
 
 	it('states an unrated file\'s verdict and marks it unrated', () => {

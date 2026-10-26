@@ -59,7 +59,7 @@ def validate_ratings_file(
     ratings_files: RatingsFileStore,
 ) -> Result[RatingsValidationResult, BranchChangeError]:
     """Check the ratings file rates every file changed since the merge base, once,
-    and annotates only lines that exist.
+    hunk by hunk, and annotates only lines that exist.
 
     A missing or invalid ratings file is a problem, not an error. The ratings file
     itself needs no rating.
@@ -79,12 +79,17 @@ def validate_ratings_file(
         problems = RatingProblems((MissingRatingsFile(location=location),))
     else:
         changes = branch.value.change.files
+        hunks = committed_changes.read_line_hunks(request.checkout, branch.value.change)
+        if isinstance(hunks, Err):
+            return hunks
         line_counts = committed_changes.read_line_counts(
             request.checkout, annotated_blobs(changes, ratings.value)
         )
         if isinstance(line_counts, Err):
             return line_counts
-        problems = find_rating_problems(changes, ratings.value, line_counts.value)
+        problems = find_rating_problems(
+            changes, ratings.value, hunks.value, line_counts.value
+        )
     return Ok(
         RatingsValidationResult(
             problems=problems, location=location, working_tree=branch.value.working_tree

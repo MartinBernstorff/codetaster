@@ -22,15 +22,18 @@ function verdictName(verdict: FileVerdict): string {
 
 /**
  * A file node's plain-text hover: upstream's tooltip, then the file's verdict and, if
- * the check listed the file, its AI rating or a note that it is unrated.
+ * the check listed the file, its AI rating, the highest of its hunks', or a note that it
+ * is unrated.
  */
 export function fileHover(upstreamTooltip: string, verdict: FileVerdict, fileReport: FileReport | undefined): string {
 	const verdictLine = `Verdict: ${verdictName(verdict)}`;
 	if (!fileReport) {
 		return `${upstreamTooltip}\n\n${verdictLine}`;
 	}
-	const ratingLine = fileReport.rating
-		? `AI rating: ${formatPercentage(fileReport.rating.probability)}`
+	const rating = fileReport.rating;
+	const hunkCount = rating?.hunks?.length ?? 0;
+	const ratingLine = rating
+		? `AI rating: ${formatPercentage(rating.probability)}${hunkCount > 1 ? `, the highest of ${hunkCount} hunks` : ''}`
 		: 'Unrated: no AI rating matches this version of the file.';
 	return `${upstreamTooltip}\n\n${verdictLine}\n${ratingLine}`;
 }

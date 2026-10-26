@@ -6,7 +6,7 @@ import { AnnotationReport, CheckReport, FileReport } from './checkReport';
 function fileReport(path: string, annotations: readonly AnnotationReport[] | undefined): FileReport {
 	return {
 		path, previous_path: null, change_type: 'modified', base_probability: 0.1, sampling_probability: 0.1,
-		rating: annotations === undefined ? null : { probability: 0.5, category: 'Logic', annotations },
+		rating: annotations === undefined ? null : { probability: 0.5, category: 'Logic', hunks: [], annotations },
 		unrated: annotations === undefined, draw: 0.5,
 	};
 }

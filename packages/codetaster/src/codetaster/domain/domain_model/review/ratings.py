@@ -14,8 +14,14 @@ The ratings file is JSON:
         {
           "path": "src/module.py",
           "blob": "<after-blob SHA, or null for a deleted file>",
-          "probability": 0.8,
           "category": "Retry failed payments",
+          "hunks": [
+            {
+              "before": {"start": 15, "count": 1},
+              "after": {"start": 15, "count": 8},
+              "probability": 0.8
+            }
+          ],
           "annotations": [
             {"side": "after", "line": 12, "text": "Moved from old.py."}
           ]
@@ -25,12 +31,16 @@ The ratings file is JSON:
 
 A rating applies to a file's change only when both `path` and `blob` match it,
 so editing a file makes its rating stale, and its annotations with it.
+`hunks` rates each run of changed lines, as `git diff --unified=0` reports them;
+the template lists them. A file whose change has no lines, e.g. a binary file or
+a pure rename, has one hunk with a null `before` and `after`. The file's
+probability is its highest hunk's.
 `annotations` is optional. An annotation with a null `line` and `text`, as the
 template shows, is ignored.
 """
 
 from enum import StrEnum
-from typing import Annotated, override
+from typing import Annotated, Self, override
 
 from pydantic import (
     BaseModel,
@@ -40,6 +50,7 @@ from pydantic import (
     RootModel,
     ValidationError,
     field_validator,
+    model_validator,
 )
 from safe_result import Err, Ok, Result
 
@@ -49,6 +60,8 @@ from codetaster.domain.domain_model.filesystem import Location
 from codetaster.domain.domain_model.review.changes import (
     BlobSha,
     FileChange,
+    LineHunk,
+    LineSpan,
     RepositoryPath,
 )
 from codetaster.domain.domain_model.review.probability import Probability
@@ -194,6 +207,57 @@ class LineAnnotation(BaseModel):
         )
 
 
+class RatedHunk(BaseModel):
+    """A run of changed lines of a rated file, and how likely it is to need review.
+
+    Without `before` and `after`, it rates the whole change of a file that has no
+    changed lines, e.g. a binary file or a pure rename.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    before: LineSpan | None = Field(
+        description="The hunk's lines in the before version, as the template "
+        "lists them. null only for a file whose change has no lines."
+    )
+    after: LineSpan | None = Field(
+        description="The hunk's lines in the after version, as the template "
+        "lists them. null only for a file whose change has no lines."
+    )
+    probability: Probability = Field(
+        description="From 0 to 1, how likely the hunk is to need human review."
+    )
+
+    @model_validator(mode="after")
+    def has_both_spans_or_neither(self) -> Self:
+        if (self.before is None) != (self.after is None):
+            msg = "a hunk needs both `before` and `after`, or neither"
+            raise ValueError(msg)
+        return self
+
+    @staticmethod
+    def fake() -> RatedHunk:
+        """For the whole change, so it is valid for a change without lines."""
+        return RatedHunk.of_whole_change(Probability.fake())
+
+    @staticmethod
+    def of_whole_change(probability: Probability) -> RatedHunk:
+        return RatedHunk.of_line_hunk(None, probability)
+
+    @staticmethod
+    def of_line_hunk(hunk: LineHunk | None, probability: Probability) -> RatedHunk:
+        """For the whole change if `hunk` is `None`."""
+        if hunk is None:
+            return RatedHunk(before=None, after=None, probability=probability)
+        return RatedHunk(before=hunk.before, after=hunk.after, probability=probability)
+
+    def line_hunk(self) -> LineHunk | None:
+        """The changed lines, or `None` if the hunk is for the whole change."""
+        if self.before is None or self.after is None:
+            return None
+        return LineHunk(before=self.before, after=self.after)
+
+
 class RatingTarget(BaseModel):
     """The file version a rating is for: the path and after-blob of a change.
 
@@ -230,12 +294,14 @@ class FileRating(BaseModel):
         description="The file's blob SHA at HEAD (`git rev-parse HEAD:<path>`), "
         "or null for a deleted file."
     )
-    probability: Probability = Field(
-        description="From 0 to 1, how likely the file is to need human review."
-    )
     category: RatingCategory = Field(
         description="Which part of the PR the file belongs to, e.g. a feature, "
         "refactor or move. The name of one of `categories`."
+    )
+    hunks: tuple[RatedHunk, ...] = Field(
+        min_length=1,
+        description="Each run of changed lines, as the template lists them, rated. "
+        "One hunk without lines for a file whose change has none.",
     )
     annotations: tuple[LineAnnotation, ...] = Field(
         default=(),
@@ -263,18 +329,29 @@ class FileRating(BaseModel):
 
     @staticmethod
     def fake() -> FileRating:
-        """Without annotations, so the fake rating is valid for any change."""
+        """Without annotations, and with one hunk for the whole change, so the fake
+        rating is valid for any change without changed lines."""
         target = RatingTarget.fake()
         return FileRating(
             path=target.path,
             blob=target.blob,
-            probability=Probability.fake(),
             category=RatingCategory.fake(),
+            hunks=(RatedHunk.fake(),),
             annotations=(),
         )
 
     def target(self) -> RatingTarget:
         return RatingTarget(path=self.path, blob=self.blob)
+
+    def probability(self) -> Probability:
+        """How likely the file is to need review: its highest-rated hunk's."""
+        return max(
+            (hunk.probability for hunk in self.hunks), key=lambda chance: chance.root
+        )
+
+    def line_hunks(self) -> tuple[LineHunk | None, ...]:
+        """The changed lines of each hunk, `None` for one for the whole change."""
+        return tuple(hunk.line_hunk() for hunk in self.hunks)
 
 
 class FileRatings(RootModel[tuple[FileRating, ...]]):
@@ -291,7 +368,7 @@ class FileRatings(RootModel[tuple[FileRating, ...]]):
         target = RatingTarget.of_change(change)
         matching = sorted(
             (rating for rating in self.root if rating.target() == target),
-            key=lambda rating: rating.probability.root,
+            key=lambda rating: rating.probability().root,
         )
         return matching[-1] if matching else None
 
