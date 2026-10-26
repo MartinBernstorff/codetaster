@@ -83,33 +83,27 @@ def line_hunks() -> st.SearchStrategy[tuple[LineHunk, ...]]:
     )
 
 
-def rated_hunks_of(
-    hunks: tuple[LineHunk, ...],
-) -> st.SearchStrategy[tuple[RatedHunk, ...]]:
-    """`hunks` rated, or one hunk for the whole change if there are none."""
-    if not hunks:
-        return st.tuples(probabilities().map(RatedHunk.of_whole_change))
-    return st.tuples(
-        *(
-            probabilities().map(
-                lambda probability, hunk=hunk: RatedHunk.of_line_hunk(hunk, probability)
-            )
-            for hunk in hunks
-        )
-    )
-
-
 def ratings_of(
-    change: FileChange, hunks: tuple[LineHunk, ...] = ()
+    change: FileChange, hunks: tuple[LineHunk | None, ...] = (None,)
 ) -> st.SearchStrategy[FileRating]:
-    """Ratings whose path and blob match `change`, rating its `hunks`."""
+    """Ratings whose path and blob match `change`, rating `hunks`, as
+    `ChangeLineHunks.hunks_to_rate` lists them."""
     target = RatingTarget.of_change(change)
     return st.builds(
         FileRating,
         path=st.just(target.path),
         blob=st.just(target.blob),
         category=st.builds(RatingCategory, st.text(min_size=1)),
-        hunks=rated_hunks_of(hunks),
+        hunks=st.tuples(
+            *(
+                probabilities().map(
+                    lambda probability, hunk=hunk: RatedHunk.of_line_hunk(
+                        hunk, probability
+                    )
+                )
+                for hunk in hunks
+            )
+        ),
     )
 
 

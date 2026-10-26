@@ -31,8 +31,9 @@ export function fileHover(upstreamTooltip: string, verdict: FileVerdict, fileRep
 		return `${upstreamTooltip}\n\n${verdictLine}`;
 	}
 	const rating = fileReport.rating;
+	const hunkCount = rating?.hunks?.length ?? 0;
 	const ratingLine = rating
-		? `AI rating: ${formatPercentage(rating.probability)}${rating.hunks.length > 1 ? `, the highest of ${rating.hunks.length} hunks` : ''}`
+		? `AI rating: ${formatPercentage(rating.probability)}${hunkCount > 1 ? `, the highest of ${hunkCount} hunks` : ''}`
 		: 'Unrated: no AI rating matches this version of the file.';
 	return `${upstreamTooltip}\n\n${verdictLine}\n${ratingLine}`;
 }

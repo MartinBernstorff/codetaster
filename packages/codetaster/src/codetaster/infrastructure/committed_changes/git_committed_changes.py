@@ -218,79 +218,106 @@ class RawDiffFields(RootModel[tuple[bytes, ...]]):
         return RawDiffFields(())
 
 
-class RawRecords(BaseModel):
-    """The changes in the raw records at the start of some fields, in git's order,
-    and the fields after them."""
+class PatchCount(RootModel[int]):
+    """How many patches `git diff-tree --patch` prints for one raw record."""
 
     model_config = ConfigDict(frozen=True)
 
-    changes: tuple[FileChange, ...]
+    @staticmethod
+    def fake() -> PatchCount:
+        return PatchCount(1)
+
+
+class RawRecord(BaseModel):
+    """One file's change, and how many patches git prints for it: two for a type
+    change, such as a file becoming a symlink, which it diffs as a deletion and an
+    addition."""
+
+    model_config = ConfigDict(frozen=True)
+
+    change: FileChange
+    patch_count: PatchCount
+
+    @staticmethod
+    def fake() -> RawRecord:
+        return RawRecord(change=FileChange.fake(), patch_count=PatchCount.fake())
+
+
+class RawRecords(BaseModel):
+    """The raw records at the start of some fields, in git's order, and the fields
+    after them."""
+
+    model_config = ConfigDict(frozen=True)
+
+    records: tuple[RawRecord, ...]
     rest: RawDiffFields
 
     @staticmethod
     def fake() -> RawRecords:
-        return RawRecords(changes=(), rest=RawDiffFields.fake())
+        return RawRecords(records=(), rest=RawDiffFields.fake())
 
 
 def parse_raw_diff(output: ToolOutput) -> FileChanges:
     """Parse `git diff-tree -r -z` output, ordering the changes by path."""
-    records = parse_raw_records(RawDiffFields(tuple(output.root.encode().split(b"\0"))))
-    return FileChanges(
-        tuple(sorted(records.changes, key=lambda change: change.path().root))
-    )
+    raw = parse_raw_records(RawDiffFields(tuple(output.root.encode().split(b"\0"))))
+    changes = (record.change for record in raw.records)
+    return FileChanges(tuple(sorted(changes, key=lambda change: change.path().root)))
 
 
 def parse_raw_records(fields: RawDiffFields) -> RawRecords:
-    """Parse the raw records at the start of `fields`.
+    """Parse the raw records at the start of `fields`, decoding only their fields.
 
     Each record is `:<old mode> <new mode> <old blob> <new blob> <status>`, then
     the path, then for a rename (status `R<score>`) the new path.
     """
-    texts = tuple(field.decode() for field in fields.root)
-    changes: list[FileChange] = []
+    texts = fields.root
+    records: list[RawRecord] = []
     index = 0
-    while index < len(texts) and texts[index].startswith(":"):
-        _, _, old_blob, new_blob, status = texts[index].removeprefix(":").split(" ")
-        old_path = RepositoryPath(texts[index + 1])
+    while index < len(texts) and texts[index].startswith(b":"):
+        _, _, old_blob, new_blob, status = (
+            texts[index].decode().removeprefix(":").split(" ")
+        )
+        old_path = RepositoryPath(texts[index + 1].decode())
         new_path = old_path
         index += 2
         if status.startswith("R"):
-            new_path = RepositoryPath(texts[index])
+            new_path = RepositoryPath(texts[index].decode())
             index += 1
-        changes.append(
-            FileChange(
-                before=None
-                if status == "A"
-                else FileVersion(path=old_path, blob=BlobSha(old_blob)),
-                after=None
-                if status == "D"
-                else FileVersion(path=new_path, blob=BlobSha(new_blob)),
-            )
+        change = FileChange(
+            before=None
+            if status == "A"
+            else FileVersion(path=old_path, blob=BlobSha(old_blob)),
+            after=None
+            if status == "D"
+            else FileVersion(path=new_path, blob=BlobSha(new_blob)),
         )
-    return RawRecords(changes=tuple(changes), rest=RawDiffFields(fields.root[index:]))
+        records.append(
+            RawRecord(change=change, patch_count=PatchCount(2 if status == "T" else 1))
+        )
+    return RawRecords(records=tuple(records), rest=RawDiffFields(texts[index:]))
 
 
 def parse_raw_diff_with_patches(output: BinaryToolOutput) -> ChangeLineHunks:
     """Parse `git diff-tree -r -z --raw --patch --unified=0` output.
 
-    The raw records come first, then an empty field, then one patch per record, in
-    the same order, each starting with a `diff --git` line. Its other lines are
-    headers, or content lines that start with ` `, `-`, `+` or `\\`, so only real
-    headers start with `diff --git` or `@@`.
+    The raw records come first, then an empty field, then the patches of each
+    record, in the same order, each starting with a `diff --git` line. Its other
+    lines are headers, or content lines that start with ` `, `-`, `+` or `\\`, so
+    only real headers start with `diff --git` or `@@`.
     """
-    records = parse_raw_records(RawDiffFields(tuple(output.root.split(b"\0"))))
-    patch_lines = b"\0".join(records.rest.root[1:]).split(b"\n")
-    hunks_per_file: list[list[LineHunk]] = []
+    raw = parse_raw_records(RawDiffFields(tuple(output.root.split(b"\0"))))
+    patch_lines = b"\0".join(raw.rest.root[1:]).split(b"\n")
+    hunks_per_patch: list[list[LineHunk]] = []
     for line in patch_lines:
         if line.startswith(b"diff --git "):
-            hunks_per_file.append([])
+            hunks_per_patch.append([])
             continue
         header = HUNK_HEADER.match(line)
-        if header is None or not hunks_per_file:
+        if header is None or not hunks_per_patch:
             continue
         # A missing count means 1 line.
         before_start, before_count, after_start, after_count = header.groups()
-        hunks_per_file[-1].append(
+        hunks_per_patch[-1].append(
             LineHunk(
                 before=LineSpan(
                     start=HunkStart(int(before_start)),
@@ -302,13 +329,15 @@ def parse_raw_diff_with_patches(output: BinaryToolOutput) -> ChangeLineHunks:
                 ),
             )
         )
-    return ChangeLineHunks(
-        {
-            change.path(): tuple(hunks)
-            for change, hunks in zip(records.changes, hunks_per_file, strict=True)
-            if hunks
-        }
-    )
+    hunks: dict[RepositoryPath, tuple[LineHunk, ...]] = {}
+    patches = iter(hunks_per_patch)
+    for record in raw.records:
+        file_hunks = tuple(
+            hunk for _ in range(record.patch_count.root) for hunk in next(patches)
+        )
+        if file_hunks:
+            hunks[record.change.path()] = file_hunks
+    return ChangeLineHunks(hunks)
 
 
 HUNK_HEADER = re.compile(rb"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")

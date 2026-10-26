@@ -421,7 +421,7 @@ class HunkHeader(RootModel[str]):
         return HunkHeader("-1,1 +1,1")
 
 
-def hunk(header: HunkHeader) -> LineHunk:
+def line_hunk_from_header(header: HunkHeader) -> LineHunk:
     before, after = (side.lstrip("-+").split(",") for side in header.root.split(" "))
     return LineHunk(
         before=LineSpan(
@@ -445,9 +445,9 @@ def test_hunks_are_the_changed_lines_of_a_modified_file(
     path = RepositoryPath("module.py")
     # Line 2 replaced, a line inserted after line 4, and line 6 deleted.
     expected = (
-        hunk(HunkHeader("-2,1 +2,1")),
-        hunk(HunkHeader("-4,0 +5,1")),
-        hunk(HunkHeader("-6,1 +6,0")),
+        line_hunk_from_header(HunkHeader("-2,1 +2,1")),
+        line_hunk_from_header(HunkHeader("-4,0 +5,1")),
+        line_hunk_from_header(HunkHeader("-6,1 +6,0")),
     )
     change = change_from_main(
         repository,
@@ -462,7 +462,7 @@ def test_hunks_are_the_changed_lines_of_a_modified_file(
 
 def test_an_added_file_is_one_hunk_of_all_its_lines(repository: Repository) -> None:
     path = RepositoryPath("added.py")
-    expected = (hunk(HunkHeader("-0,0 +1,2")),)
+    expected = (line_hunk_from_header(HunkHeader("-0,0 +1,2")),)
     change = change_from_main(repository, edits={path: FileText("one\ntwo\n")})
 
     hunks = line_hunks_of(repository, change)
@@ -472,7 +472,7 @@ def test_an_added_file_is_one_hunk_of_all_its_lines(repository: Repository) -> N
 
 def test_a_deleted_file_is_one_hunk_of_all_its_lines(repository: Repository) -> None:
     path = RepositoryPath("deleted.py")
-    expected = (hunk(HunkHeader("-1,3 +0,0")),)
+    expected = (line_hunk_from_header(HunkHeader("-1,3 +0,0")),)
     change = change_from_main(
         repository,
         edits={path: None},

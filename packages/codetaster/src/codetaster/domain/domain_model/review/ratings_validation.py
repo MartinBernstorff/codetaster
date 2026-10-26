@@ -295,7 +295,7 @@ def find_hunk_problems(
     """Only the ratings `checked_ratings` lists are checked."""
     problems: list[HunkMismatch] = []
     for rating, change in checked_ratings(changes, ratings):
-        changed = hunks.hunks_of(change) or (None,)
+        changed = hunks.hunks_to_rate(change)
         if rating.line_hunks() != changed:
             problems.append(
                 HunkMismatch(

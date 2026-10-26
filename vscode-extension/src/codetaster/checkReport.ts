@@ -35,8 +35,8 @@ export interface RatingReport {
 	readonly probability: number;
 	/** The category the file is grouped under in the file list. */
 	readonly category: string;
-	/** In order, as `git diff --unified=0` reports them. */
-	readonly hunks: readonly HunkReport[];
+	/** In order, as `git diff --unified=0` reports them. Absent from older codetaster versions. */
+	readonly hunks?: readonly HunkReport[];
 	readonly annotations: readonly AnnotationReport[];
 }
 
@@ -149,10 +149,10 @@ function isHunk(value: unknown): boolean {
 		&& ((value.before === null && value.after === null) || (isLineSpan(value.before) && isLineSpan(value.after)));
 }
 
-/** Whether `file` has no rating, or a rating whose hunks are well-formed. */
+/** Whether `file` has no rating, or a rating whose hunks, if any, are well-formed. */
 function hasValidHunks(file: Record<string, unknown>): boolean {
 	const rating = file.rating;
-	return !isRecord(rating) || (Array.isArray(rating.hunks) && rating.hunks.every(isHunk));
+	return !isRecord(rating) || rating.hunks === undefined || (Array.isArray(rating.hunks) && rating.hunks.every(isHunk));
 }
 
 function invalidReport(message: string): ParsedCheckReport {
@@ -190,7 +190,7 @@ export function parseCheckReport(output: string): ParsedCheckReport {
 			return invalidReport(`Its output has a file in "${key}" whose rating has malformed "annotations".`);
 		}
 		if (!files.every(hasValidHunks)) {
-			return invalidReport(`Its output has a file in "${key}" whose rating has malformed "hunks". Update codetaster if it predates hunk ratings.`);
+			return invalidReport(`Its output has a file in "${key}" whose rating has malformed "hunks".`);
 		}
 	}
 	if (json.overview !== undefined && json.overview !== null && !isOverview(json.overview)) {

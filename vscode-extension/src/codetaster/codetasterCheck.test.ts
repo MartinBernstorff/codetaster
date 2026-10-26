@@ -165,12 +165,13 @@ describe('runCodetasterCheck', () => {
 		assert.deepStrictEqual(outcome.kind === 'report' && outcome.report.sampled[0].rating?.hunks, hunks);
 	});
 
-	it('rejects a rating without hunks', async () => {
+	it('accepts a rating without hunks, from a codetaster that predates them', async () => {
 		const rated = { ...validReport.sampled[0], rating: { probability: 0.2, category: 'Moves', annotations: [] }, unrated: false };
+		const process = new FakeCodetasterProcess(exitedWith(0, JSON.stringify({ ...validReport, sampled: [rated] })));
 
-		const message = await errorMessageFrom(new FakeCodetasterProcess(exitedWith(0, JSON.stringify({ ...validReport, sampled: [rated] }))));
+		const outcome = await runCodetasterCheck(process, 'codetaster', '/repo', 'origin/main');
 
-		assert.match(message, /"hunks"/);
+		assert.strictEqual(outcome.kind, 'report');
 	});
 
 	it('rejects a hunk with only one side\'s lines', async () => {

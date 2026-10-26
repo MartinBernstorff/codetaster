@@ -242,10 +242,13 @@ class RatedHunk(BaseModel):
 
     @staticmethod
     def of_whole_change(probability: Probability) -> RatedHunk:
-        return RatedHunk(before=None, after=None, probability=probability)
+        return RatedHunk.of_line_hunk(None, probability)
 
     @staticmethod
-    def of_line_hunk(hunk: LineHunk, probability: Probability) -> RatedHunk:
+    def of_line_hunk(hunk: LineHunk | None, probability: Probability) -> RatedHunk:
+        """For the whole change if `hunk` is `None`."""
+        if hunk is None:
+            return RatedHunk(before=None, after=None, probability=probability)
         return RatedHunk(before=hunk.before, after=hunk.after, probability=probability)
 
     def line_hunk(self) -> LineHunk | None:

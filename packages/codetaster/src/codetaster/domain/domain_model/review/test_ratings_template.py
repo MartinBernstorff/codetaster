@@ -113,7 +113,10 @@ def test_any_fill_parses_as_a_ratings_file(
     template = RatingsTemplate.of_changes(FileChanges(tuple(changes)), hunks)
     filled = fill_template(
         template,
-        [data.draw(ratings_of(change, hunks.hunks_of(change))) for change in changes],
+        [
+            data.draw(ratings_of(change, hunks.hunks_to_rate(change)))
+            for change in changes
+        ],
     )
 
     result = parse_ratings_file(filled, Location.fake())

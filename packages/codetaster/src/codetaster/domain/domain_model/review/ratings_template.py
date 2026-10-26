@@ -52,12 +52,11 @@ class BlankHunk(BaseModel):
         return BlankHunk.of_line_hunk(LineHunk.fake())
 
     @staticmethod
-    def of_line_hunk(hunk: LineHunk) -> BlankHunk:
+    def of_line_hunk(hunk: LineHunk | None) -> BlankHunk:
+        """Without lines if `hunk` is `None`, for the whole change."""
+        if hunk is None:
+            return BlankHunk(before=None, after=None)
         return BlankHunk(before=hunk.before, after=hunk.after)
-
-    @staticmethod
-    def of_whole_change() -> BlankHunk:
-        return BlankHunk(before=None, after=None)
 
 
 class BlankRating(BaseModel):
@@ -79,15 +78,16 @@ class BlankRating(BaseModel):
         )
 
     @staticmethod
-    def of_change(change: FileChange, hunks: tuple[LineHunk, ...]) -> BlankRating:
-        """One blank hunk per hunk in `hunks`, or one for the whole change if it
-        has none."""
+    def of_change(
+        change: FileChange, hunks: tuple[LineHunk | None, ...]
+    ) -> BlankRating:
+        """One blank hunk per hunk in `hunks`, as `ChangeLineHunks.hunks_to_rate`
+        lists them."""
         target = RatingTarget.of_change(change)
         return BlankRating(
             path=target.path,
             blob=target.blob,
-            hunks=tuple(BlankHunk.of_line_hunk(hunk) for hunk in hunks)
-            or (BlankHunk.of_whole_change(),),
+            hunks=tuple(BlankHunk.of_line_hunk(hunk) for hunk in hunks),
         )
 
     def target(self) -> RatingTarget:
@@ -124,7 +124,7 @@ class RatingsTemplate(BaseModel):
         change's hunks in `hunks`."""
         return RatingsTemplate(
             ratings=tuple(
-                BlankRating.of_change(change, hunks.hunks_of(change))
+                BlankRating.of_change(change, hunks.hunks_to_rate(change))
                 for change in changes.root
             )
         )

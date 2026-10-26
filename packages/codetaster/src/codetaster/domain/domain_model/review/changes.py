@@ -248,6 +248,11 @@ class ChangeLineHunks(RootModel[dict[RepositoryPath, tuple[LineHunk, ...]]]):
     def hunks_of(self, change: FileChange) -> tuple[LineHunk, ...]:
         return self.root.get(change.path(), ())
 
+    def hunks_to_rate(self, change: FileChange) -> tuple[LineHunk | None, ...]:
+        """The hunks a rating of `change` rates: its hunks, or one `None` for the
+        whole change if it has no changed lines."""
+        return self.hunks_of(change) or (None,)
+
 
 class CommittedChange(BaseModel):
     """The files changed from the merge base of `base` and HEAD, to HEAD."""

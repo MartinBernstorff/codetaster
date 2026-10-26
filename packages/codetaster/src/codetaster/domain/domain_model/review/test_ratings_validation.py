@@ -146,7 +146,10 @@ def test_any_fill_of_the_template_has_no_problems(
     template = RatingsTemplate.of_changes(file_changes_, hunks)
     filled = fill_template(
         template,
-        [data.draw(ratings_of(change, hunks.hunks_of(change))) for change in changes],
+        [
+            data.draw(ratings_of(change, hunks.hunks_to_rate(change)))
+            for change in changes
+        ],
     )
     parsed = parse_ratings_file(filled, Location.fake())
     assert isinstance(parsed, Ok)
@@ -435,9 +438,9 @@ def test_a_rating_of_other_hunks_than_the_changed_lines_is_a_mismatch() -> None:
 
 def test_a_file_without_changed_lines_needs_a_hunk_for_the_whole_change() -> None:
     change = FileChange.fake()
-    rated = (LineHunk.fake(),)
+    rated = LineHunk.fake()
     rating = rating_for(RatingTarget.of_change(change)).model_copy(
-        update={"hunks": (RatedHunk.of_line_hunk(LineHunk.fake(), Probability.fake()),)}
+        update={"hunks": (RatedHunk.of_line_hunk(rated, Probability.fake()),)}
     )
 
     problems = find_rating_problems(
@@ -448,7 +451,7 @@ def test_a_file_without_changed_lines_needs_a_hunk_for_the_whole_change() -> Non
     )
 
     assert problems == RatingProblems(
-        (HunkMismatch(target=rating.target(), rated=rated, changed=(None,)),)
+        (HunkMismatch(target=rating.target(), rated=(rated,), changed=(None,)),)
     )
 
 
