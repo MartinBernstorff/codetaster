@@ -6,8 +6,6 @@ import { CheckReport } from './checkReport';
 import { CheckOutcome, CheckTarget, CodetasterChecks } from './codetasterCheck';
 import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
 import { headMismatchWarning } from './headMismatch';
-import { dimmedLines } from './hunkDimming';
-import { HunkDimmingDecorations } from './hunkDimmingDecorations';
 import { NodeCodetasterProcess } from './nodeCodetasterProcess';
 import { registerOverviewPreview, summaryNode } from './overviewPreview';
 import { ratingsErrorWarning } from './ratingsError';
@@ -168,8 +166,6 @@ function refreshOnHeadChange(repository: Repository): void {
 
 /** The ratings file's annotations on the checked-out PRs' diffs, per repository. Created on activation. */
 let annotationComments: AnnotationComments | undefined;
-/** The dimmed hunks in the checked-out PRs' diffs, per repository. Created on activation. */
-let hunkDimming: HunkDimmingDecorations | undefined;
 
 /** The documents `file`'s diff shows, as upstream opens them. */
 function annotatedFile(file: PullRequestFileNode): AnnotatedFile<vscode.Uri> {
@@ -183,8 +179,7 @@ function annotatedFile(file: PullRequestFileNode): AnnotatedFile<vscode.Uri> {
 export function registerCodetaster(context: vscode.ExtensionContext): void {
 	registerOverviewPreview(context);
 	annotationComments = new AnnotationComments();
-	hunkDimming = new HunkDimmingDecorations();
-	context.subscriptions.push(annotationComments, hunkDimming);
+	context.subscriptions.push(annotationComments);
 	if (vscode.workspace.getConfiguration(CODETASTER_SETTINGS_NAMESPACE).get<boolean>(OPEN_ON_STARTUP_SETTING, false)) {
 		vscode.commands.executeCommand(OPEN_CODETASTER_CONTAINER_COMMAND);
 	}
@@ -445,8 +440,7 @@ function baseRevision(folderRepoManager: FolderRepositoryManager, pullRequest: P
  * summary and category descriptions, precedes the categories when the ratings file
  * has them. Each file's icon shows its verdict.
  * The ratings file's annotations on the files show as read-only comment threads in the
- * diffs this file list opens, alongside those of other file lists of the same PR, and
- * the hunks of needs-review files rated below the threshold are dimmed there.
+ * diffs this file list opens, alongside those of other file lists of the same PR.
  * Warnings precede the groups when the check ran on a different commit than the PR
  * head, or ignored an invalid ratings file. Undefined if the PR is not checked out, so
  * the caller shows upstream's file list.
@@ -486,7 +480,6 @@ export function codetasterFileNodes(
 		describeNode(describedNode, undefined);
 		// Another PR's file list must not remove the checked-out PR's annotations.
 		annotationComments?.clearUnlessFor(folderRepoManager, folderRepoManager.activePullRequest);
-		hunkDimming?.clearUnlessFor(folderRepoManager, folderRepoManager.activePullRequest);
 		return undefined;
 	}
 	let report: CheckReport;
@@ -500,7 +493,6 @@ export function codetasterFileNodes(
 	} else if (outcome.kind === 'error') {
 		reviewOrders.delete(folderRepoManager);
 		annotationComments?.clear(folderRepoManager);
-		hunkDimming?.clear(folderRepoManager);
 		describeNode(describedNode, undefined);
 		return [new CodetasterErrorNode(parent, outcome.message)];
 	} else {
@@ -515,9 +507,7 @@ export function codetasterFileNodes(
 	});
 	describeNode(describedNode, `${needsReviewRuleDescription(report)} · ${samplingDescription(report.sampling)}`);
 	// Each kind of file list opens diffs at its own URIs, so each adds its own placements.
-	const diffDocuments = allFiles.map(annotatedFile);
-	annotationComments?.show(folderRepoManager, pullRequest, parent.constructor, annotationPlacements(report, diffDocuments));
-	hunkDimming?.show(folderRepoManager, pullRequest, parent.constructor, dimmedLines(report, diffDocuments));
+	annotationComments?.show(folderRepoManager, pullRequest, parent.constructor, annotationPlacements(report, allFiles.map(annotatedFile)));
 	const shownGroups = groupFilesByCategory(report, shownFiles, file => file.fileName);
 	showFileRatings(report, shownGroups);
 	const groups = shownGroups.map(group => new CategoryGroupNode(parent, group, layout));
