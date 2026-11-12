@@ -12,6 +12,7 @@ from codetaster.domain.domain_model.review.ratings import (
     RatingsFile,
     RatingsFileContent,
 )
+from codetaster.domain.domain_model.review.ratings_template import RatingsTemplate
 from codetaster.domain.secondary_ports.ratings_file_store import RatingsFileStore
 from codetaster.infrastructure.ratings_file_store.in_memory import (
     InMemoryRatingsFileStore,
@@ -87,3 +88,50 @@ def test_reading_a_directory_is_an_error(
     store = build_store({}, [location])
 
     assert isinstance(store.read_ratings(location), Err)
+
+
+def test_a_written_template_is_read_back_as_unfilled(
+    build_store: StoreFactory, location: Location
+) -> None:
+    store = build_store({})
+
+    assert store.write_template(location, RatingsTemplate.fake()) == Ok(None)
+
+    # Something is there now, and an unfilled template is not a valid ratings file.
+    assert isinstance(store.read_ratings(location), Err)
+
+
+def test_writing_a_template_replaces_an_existing_file(
+    build_store: StoreFactory, location: Location
+) -> None:
+    store = build_store(
+        {location: RatingsFileContent(RatingsFile.fake().model_dump_json())}
+    )
+
+    assert store.write_template(location, RatingsTemplate.fake()) == Ok(None)
+
+    # An unfilled template is not a valid ratings file.
+    assert isinstance(store.read_ratings(location), Err)
+
+
+def test_writing_a_template_over_a_directory_is_an_error_naming_it(
+    build_store: StoreFactory, location: Location
+) -> None:
+    store = build_store({}, [location])
+
+    match store.write_template(location, RatingsTemplate.fake()):
+        case Err(error):
+            assert error.location == location
+        case Ok():
+            pytest.fail("expected an error")
+
+
+def test_writing_a_template_creates_missing_directories(tmp_path: Path) -> None:
+    location = Location(tmp_path / "missing" / "ratings.json")
+
+    _ = LocalRatingsFileStore().write_template(location, RatingsTemplate.fake())
+
+    assert (
+        RatingsTemplate.model_validate_json(location.root.read_text(encoding="utf-8"))
+        == RatingsTemplate.fake()
+    )

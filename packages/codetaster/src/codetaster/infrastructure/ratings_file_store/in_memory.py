@@ -9,8 +9,10 @@ from codetaster.domain.domain_model.review.ratings import (
     RatingsFile,
     RatingsFileContent,
     RatingsFileError,
+    RatingsFileWriteError,
     parse_ratings_file,
 )
+from codetaster.domain.domain_model.review.ratings_template import RatingsTemplate
 from codetaster.domain.secondary_ports.ratings_file_store import RatingsFileStore
 
 
@@ -27,6 +29,17 @@ class InMemoryRatingsFileStore(RatingsFileStore):
 
     def write_ratings(self, location: Location, ratings: RatingsFile) -> None:
         self.files[location] = RatingsFileContent(ratings.model_dump_json(indent=2))
+
+    @override
+    def write_template(
+        self, location: Location, template: RatingsTemplate
+    ) -> Result[None, RatingsFileWriteError]:
+        if location in self._directories:
+            return Err(
+                RatingsFileWriteError(location, ErrorReason("unwritable: a directory"))
+            )
+        self.files[location] = RatingsFileContent(template.model_dump_json(indent=2))
+        return Ok(None)
 
     @override
     def read_ratings(

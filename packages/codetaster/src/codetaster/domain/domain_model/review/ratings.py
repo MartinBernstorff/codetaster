@@ -344,6 +344,19 @@ class RatingsFileError(Exception):
         return RatingsFileError(Location.fake(), ErrorReason.fake())
 
 
+class RatingsFileWriteError(Exception):
+    """A ratings file could not be written to `location`."""
+
+    def __init__(self, location: Location, reason: ErrorReason) -> None:
+        super().__init__(f"could not write {location.root}: {reason.root}")
+        self.location = location
+        self.reason = reason
+
+    @staticmethod
+    def fake() -> RatingsFileWriteError:
+        return RatingsFileWriteError(Location.fake(), ErrorReason.fake())
+
+
 def parse_ratings_file(
     content: RatingsFileContent, location: Location
 ) -> Result[RatingsFile, RatingsFileError]:
