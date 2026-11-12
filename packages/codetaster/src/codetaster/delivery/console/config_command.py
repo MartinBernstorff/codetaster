@@ -13,7 +13,6 @@ from codetaster.delivery.console.configuration_loading import (
 from codetaster.delivery.console.conventions import codetaster_conventions
 from codetaster.domain.application_services.initialise_configuration import (
     ConfigScope,
-    ExistingFilePolicy,
     InitialisationError,
     InitialisationRequest,
     initialise_configuration,
@@ -35,7 +34,7 @@ from codetaster.domain.domain_model.configuration.template import (
     SettingsTemplate,
     TemplateEntry,
 )
-from codetaster.domain.domain_model.filesystem import Location
+from codetaster.domain.domain_model.filesystem import ExistingFilePolicy, Location
 from codetaster.infrastructure.config_file_store.local import LocalConfigFileStore
 from codetaster.infrastructure.environment_variables.os_environment import (
     OsEnvironmentVariables,

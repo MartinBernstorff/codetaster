@@ -1,4 +1,4 @@
-"""The printed template. Building the template is tested in the domain."""
+"""The written and printed template. Building the template is tested in the domain."""
 
 import json
 from pathlib import Path
@@ -14,6 +14,7 @@ from codetaster.delivery.console.test_repositories import (
     Repository,
     TomlText,
 )
+from codetaster.domain.domain_model.filesystem import Location
 from codetaster.domain.domain_model.review.changes import BlobSha, RepositoryPath
 from codetaster.domain.domain_model.review.ratings import (
     FileRating,
@@ -39,12 +40,15 @@ def repository(tmp_path: Path) -> Repository:
     return Repository(tmp_path, TomlText.fake())
 
 
-def test_prints_a_template_entry_for_the_changed_file(
-    repository: Repository,
-) -> None:
+def ratings_location(repository: Repository) -> Location:
+    """Where `TomlText.fake()` puts the ratings file."""
+    return Location(repository.root / ".codetaster" / "ratings.json")
+
+
+def expected_template() -> JsonValue:
     # The blob SHA of feature.py, which is empty.
     empty_blob = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
-    expected_template: JsonValue = {
+    return {
         "summary": None,
         "categories": [{"name": None, "description": None}],
         "ratings": [
@@ -58,10 +62,54 @@ def test_prints_a_template_entry_for_the_changed_file(
         ],
     }
 
+
+def test_writes_the_template_to_the_ratings_path_and_prints_it(
+    repository: Repository,
+) -> None:
+    location = ratings_location(repository)
+
     result = run_template(repository, CliOptions.fake())
 
     assert result.exit_code == 0
-    assert json.loads(result.stdout) == expected_template
+    assert json.loads(location.root.read_text()) == expected_template()
+    assert str(location.root.resolve()) in result.stdout
+
+
+def test_stdout_prints_the_template_without_writing_it(
+    repository: Repository,
+) -> None:
+    result = run_template(repository, CliOptions(("--stdout",)))
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == expected_template()
+    assert not ratings_location(repository).root.exists()
+
+
+def test_an_existing_ratings_file_is_kept_and_exits_non_zero(
+    repository: Repository,
+) -> None:
+    existing = filled_template(repository)
+    write_ratings(repository, existing)
+
+    result = run_template(repository, CliOptions.fake())
+
+    assert result.exit_code == 1
+    assert "--force" in result.stderr
+    assert (
+        RatingsFile.model_validate_json(ratings_location(repository).root.read_text())
+        == existing
+    )
+
+
+def test_force_replaces_an_existing_ratings_file(repository: Repository) -> None:
+    write_ratings(repository, filled_template(repository))
+
+    result = run_template(repository, CliOptions(("--force",)))
+
+    assert result.exit_code == 0
+    assert json.loads(ratings_location(repository).root.read_text()) == (
+        expected_template()
+    )
 
 
 def test_unknown_base_exits_non_zero(tmp_path: Path) -> None:
@@ -92,22 +140,26 @@ def run_validate(repository: Repository, options: CliOptions) -> Result:
     )
 
 
-def printed_template(result: Result) -> RatingsTemplate:
-    """The JSON template `ratings template` printed."""
-    return RatingsTemplate.model_validate_json(result.stdout)
+def written_template(repository: Repository) -> RatingsTemplate:
+    """The template `ratings template` wrote, replacing any ratings file."""
+    result = run_template(repository, CliOptions(("--force",)))
+    assert result.exit_code == 0
+    return RatingsTemplate.model_validate_json(
+        ratings_location(repository).root.read_text()
+    )
 
 
 def write_ratings(
     repository: Repository, ratings: RatingsTemplate | RatingsFile
 ) -> None:
-    location = repository.root / ".codetaster" / "ratings.json"
+    location = ratings_location(repository).root
     location.parent.mkdir(exist_ok=True)
     _ = location.write_text(ratings.model_dump_json())
 
 
 def filled_template(repository: Repository) -> RatingsFile:
     """The template from `ratings template`, with every entry rated."""
-    template = printed_template(run_template(repository, CliOptions.fake()))
+    template = written_template(repository)
     return ratings_file_of(
         *(
             FileRating.fake().model_copy(
@@ -230,9 +282,7 @@ def test_an_unfilled_template_exits_non_zero_and_names_the_field(
     repository: Repository,
 ) -> None:
     field = "probability"
-    write_ratings(
-        repository, printed_template(run_template(repository, CliOptions.fake()))
-    )
+    _ = written_template(repository)
 
     result = run_validate(repository, CliOptions.fake())
 

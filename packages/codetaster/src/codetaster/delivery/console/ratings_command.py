@@ -1,4 +1,5 @@
 import shlex
+from typing import Annotated
 
 import typer
 from pydantic import RootModel
@@ -19,9 +20,17 @@ from codetaster.domain.application_services.validate_ratings_file import (
     RatingsValidationRequest,
     validate_ratings_file,
 )
+from codetaster.domain.application_services.write_ratings_template import (
+    RatingsTemplateWriteRequest,
+    write_ratings_template,
+)
 from codetaster.domain.domain_model.checkout import CheckoutPath
+from codetaster.domain.domain_model.filesystem import ExistingFilePolicy
 from codetaster.domain.domain_model.review.changes import RevisionName
-from codetaster.domain.domain_model.review.ratings import AnnotationSide
+from codetaster.domain.domain_model.review.ratings import (
+    AnnotationSide,
+    RatingsFileExistsError,
+)
 from codetaster.domain.domain_model.review.ratings_validation import (
     AnnotationLineOutOfRange,
     AnnotationOnMissingSide,
@@ -51,15 +60,60 @@ ratings_app = typer.Typer(
 
 
 @ratings_app.command("template")
-def print_ratings_template(
+def write_ratings_template_file(
     checkout: CheckoutArgument,
     base: BaseOption = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Replace an existing ratings file."),
+    ] = False,
+    stdout: Annotated[
+        bool,
+        typer.Option("--stdout", help="Print the template instead of writing it."),
+    ] = False,
 ) -> None:
-    """Print a template to rate every changed file.
+    """Write a template rating every changed file to \\[review] ratings_path.
 
-    Fill in the template and write it to \\[review] ratings_path.
+    Prints the path written. Fill in every null there, then run `ratings validate`.
+    Refuses to replace an existing ratings file unless given --force.
     """
     checkout = resolve_checkout(checkout)
+    if stdout:
+        print_ratings_template(checkout, base)
+        return
+    match write_ratings_template(
+        RatingsTemplateWriteRequest(
+            checkout=checkout,
+            base_override=base,
+            existing_file=ExistingFilePolicy.OVERWRITE
+            if force
+            else ExistingFilePolicy.REFUSE,
+        ),
+        load_checkout_configuration(checkout),
+        GitCommittedChanges(),
+        LocalRatingsFileStore(),
+    ):
+        case Ok(result):
+            pass
+        case Err(RatingsFileExistsError() as error):
+            typer.echo(
+                f"Error: {error}. Edit it, or use --force to replace it with a "
+                "fresh template.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        case Err(error):
+            typer.echo(f"Error: {error}", err=True)
+            raise typer.Exit(code=1)
+    warn_about_uncommitted_changes(result.working_tree)
+    validate = ratings_command_line(RatingsSubcommand("validate"), checkout, base)
+    typer.echo(
+        f"Wrote {result.location.root}. Fill in every null there, "
+        f"then run `{validate.root}`."
+    )
+
+
+def print_ratings_template(checkout: CheckoutPath, base: RevisionName | None) -> None:
     match create_ratings_template(
         RatingsTemplateRequest(checkout=checkout, base_override=base),
         load_checkout_configuration(checkout),
@@ -142,10 +196,12 @@ def describe_file_rating_problem(
     """File versions are shown as they are written in the ratings file."""
     match problem:
         case MissingRatingsFile(location=location):
-            template = ratings_template_command_line(checkout, base)
+            template = ratings_command_line(
+                RatingsSubcommand("template"), checkout, base
+            )
             return RatingProblemDescription(
-                f"There is no ratings file at {location.root}. Run `{template.root}`, "
-                "fill in the template and write it there."
+                f"There is no ratings file at {location.root}. Run `{template.root}` "
+                "to write a template there, then fill it in."
             )
         case InvalidRatingsFile(reason=reason):
             details = reason.root.replace("\n", "\n  ")
@@ -228,16 +284,24 @@ class CommandLine(RootModel[str]):
         return CommandLine("codetaster ratings template .")
 
 
-def ratings_template_command_line(
-    checkout: CheckoutPath, base: RevisionName | None
+class RatingsSubcommand(RootModel[str]):
+    """A `codetaster ratings` subcommand, such as `template`."""
+
+    @staticmethod
+    def fake() -> RatingsSubcommand:
+        return RatingsSubcommand("template")
+
+
+def ratings_command_line(
+    subcommand: RatingsSubcommand, checkout: CheckoutPath, base: RevisionName | None
 ) -> CommandLine:
-    """The shell command to run `ratings template` on `checkout` against `base`."""
+    """The shell command to run `ratings <subcommand>` on `checkout` against `base`."""
     return CommandLine(
         shlex.join(
             [
                 "codetaster",
                 "ratings",
-                "template",
+                subcommand.root,
                 str(checkout.root),
                 *(["--base", str(base)] if base is not None else []),
             ]

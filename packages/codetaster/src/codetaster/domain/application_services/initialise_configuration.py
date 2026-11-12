@@ -22,7 +22,7 @@ from codetaster.domain.domain_model.configuration.review_settings import (
 )
 from codetaster.domain.domain_model.configuration.settings import Settings
 from codetaster.domain.domain_model.configuration.template import SettingsTemplate
-from codetaster.domain.domain_model.filesystem import Location
+from codetaster.domain.domain_model.filesystem import ExistingFilePolicy, Location
 from codetaster.domain.domain_model.tool_errors import ToolError
 from codetaster.domain.secondary_ports.config_file_store import ConfigFileStore
 from codetaster.domain.secondary_ports.environment_variables import (
@@ -41,11 +41,6 @@ class ConfigScope(StrEnum):
     PROJECT = "project"
     DEVELOPER = "developer"
     DEVELOPER_PROJECT = "developer-project"
-
-
-class ExistingFilePolicy(StrEnum):
-    REFUSE = "refuse"
-    OVERWRITE = "overwrite"
 
 
 class InitialisationRequest(BaseModel):
