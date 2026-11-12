@@ -85,26 +85,10 @@ def test_stdout_prints_the_template_without_writing_it(
     assert not ratings_location(repository).root.exists()
 
 
-def test_an_existing_ratings_file_is_kept_and_exits_non_zero(
-    repository: Repository,
-) -> None:
-    existing = filled_template(repository)
-    write_ratings(repository, existing)
-
-    result = run_template(repository, CliOptions.fake())
-
-    assert result.exit_code == 1
-    assert "--force" in result.stderr
-    assert (
-        RatingsFile.model_validate_json(ratings_location(repository).root.read_text())
-        == existing
-    )
-
-
-def test_force_replaces_an_existing_ratings_file(repository: Repository) -> None:
+def test_replaces_an_existing_ratings_file(repository: Repository) -> None:
     write_ratings(repository, filled_template(repository))
 
-    result = run_template(repository, CliOptions(("--force",)))
+    result = run_template(repository, CliOptions.fake())
 
     assert result.exit_code == 0
     assert json.loads(ratings_location(repository).root.read_text()) == (
@@ -142,7 +126,7 @@ def run_validate(repository: Repository, options: CliOptions) -> Result:
 
 def written_template(repository: Repository) -> RatingsTemplate:
     """The template `ratings template` wrote, replacing any ratings file."""
-    result = run_template(repository, CliOptions(("--force",)))
+    result = run_template(repository, CliOptions.fake())
     assert result.exit_code == 0
     return RatingsTemplate.model_validate_json(
         ratings_location(repository).root.read_text()

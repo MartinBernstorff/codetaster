@@ -31,10 +31,6 @@ class InMemoryRatingsFileStore(RatingsFileStore):
         self.files[location] = RatingsFileContent(ratings.model_dump_json(indent=2))
 
     @override
-    def exists(self, location: Location) -> bool:
-        return location in self.files or location in self._directories
-
-    @override
     def write_template(
         self, location: Location, template: RatingsTemplate
     ) -> Result[None, RatingsFileWriteError]:

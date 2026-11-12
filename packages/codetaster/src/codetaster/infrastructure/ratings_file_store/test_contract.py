@@ -90,28 +90,15 @@ def test_reading_a_directory_is_an_error(
     assert isinstance(store.read_ratings(location), Err)
 
 
-def test_nothing_exists_at_a_missing_location(
+def test_a_written_template_is_read_back_as_unfilled(
     build_store: StoreFactory, location: Location
 ) -> None:
     store = build_store({})
 
-    assert not store.exists(location)
+    assert store.write_template(location, RatingsTemplate.fake()) == Ok(None)
 
-
-def test_a_directory_exists(build_store: StoreFactory, location: Location) -> None:
-    store = build_store({}, [location])
-
-    assert store.exists(location)
-
-
-def test_a_written_template_exists(
-    build_store: StoreFactory, location: Location
-) -> None:
-    store = build_store({})
-
-    _ = store.write_template(location, RatingsTemplate.fake())
-
-    assert store.exists(location)
+    # Something is there now, and an unfilled template is not a valid ratings file.
+    assert isinstance(store.read_ratings(location), Err)
 
 
 def test_writing_a_template_replaces_an_existing_file(

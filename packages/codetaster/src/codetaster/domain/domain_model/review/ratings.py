@@ -344,18 +344,6 @@ class RatingsFileError(Exception):
         return RatingsFileError(Location.fake(), ErrorReason.fake())
 
 
-class RatingsFileExistsError(Exception):
-    """A ratings file is already at `location`, and overwriting was not requested."""
-
-    def __init__(self, location: Location) -> None:
-        super().__init__(f"a ratings file already exists at {location.root}")
-        self.location = location
-
-    @staticmethod
-    def fake() -> RatingsFileExistsError:
-        return RatingsFileExistsError(Location.fake())
-
-
 class RatingsFileWriteError(Exception):
     """A ratings file could not be written to `location`."""
 

@@ -1,4 +1,3 @@
-from enum import StrEnum
 from pathlib import Path
 
 from pydantic import ConfigDict, RootModel
@@ -45,10 +44,3 @@ class Locations(RootModel[tuple[Location, ...]]):
     @staticmethod
     def fake() -> Locations:
         return Locations((Location.fake(),))
-
-
-class ExistingFilePolicy(StrEnum):
-    """What to do when a file is already where one is about to be written."""
-
-    REFUSE = "refuse"
-    OVERWRITE = "overwrite"

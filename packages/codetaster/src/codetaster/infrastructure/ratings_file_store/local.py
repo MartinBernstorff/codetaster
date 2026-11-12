@@ -29,10 +29,6 @@ class LocalRatingsFileStore(RatingsFileStore):
         return parse_ratings_file(RatingsFileContent(text), location)
 
     @override
-    def exists(self, location: Location) -> bool:
-        return location.root.exists()
-
-    @override
     def write_template(
         self, location: Location, template: RatingsTemplate
     ) -> Result[None, RatingsFileWriteError]:

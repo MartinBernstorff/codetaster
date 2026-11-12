@@ -20,10 +20,6 @@ class RatingsFileStore(Protocol):
         """The parsed file, `None` if nothing exists there, or why it is invalid."""
         ...
 
-    def exists(self, location: Location) -> bool:
-        """Whether a file or directory exists at `location`."""
-        ...
-
     def write_template(
         self, location: Location, template: RatingsTemplate
     ) -> Result[None, RatingsFileWriteError]:

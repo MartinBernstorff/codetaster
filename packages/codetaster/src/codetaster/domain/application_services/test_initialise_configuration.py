@@ -4,6 +4,7 @@ from safe_result import Err, Ok
 
 from codetaster.domain.application_services.initialise_configuration import (
     ConfigScope,
+    ExistingFilePolicy,
     InitialisationRequest,
     initialise_configuration,
 )
@@ -15,11 +16,7 @@ from codetaster.domain.domain_model.configuration.errors import (
 )
 from codetaster.domain.domain_model.configuration.settings import Settings
 from codetaster.domain.domain_model.environment import VariableValue
-from codetaster.domain.domain_model.filesystem import (
-    ExistingFilePolicy,
-    Location,
-    PathName,
-)
+from codetaster.domain.domain_model.filesystem import Location, PathName
 
 # Domain tests use the fakes from infrastructure, which tach otherwise forbids.
 from codetaster.infrastructure.config_file_store.in_memory import (

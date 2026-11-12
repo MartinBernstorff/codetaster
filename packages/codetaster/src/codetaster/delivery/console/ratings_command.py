@@ -25,12 +25,8 @@ from codetaster.domain.application_services.write_ratings_template import (
     write_ratings_template,
 )
 from codetaster.domain.domain_model.checkout import CheckoutPath
-from codetaster.domain.domain_model.filesystem import ExistingFilePolicy
 from codetaster.domain.domain_model.review.changes import RevisionName
-from codetaster.domain.domain_model.review.ratings import (
-    AnnotationSide,
-    RatingsFileExistsError,
-)
+from codetaster.domain.domain_model.review.ratings import AnnotationSide
 from codetaster.domain.domain_model.review.ratings_validation import (
     AnnotationLineOutOfRange,
     AnnotationOnMissingSide,
@@ -63,10 +59,6 @@ ratings_app = typer.Typer(
 def write_ratings_template_file(
     checkout: CheckoutArgument,
     base: BaseOption = None,
-    force: Annotated[
-        bool,
-        typer.Option("--force", help="Replace an existing ratings file."),
-    ] = False,
     stdout: Annotated[
         bool,
         typer.Option("--stdout", help="Print the template instead of writing it."),
@@ -74,8 +66,8 @@ def write_ratings_template_file(
 ) -> None:
     """Write a template rating every changed file to \\[review] ratings_path.
 
-    Prints the path written. Fill in every null there, then run `ratings validate`.
-    Refuses to replace an existing ratings file unless given --force.
+    Replaces any existing ratings file. Prints the path written: fill in every
+    null there, then run `ratings validate`.
     """
     checkout = resolve_checkout(checkout)
     if stdout:
@@ -85,9 +77,6 @@ def write_ratings_template_file(
         RatingsTemplateWriteRequest(
             checkout=checkout,
             base_override=base,
-            existing_file=ExistingFilePolicy.OVERWRITE
-            if force
-            else ExistingFilePolicy.REFUSE,
         ),
         load_checkout_configuration(checkout),
         GitCommittedChanges(),
@@ -95,13 +84,6 @@ def write_ratings_template_file(
     ):
         case Ok(result):
             pass
-        case Err(RatingsFileExistsError() as error):
-            typer.echo(
-                f"Error: {error}. Edit it, or use --force to replace it with a "
-                "fresh template.",
-                err=True,
-            )
-            raise typer.Exit(code=1)
         case Err(error):
             typer.echo(f"Error: {error}", err=True)
             raise typer.Exit(code=1)

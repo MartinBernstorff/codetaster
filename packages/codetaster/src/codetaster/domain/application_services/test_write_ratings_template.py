@@ -6,7 +6,7 @@ from codetaster.domain.application_services.write_ratings_template import (
     write_ratings_template,
 )
 from codetaster.domain.domain_model.configuration.configuration import Configuration
-from codetaster.domain.domain_model.filesystem import ExistingFilePolicy, Location
+from codetaster.domain.domain_model.filesystem import Location
 from codetaster.domain.domain_model.review.changes import (
     BlobSha,
     RepositoryPath,
@@ -15,7 +15,6 @@ from codetaster.domain.domain_model.review.changes import (
 from codetaster.domain.domain_model.review.ratings import (
     RatingsFile,
     RatingsFileContent,
-    RatingsFileExistsError,
     ratings_file_location,
 )
 from codetaster.domain.domain_model.review.ratings_template import RatingsTemplate
@@ -82,29 +81,7 @@ def test_writes_the_template_to_the_configured_ratings_path() -> None:
     assert [entry.path for entry in stored_template(store, location).ratings] == [path]
 
 
-def test_refuses_to_replace_an_existing_ratings_file() -> None:
-    configuration = Configuration.fake()
-    assert configuration.review is not None
-    history = history_with_feature_branch(
-        configuration.review.base_branch, RepositoryPath.fake()
-    )
-    location = configured_location(configuration)
-    existing = RatingsFileContent(RatingsFile.fake().model_dump_json())
-    store = InMemoryRatingsFileStore({location: existing})
-
-    result = write_ratings_template(
-        RatingsTemplateWriteRequest.fake(), configuration, history, store
-    )
-
-    match result:
-        case Err(RatingsFileExistsError() as error):
-            assert error.location == location
-        case _:
-            raise AssertionError(result)
-    assert store.files[location] == existing
-
-
-def test_overwrite_replaces_an_existing_ratings_file() -> None:
+def test_replaces_an_existing_ratings_file() -> None:
     configuration = Configuration.fake()
     assert configuration.review is not None
     path = RepositoryPath.fake()
@@ -113,11 +90,8 @@ def test_overwrite_replaces_an_existing_ratings_file() -> None:
     store = InMemoryRatingsFileStore(
         {location: RatingsFileContent(RatingsFile.fake().model_dump_json())}
     )
-    request = RatingsTemplateWriteRequest.fake().model_copy(
-        update={"existing_file": ExistingFilePolicy.OVERWRITE}
-    )
 
-    _ = written_template(configuration, history, store, request)
+    _ = written_template(configuration, history, store)
 
     assert [entry.path for entry in stored_template(store, location).ratings] == [path]
 
