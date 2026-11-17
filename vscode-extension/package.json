@@ -114,6 +114,19 @@
 					"default": false,
 					"markdownDescription": "Open the codetaster view in the side bar when VS Code starts, instead of the view VS Code restores."
 				},
+				"codetaster.reviewOrder": {
+					"type": "string",
+					"enum": [
+						"fileList",
+						"priority"
+					],
+					"enumDescriptions": [
+						"Top to bottom, as the codetaster file list shows the files, including files that need no review.",
+						"Files not in the check first, then files that need review, then sampled files. Files that need no review are skipped, unless the current file is one."
+					],
+					"default": "priority",
+					"markdownDescription": "The order in which **codetaster: Mark File as Viewed and Open Next** moves through a pull request's files."
+				},
 				"githubPullRequests.pullRequestTitle": {
 					"deprecationMessage": "The pull request title now uses the same defaults as GitHub, and can be edited before create.",
 					"type": "string",
