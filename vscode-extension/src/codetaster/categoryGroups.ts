@@ -81,6 +81,19 @@ export function groupFilesByCategory<File>(
 	];
 }
 
+/**
+ * A group's description: how many of its files need review and are not viewed yet, or
+ * undefined if none are. The file list is in review order, so this shows where the
+ * files that need attention are.
+ */
+export function groupDescription<File>(group: CategoryGroup<File>, isViewed: (file: File) => boolean): string | undefined {
+	const count = group.files.filter(entry => entry.verdict === 'needs-review' && !isViewed(entry.file)).length;
+	if (!count) {
+		return undefined;
+	}
+	return count === 1 ? '1 needs review' : `${count} need review`;
+}
+
 /** The file list's description: which files the check put in needs-review. */
 export function needsReviewRuleDescription(report: CheckReport): string {
 	return `needs review = rating ≥ ${report.needs_review_threshold}`;

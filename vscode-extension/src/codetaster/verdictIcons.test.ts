@@ -9,12 +9,12 @@ function iconFor(verdict: Parameters<typeof verdictIconPath>[0]): string | Theme
 }
 
 describe('verdictIconPath', () => {
-	it('replaces a needs-review file\'s icon with a green circle', () => {
-		assert.deepStrictEqual(iconFor('needs-review'), { id: 'circle-filled', color: 'charts.green' });
+	it('replaces a needs-review file\'s icon with a green disc', () => {
+		assert.deepStrictEqual(iconFor('needs-review'), { id: 'circle-large-filled', color: 'charts.green' });
 	});
 
-	it('replaces a sampled file\'s icon with a yellow circle', () => {
-		assert.deepStrictEqual(iconFor('sampled'), { id: 'circle-filled', color: 'charts.yellow' });
+	it('replaces a sampled file\'s icon with a yellow ring, so it differs in shape when selected', () => {
+		assert.deepStrictEqual(iconFor('sampled'), { id: 'circle-large', color: 'charts.yellow' });
 	});
 
 	it('keeps a no-review file\'s own icon', () => {

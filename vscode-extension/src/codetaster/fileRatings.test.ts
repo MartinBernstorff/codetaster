@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
 import { CheckReport, FileReport } from './checkReport';
-import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
+import { fileDescription, fileHover, fileReportsByPath, fileStatus } from './fileRatings';
 
 function ratedFileReport(path: string, probability: number): FileReport {
 	return {
@@ -46,11 +46,11 @@ describe('fileHover', () => {
 });
 
 describe('fileDescription', () => {
-	it('leaves a rated file\'s description as it was', () => {
+	it('leads a rated file\'s description with its AI rating', () => {
 		const rated = ratedFileReport('src/a.py', 0.8);
 
-		assert.strictEqual(fileDescription(true, 'src', rated), true);
-		assert.strictEqual(fileDescription('', 'src', rated), '');
+		assert.strictEqual(fileDescription(true, 'src', rated), '80% · src');
+		assert.strictEqual(fileDescription('', 'src', rated), '80%');
 	});
 
 	it('leaves the description of a file the check did not list as it was', () => {
@@ -68,6 +68,23 @@ describe('fileDescription', () => {
 
 	it('marks an unrated file whose description is already text', () => {
 		assert.strictEqual(fileDescription('src/lib', 'src/lib', unratedFileReport('src/lib/a.py')), 'unrated · src/lib');
+	});
+});
+
+describe('fileStatus', () => {
+	it('shows the file\'s place in the review order, its verdict and AI rating', () => {
+		const status = fileStatus(3, 10, 'needs-review', ratedFileReport('a.py', 0.86));
+
+		assert.strictEqual(status.text, 'codetaster 3/10 · Needs review · 86%');
+		assert.match(status.tooltip, /^Read closely/);
+	});
+
+	it('marks an unrated file', () => {
+		assert.strictEqual(fileStatus(1, 2, 'sampled', unratedFileReport('a.py')).text, 'codetaster 1/2 · Sampled · unrated');
+	});
+
+	it('shows only the verdict of a file the check did not list', () => {
+		assert.strictEqual(fileStatus(1, 1, 'not-checked', undefined).text, 'codetaster 1/1 · Not in codetaster check');
 	});
 });
 

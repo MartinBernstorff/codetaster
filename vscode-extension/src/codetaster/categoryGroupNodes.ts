@@ -1,15 +1,15 @@
 import * as vscode from 'vscode';
 import { AnnotationComments } from './annotationComments';
 import { AnnotatedFile, annotationPlacements } from './annotationThreads';
-import { CategoryGroup, groupFilesByCategory, needsReviewRuleDescription } from './categoryGroups';
-import { CheckReport } from './checkReport';
+import { CategoryGroup, groupDescription, groupFilesByCategory, needsReviewRuleDescription } from './categoryGroups';
+import { CheckReport, FileReport } from './checkReport';
 import { CheckOutcome, CheckTarget, CodetasterChecks } from './codetasterCheck';
-import { fileDescription, fileHover, fileReportsByPath } from './fileRatings';
+import { fileDescription, fileHover, fileReportsByPath, fileStatus } from './fileRatings';
 import { headMismatchWarning } from './headMismatch';
 import { NodeCodetasterProcess } from './nodeCodetasterProcess';
 import { registerOverviewPreview, summaryNode } from './overviewPreview';
 import { ratingsErrorWarning } from './ratingsError';
-import { nextFileToReview, OrderedFile, reviewOrder } from './reviewOrder';
+import { nextFileToReview, OrderedFile, reviewOrder, ReviewOrderKind } from './reviewOrder';
 import { countSamplingEvidence, NO_EVIDENCE, reviewablePaths, ReviewablePathsSeen, samplingDescription, SamplingEvidence } from './samplingEvidence';
 import { verdictIconPath } from './verdictIcons';
 import type { Repository } from '../api/api';
@@ -28,6 +28,7 @@ export const CODETASTER_SETTINGS_NAMESPACE = 'codetaster';
 export const EXECUTABLE_PATH_SETTING = 'executablePath';
 export const NEEDS_REVIEW_THRESHOLD_SETTING = 'needsReviewThreshold';
 export const OPEN_ON_STARTUP_SETTING = 'openOnStartup';
+export const REVIEW_ORDER_SETTING = 'reviewOrder';
 /** Opens the view container that holds the codetaster view, `github-pull-request` in package.json. */
 const OPEN_CODETASTER_CONTAINER_COMMAND = 'workbench.view.extension.github-pull-request';
 export const REFRESH_CHECK_COMMAND = 'codetaster.refreshCheck';
@@ -44,16 +45,25 @@ function configuredNeedsReviewThreshold(): number | undefined {
 	return vscode.workspace.getConfiguration(CODETASTER_SETTINGS_NAMESPACE).get<number | null>(NEEDS_REVIEW_THRESHOLD_SETTING) ?? undefined;
 }
 
+function configuredReviewOrder(): ReviewOrderKind {
+	return vscode.workspace.getConfiguration(CODETASTER_SETTINGS_NAMESPACE).get<ReviewOrderKind>(REVIEW_ORDER_SETTING) === 'fileList' ? 'fileList' : 'priority';
+}
+
 export const codetasterChecks = new CodetasterChecks(new NodeCodetasterProcess(), configuredExecutablePath);
 
 interface PullRequestReviewOrder {
 	readonly folderRepoManager: FolderRepositoryManager;
 	readonly pullRequest: PullRequestModel;
 	readonly files: readonly OrderedFile<PullRequestFileNode>[];
+	readonly reports: ReadonlyMap<string, FileReport>;
+	readonly kind: ReviewOrderKind;
 }
 
 /** The checked-out PR's files in the order the file list shows them, per repository. */
 const reviewOrders = new Map<FolderRepositoryManager, PullRequestReviewOrder>();
+
+/** Shows the open PR file's place in the review order and its verdict. Created on activation. */
+let fileStatusItem: vscode.StatusBarItem | undefined;
 
 /** The review orders of PRs that are still checked out. */
 function activeReviewOrders(): PullRequestReviewOrder[] {
@@ -109,7 +119,7 @@ async function markViewedAndOpenNext(node: unknown): Promise<void> {
 		return;
 	}
 	const currentFile = order.files.find(entry => entry.path === current?.path)?.file;
-	const next = nextFileToReview(order.files, current?.path, file => file === currentFile || isViewed(file));
+	const next = nextFileToReview(order.files, current?.path, file => file === currentFile || isViewed(file), order.kind);
 	try {
 		if (next) {
 			await next.openDiff(order.folderRepoManager);
@@ -120,6 +130,26 @@ async function markViewedAndOpenNext(node: unknown): Promise<void> {
 	} catch (e) {
 		vscode.window.showErrorMessage(`codetaster: could not move to the next file: ${e}`);
 	}
+}
+
+/** Shows the active editor's PR file in the status bar, or hides it if the editor shows none. */
+function showActiveFileStatus(): void {
+	if (!fileStatusItem) {
+		return;
+	}
+	const tabUri = activeTabUri();
+	const shown = tabUri && fileShownAt(tabUri);
+	const index = shown ? shown.order.files.findIndex(entry => entry.path === shown.path) : -1;
+	if (!shown || index === -1) {
+		fileStatusItem.hide();
+		return;
+	}
+	const entry = shown.order.files[index];
+	const status = fileStatus(index + 1, shown.order.files.length, entry.verdict, shown.order.reports.get(entry.path));
+	fileStatusItem.text = status.text;
+	fileStatusItem.tooltip = status.tooltip;
+	fileStatusItem.color = verdictIconPath<vscode.ThemeColor | undefined>(entry.verdict, undefined, ({ color }) => color ? new vscode.ThemeColor(color) : undefined);
+	fileStatusItem.show();
 }
 
 async function setNeedsReviewThreshold(): Promise<void> {
@@ -179,7 +209,15 @@ function annotatedFile(file: PullRequestFileNode): AnnotatedFile<vscode.Uri> {
 export function registerCodetaster(context: vscode.ExtensionContext): void {
 	registerOverviewPreview(context);
 	annotationComments = new AnnotationComments();
-	context.subscriptions.push(annotationComments);
+	fileStatusItem = vscode.window.createStatusBarItem('codetaster.fileStatus', vscode.StatusBarAlignment.Left);
+	fileStatusItem.name = 'codetaster: open file';
+	fileStatusItem.command = MARK_VIEWED_AND_OPEN_NEXT_COMMAND;
+	context.subscriptions.push(
+		annotationComments,
+		fileStatusItem,
+		vscode.window.tabGroups.onDidChangeTabs(showActiveFileStatus),
+		vscode.window.tabGroups.onDidChangeTabGroups(showActiveFileStatus),
+	);
 	if (vscode.workspace.getConfiguration(CODETASTER_SETTINGS_NAMESPACE).get<boolean>(OPEN_ON_STARTUP_SETTING, false)) {
 		vscode.commands.executeCommand(OPEN_CODETASTER_CONTAINER_COMMAND);
 	}
@@ -195,7 +233,7 @@ export function registerCodetaster(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand(SET_NEEDS_REVIEW_THRESHOLD_COMMAND, setNeedsReviewThreshold),
 		vscode.commands.registerCommand(MARK_VIEWED_AND_OPEN_NEXT_COMMAND, markViewedAndOpenNext),
 		vscode.workspace.onDidChangeConfiguration(e => {
-			if ([EXECUTABLE_PATH_SETTING, NEEDS_REVIEW_THRESHOLD_SETTING].some(setting => e.affectsConfiguration(`${CODETASTER_SETTINGS_NAMESPACE}.${setting}`))) {
+			if ([EXECUTABLE_PATH_SETTING, NEEDS_REVIEW_THRESHOLD_SETTING, REVIEW_ORDER_SETTING].some(setting => e.affectsConfiguration(`${CODETASTER_SETTINGS_NAMESPACE}.${setting}`))) {
 				codetasterChecks.refresh();
 			}
 		}),
@@ -230,6 +268,7 @@ export class CategoryGroupNode extends TreeNode implements vscode.TreeItem {
 		super(parent);
 		this.label = group.label;
 		this.tooltip = group.tooltip;
+		this.description = groupDescription(group, isViewed);
 		this.contextValue = `codetaster:categoryGroup:${group.kind}`;
 		this._children = fileListNodes(this, group.files.map(entry => entry.file), layout);
 		this.collapsibleState = !group.files.length
@@ -492,6 +531,7 @@ export function codetasterFileNodes(
 		report = outcome.previousReport;
 	} else if (outcome.kind === 'error') {
 		reviewOrders.delete(folderRepoManager);
+		showActiveFileStatus();
 		annotationComments?.clear(folderRepoManager);
 		describeNode(describedNode, undefined);
 		return [new CodetasterErrorNode(parent, outcome.message)];
@@ -503,8 +543,11 @@ export function codetasterFileNodes(
 	reviewOrders.set(folderRepoManager, {
 		folderRepoManager,
 		pullRequest,
-		files: reviewOrder(allGroups, file => file.fileName, layout),
+		files: reviewOrder(allGroups, file => file.fileName, layout, configuredReviewOrder()),
+		reports: fileReportsByPath(report),
+		kind: configuredReviewOrder(),
 	});
+	showActiveFileStatus();
 	describeNode(describedNode, `${needsReviewRuleDescription(report)} · ${samplingDescription(report.sampling)}`);
 	// Each kind of file list opens diffs at its own URIs, so each adds its own placements.
 	annotationComments?.show(folderRepoManager, pullRequest, parent.constructor, annotationPlacements(report, allFiles.map(annotatedFile)));

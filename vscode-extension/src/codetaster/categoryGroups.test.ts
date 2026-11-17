@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
-import { CategoryGroup, groupFilesByCategory, needsReviewRuleDescription } from './categoryGroups';
+import { CategoryGroup, groupDescription, groupFilesByCategory, needsReviewRuleDescription } from './categoryGroups';
 import { CheckReport, FileReport } from './checkReport';
 
 interface FakeFile {
@@ -140,6 +140,29 @@ describe('groupFilesByCategory', () => {
 
 		assert.strictEqual(grouped.length, files.length);
 		assert.deepStrictEqual(new Set(grouped), new Set(files));
+	});
+});
+
+describe('groupDescription', () => {
+	function group(...files: [string, CategoryGroup<string>['files'][number]['verdict']][]): CategoryGroup<string> {
+		return { kind: 'category', label: 'Category', files: files.map(([file, verdict]) => ({ file, verdict })), collapsed: false };
+	}
+
+	it('counts the files that need review and are not viewed', () => {
+		const described = groupDescription(
+			group(['a.py', 'needs-review'], ['b.py', 'needs-review'], ['c.py', 'needs-review'], ['d.py', 'sampled']),
+			file => file === 'c.py',
+		);
+
+		assert.strictEqual(described, '2 need review');
+	});
+
+	it('uses the singular for one file', () => {
+		assert.strictEqual(groupDescription(group(['a.py', 'needs-review']), () => false), '1 needs review');
+	});
+
+	it('has no description when no unviewed file needs review', () => {
+		assert.strictEqual(groupDescription(group(['a.py', 'needs-review'], ['b.py', 'sampled']), () => true), undefined);
 	});
 });
 
